@@ -84,6 +84,9 @@ grpShow = "Show / Alerts"
 showContext = input.bool(true, "Plot EMAs + VWAP/AVWAP", group=grpShow)
 showSetups  = input.bool(true, "Plot setup arrows", group=grpShow)
 enableAlerts = input.bool(true, "Enable confirmed entry alerts", group=grpShow)
+markTriggers = input.bool(true, "Mark breakout trigger price", group=grpShow)
+markMode     = input.string("Confirmed", "Trigger mark mode", options=["Confirmed","FirstTouch"], group=grpShow)
+showTrigLine = input.bool(false, "Show active trigger line", group=grpShow)
 
 // ---------- Core series
 atrLen = 14
@@ -261,6 +264,43 @@ breakoutLongNow  = high >= high[1] + entryConfirmTicks * syminfo.mintick
 breakoutShortNow = low  <= low[1]  - entryConfirmTicks * syminfo.mintick
 longConfirm  = useBreak ? (baseLongSetup and breakoutLongNow)   : (baseLongSetup[1]  and high >= longStopPrice[1])
 shortConfirm = useBreak ? (baseShortSetup and breakoutShortNow) : (baseShortSetup[1] and low  <= shortStopPrice[1])
+
+// --- Trigger visualization (no change to logic) ---
+longTrig  = useBreak ? (high[1] + entryConfirmTicks*syminfo.mintick)  : longStopPrice[1]
+shortTrig = useBreak ? (low[1]  - entryConfirmTicks*syminfo.mintick)  : shortStopPrice[1]
+
+// Latch first intra-bar touch so Replay shows where it fired even if it later cancels
+var float _firedL = na
+var float _firedS = na
+var int   _seenBar = na
+if bar_index != _seenBar
+    _seenBar := bar_index
+    _firedL := na
+    _firedS := na
+
+// FirstTouch records the first hit of the trigger on this bar (Confirmed uses your existing longConfirm/shortConfirm)
+if markMode=="FirstTouch"
+    if useBreak and baseLongSetup and na(_firedL) and high >= longTrig
+        _firedL := longTrig
+    if useBreak and baseShortSetup and na(_firedS) and low <= shortTrig
+        _firedS := shortTrig
+    if not useBreak and baseLongSetup[1] and na(_firedL) and high >= longTrig
+        _firedL := longTrig
+    if not useBreak and baseShortSetup[1] and na(_firedS) and low <= shortTrig
+        _firedS := shortTrig
+
+// Choose what to plot
+longMark  = markMode=="Confirmed"  ? (longConfirm  ? longTrig  : na) : _firedL
+shortMark = markMode=="Confirmed"  ? (shortConfirm ? shortTrig : na) : _firedS
+
+// Tiny dots at the exact trigger price (where the arrow fired)
+plotshape(markTriggers ? longMark  : na, title="Breakout Trigger Long",  style=shape.circle, location=location.absolute, color=color.new(color.lime, 0), size=size.tiny, text="")
+plotshape(markTriggers ? shortMark : na, title="Breakout Trigger Short", style=shape.circle, location=location.absolute, color=color.new(color.red,  0), size=size.tiny, text="")
+
+// Optional: show the active trigger line for the current setup (helps see 'what has to be hit')
+plot(showTrigLine and useBreak and baseLongSetup  ? longTrig  : na, "Trigger Line Long",  color=color.new(color.lime, 60),  style=plot.style_linebr)
+plot(showTrigLine and useBreak and baseShortSetup ? shortTrig : na, "Trigger Line Short", color=color.new(color.red,  60),  style=plot.style_linebr)
+
 
 // Gate Debug panel
 grpDbg = "Debug"
