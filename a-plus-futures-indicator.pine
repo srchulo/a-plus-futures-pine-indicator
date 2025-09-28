@@ -79,6 +79,19 @@ sessionStr = input.session("0935-1130,1330-1555", "RTH windows (exchange time)",
 ticksTol   = input.int(4, "Structure tolerance (ticks)", group=grpDec)
 retestBars = input.int(5, "VWAP retest within N bars", group=grpDec)
 
+// --- Quality filters (all OFF by default; turn on useQuality to activate) ---
+useQuality     = input.bool(false, "Use quality filters for Breakout", group=grpDec)
+useMaxBarAtr   = input.bool(true,  "Filter: bar range <= ATR*x", group=grpDec)
+maxBarAtr      = input.float(1.20, "Max bar range (ATR x)", group=grpDec)
+useMaxDist     = input.bool(true,  "Filter: trigger near EMA/VWAP", group=grpDec)
+maxDistEMA     = input.float(0.35, "Max |trigger-EMA21| (ATR x)", group=grpDec)
+maxDistVWAP    = input.float(0.35, "Max |trigger-VWAP| (ATR x)", group=grpDec)
+useOvershoot   = input.bool(true,  "Filter: overshoot past trigger <= ticks", group=grpDec)
+maxOvershootTk = input.int(4,      "Max overshoot (ticks)", group=grpDec)
+useWickGuard   = input.bool(false, "Filter: limit upper/lower wick at confirm", group=grpDec)
+maxUpWickTk    = input.int(3,      "Max upper wick ticks (long)", group=grpDec)
+maxDnWickTk    = input.int(3,      "Max lower wick ticks (short)", group=grpDec)
+
 // ---------- Show / Alerts
 grpShow = "Show / Alerts"
 showContext = input.bool(true, "Plot EMAs + VWAP/AVWAP", group=grpShow)
@@ -262,8 +275,33 @@ longStopPrice  = high + entryConfirmTicks * syminfo.mintick
 shortStopPrice = low  - entryConfirmTicks * syminfo.mintick
 breakoutLongNow  = high >= high[1] + entryConfirmTicks * syminfo.mintick
 breakoutShortNow = low  <= low[1]  - entryConfirmTicks * syminfo.mintick
-longConfirm  = useBreak ? (baseLongSetup and breakoutLongNow)   : (baseLongSetup[1]  and high >= longStopPrice[1])
-shortConfirm = useBreak ? (baseShortSetup and breakoutShortNow) : (baseShortSetup[1] and low  <= shortStopPrice[1])
+
+// ----- Quality helpers (apply at confirm; no effect unless useQuality = true)
+_qLongTrig  = useBreak ? (high[1] + entryConfirmTicks*syminfo.mintick)  : longStopPrice[1]
+_qShortTrig = useBreak ? (low[1]  - entryConfirmTicks*syminfo.mintick)  : shortStopPrice[1]
+_barRange = high - low
+_distE_L  = math.abs(_qLongTrig  - emaM)
+_distE_S  = math.abs(_qShortTrig - emaM)
+_distV_L  = math.abs(_qLongTrig  - vwap)
+_distV_S  = math.abs(_qShortTrig - vwap)
+_overL    = high - _qLongTrig
+_overS    = _qShortTrig - low
+_upWick   = high - math.max(open, close)
+_dnWick   = math.min(open, close) - low
+_barOK_L  = not useMaxBarAtr or (_barRange <= atr*maxBarAtr)
+_barOK_S  = _barOK_L
+_distOK_L = not useMaxDist   or (_distE_L <= atr*maxDistEMA and _distV_L <= atr*maxDistVWAP)
+_distOK_S = not useMaxDist   or (_distE_S <= atr*maxDistEMA and _distV_S <= atr*maxDistVWAP)
+_overOK_L = not useOvershoot or (_overL <= maxOvershootTk*syminfo.mintick)
+_overOK_S = not useOvershoot or (_overS <= maxOvershootTk*syminfo.mintick)
+_wickOK_L = not useWickGuard or (_upWick   <= maxUpWickTk*syminfo.mintick)
+_wickOK_S = not useWickGuard or (_dnWick   <= maxDnWickTk*syminfo.mintick)
+qualityOK_L = not useQuality or (_barOK_L and _distOK_L and _overOK_L and _wickOK_L)
+qualityOK_S = not useQuality or (_barOK_S and _distOK_S and _overOK_S and _wickOK_S)
+
+// Apply quality to confirm (does not change setups or scoring)
+longConfirm  = useBreak ? (baseLongSetup  and breakoutLongNow  and qualityOK_L) : (baseLongSetup[1]  and high >= longStopPrice[1]  and qualityOK_L)
+shortConfirm = useBreak ? (baseShortSetup and breakoutShortNow and qualityOK_S) : (baseShortSetup[1] and low  <= shortStopPrice[1] and qualityOK_S)
 
 // --- Trigger visualization (no change to logic) ---
 longTrig  = useBreak ? (high[1] + entryConfirmTicks*syminfo.mintick)  : longStopPrice[1]
@@ -300,7 +338,6 @@ plotshape(markTriggers ? shortMark : na, title="Breakout Trigger Short", style=s
 // Optional: show the active trigger line for the current setup (helps see 'what has to be hit')
 plot(showTrigLine and useBreak and baseLongSetup  ? longTrig  : na, "Trigger Line Long",  color=color.new(color.lime, 60),  style=plot.style_linebr)
 plot(showTrigLine and useBreak and baseShortSetup ? shortTrig : na, "Trigger Line Short", color=color.new(color.red,  60),  style=plot.style_linebr)
-
 
 // Gate Debug panel
 grpDbg = "Debug"
