@@ -1,0 +1,301 @@
+//@version=5
+indicator("A+ Futures Setup Scanner — Signals (Tight, Arrows + Light)", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ---------- Inputs
+grpTrend = "Trend / Filters"
+emaFastLen = input.int(8, "EMA Fast", group=grpTrend, minval=1)
+emaMidLen  = input.int(21, "EMA Mid", group=grpTrend, minval=1)
+emaSlowLen = input.int(34, "EMA Slow", group=grpTrend, minval=1)
+useRibbon  = input.bool(true, "Require EMA ribbon alignment (LTF)", group=grpTrend)
+htfTF      = input.string("15", "HTF EMA ribbon (minutes)", group=grpTrend)
+
+grpVWAP = "VWAP / AVWAP"
+useVWAP  = input.bool(true, "Use session VWAP", group=grpVWAP)
+useAVWAP = input.bool(true, "Use Anchored VWAP", group=grpVWAP)
+anchorTime = input.time(timestamp("01 Jan 2025 09:30 -0500"), "Anchored start", group=grpVWAP)
+pullDist   = input.float(0.10, "Near VWAP distance (% ATR)", group=grpVWAP)
+minVWAPBand = input.float(0.20, "Chop guard band (ATR*x)", group=grpVWAP)
+
+grpVol = "Volume"
+volLen  = input.int(50, "Vol SMA", group=grpVol)
+volMult = input.float(1.5, "Surge ≥ SMA *", group=grpVol)
+requireVol = input.bool(true, "Require volume surge", group=grpVol)
+
+grpDoji = "Candle Patterns"
+dojiBodyPct = input.float(0.12, "Doji body ≤ x of range", group=grpDoji)
+longWickK   = input.float(2.0, "Long wick ≥ body *", group=grpDoji)
+nearHiPct   = input.float(0.25, "Body near high", group=grpDoji)
+nearLoPct   = input.float(0.25, "Body near low", group=grpDoji)
+
+grpCont = "Continuation / Flag"
+flagLookback = input.int(25, "Flag window", group=grpCont)
+flagTightPct = input.float(0.45, "Flag tightness (≤ ATR * x)", group=grpCont)
+breakBufATR  = input.float(0.10, "Breakout buffer (ATR * x)", group=grpCont)
+
+grpDec = "Decision Engine (weights + gating)"
+useCompTrend   = input.bool(true, "Use Trend in score", group=grpDec)
+useCompNearVW  = input.bool(true, "Use Near VWAP in score", group=grpDec)
+useCompVolume  = input.bool(true, "Use Volume in score", group=grpDec)
+useCompPull    = input.bool(true, "Use Pullback/Rally in score", group=grpDec)
+useCompReclaim = input.bool(true, "Use VWAP Reclaim in score", group=grpDec)
+useCompFlag    = input.bool(true, "Use Flag in score", group=grpDec)
+useCompPrec    = input.bool(true, "Use Precision EMA in score", group=grpDec)
+useCompCandle  = input.bool(true, "Use Reversal Candle in score", group=grpDec)
+
+useAtrGate       = input.bool(true, "Use ATR floor gate", group=grpDec)
+useSessionFilter = input.bool(true, "Use Session filter", group=grpDec)
+useHTFFilter     = input.bool(true, "Use HTF ribbon filter", group=grpDec)
+useSlopeFilter   = input.bool(true, "Use EMA slope filter", group=grpDec)
+useChopGuard     = input.bool(true, "Use VWAP chop-guard", group=grpDec)
+useDailyCapGate  = input.bool(true, "Use Daily-cap gate", group=grpDec)
+
+triggerMode = input.string("Score", "Trigger mode", options=["Score","Simple","Breakout"], group=grpDec)
+
+wTrend   = input.int(2, "W Trend", group=grpDec, minval=0, maxval=5)
+wVWAPPb  = input.int(1, "W Near VWAP", group=grpDec, minval=0, maxval=5)
+wVolume  = input.int(1, "W Volume", group=grpDec, minval=0, maxval=5)
+wPull    = input.int(2, "W Pull/Rally", group=grpDec, minval=0, maxval=5)
+wReclaim = input.int(3, "W Reclaim", group=grpDec, minval=0, maxval=5)
+wFlag    = input.int(0, "W Flag", group=grpDec, minval=0, maxval=5)
+wPrec    = input.int(2, "W Precision", group=grpDec, minval=0, maxval=5)
+wCandle  = input.int(1, "W Candle", group=grpDec, minval=0, maxval=5)
+threshLong  = input.int(5, "Score threshold LONG", group=grpDec, minval=1)
+threshShort = input.int(5, "Score threshold SHORT", group=grpDec, minval=1)
+
+minAtrTicks = input.int(22, "Min ATR (ticks) gate", group=grpDec)
+entryConfirmTicks = input.int(1, "Entry confirmation (ticks beyond signal bar)", group=grpDec)
+cooldownBars = input.int(10, "Cooldown bars", group=grpDec)
+maxSignalsPerDay = input.int(4, "Max signals per day", group=grpDec)
+sessionStr = input.session("0935-1130,1330-1555", "RTH windows (exchange time)", group=grpDec)
+
+grpShow = "Show / Alerts"
+showContext = input.bool(true, "Plot EMAs + VWAP", group=grpShow)
+showSetups  = input.bool(true, "Plot setup arrows", group=grpShow)
+enableAlerts = input.bool(true, "Enable confirmed entry alerts", group=grpShow)
+
+// ---------- Core series
+atrLen = 14
+atr = ta.atr(atrLen)
+atrTicks = math.round(atr / syminfo.mintick)
+
+emaF = ta.ema(close, emaFastLen)
+emaM = ta.ema(close, emaMidLen)
+emaS = ta.ema(close, emaSlowLen)
+
+ribbonBull = emaF > emaM and emaM > emaS
+ribbonBear = emaF < emaM and emaM < emaS
+trendOkLong = useRibbon ? ribbonBull : true
+trendOkShort = useRibbon ? ribbonBear : true
+
+emaSlopeLong = emaM > emaM[5] and emaS > emaS[5]
+emaSlopeShort = emaM < emaM[5] and emaS < emaS[5]
+
+vwap = ta.vwap(close)
+var float avwap = na
+var float cumPV = 0.0
+var float cumV = 0.0
+isAnchor = time >= anchorTime
+if barstate.isnew
+    if isAnchor
+        if time[1] < anchorTime
+            cumPV := 0.0
+            cumV := 0.0
+        tp = (high + low + close) / 3.0
+        cumPV += tp * volume
+        cumV += volume
+        avwap := cumV > 0 ? cumPV / cumV : na
+
+// context plots
+plot((showContext and useVWAP)  ? vwap  : na, "VWAP",  color=color.new(color.teal, 0), linewidth=2)
+plot((showContext and useAVWAP) ? avwap : na, "AVWAP", color=color.new(color.purple, 0), linewidth=2)
+plot(showContext ? emaF : na, "EMA Fast", color=color.new(color.white, 0))
+plot(showContext ? emaM : na, "EMA Mid",  color=color.new(color.orange, 0))
+plot(showContext ? emaS : na, "EMA Slow", color=color.new(color.maroon, 0))
+
+// HTF EMA ribbon
+htfE1 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaFastLen))
+htfE2 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaMidLen))
+htfE3 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaSlowLen))
+htfBull = htfE1 > htfE2 and htfE2 > htfE3
+htfBear = htfE1 < htfE2 and htfE2 < htfE3
+
+// Volume
+volSMA = ta.sma(volume, volLen)
+volSurge = volume >= volSMA * volMult
+volOK = requireVol ? volSurge : true
+
+// Candles
+rng = math.max(high - low, syminfo.mintick)
+body = math.abs(close - open)
+upper = high - math.max(open, close)
+lower = math.min(open, close) - low
+
+isDoji = body <= rng * dojiBodyPct
+nearHighBody = (high - math.max(open, close)) <= rng * nearHiPct
+nearLowBody = (math.min(open, close) - low) <= rng * nearLoPct
+
+dragonfly = isDoji and lower >= body * longWickK and nearHighBody
+gravestone = isDoji and upper >= body * longWickK and nearLowBody
+hammer = (lower >= body * longWickK) and nearHighBody and not isDoji
+shootingStar = (upper >= body * longWickK) and nearLowBody and not isDoji
+
+// Proximity + chop guard
+withinPctOfATR(src, pct) =>
+    na(src) ? false : math.abs(close - src) <= atr * pct
+
+nearAnyVWAP_raw = (useVWAP and withinPctOfATR(vwap, pullDist)) or (useAVWAP and withinPctOfATR(avwap, pullDist))
+inVWAPChop_raw  = (useVWAP and withinPctOfATR(vwap, minVWAPBand)) or (useAVWAP and withinPctOfATR(avwap, minVWAPBand))
+nearAnyVWAP = nearAnyVWAP_raw
+inVWAPChop = useChopGuard ? inVWAPChop_raw : false
+
+// Setups
+bullReversalCandle = hammer or dragonfly or (close > open and close > open[1] and low <= low[1])
+pullbackLong = trendOkLong and nearAnyVWAP and bullReversalCandle and close > ta.highest(high[1], 1)
+bearReversalCandle = shootingStar or gravestone or (close < open and close < open[1] and high >= high[1])
+rallyShort = trendOkShort and nearAnyVWAP and bearReversalCandle and close < ta.lowest(low[1], 1)
+wasBelowVWAP = useVWAP and close[1] < vwap[1]
+nowAboveVWAP = useVWAP and close > vwap
+wasBelowAVWAP = useAVWAP and (na(avwap[1]) ? false : close[1] < avwap[1])
+nowAboveAVWAP = useAVWAP and (na(avwap) ? false : close > avwap)
+vwapReclaimLong = trendOkLong and ((wasBelowVWAP and nowAboveVWAP) or (wasBelowAVWAP and nowAboveAVWAP)) and volOK
+wasAboveVWAP = useVWAP and close[1] > vwap[1]
+nowBelowVWAP = useVWAP and close < vwap
+wasAboveAVWAP = useAVWAP and (na(avwap[1]) ? false : close[1] > avwap[1])
+nowBelowAVWAP = useAVWAP and (na(avwap) ? false : close < avwap)
+vwapReclaimShort = trendOkShort and ((wasAboveVWAP and nowBelowVWAP) or (wasAboveAVWAP and nowBelowAVWAP)) and volOK
+rangeHi = ta.highest(high, flagLookback)
+rangeLo = ta.lowest(low, flagLookback)
+rangeTight = (rangeHi - rangeLo) <= atr * flagTightPct
+bullFlag = trendOkLong and rangeTight and close > rangeHi[1] + atr * breakBufATR
+bearFlag = trendOkShort and rangeTight and close < rangeLo[1] - atr * breakBufATR
+precisionLong = trendOkLong and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
+precisionShort = trendOkShort and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bearReversalCandle
+
+// Scoring
+reclaimLongPrim = ((useVWAP and wasBelowVWAP and nowAboveVWAP) or (useAVWAP and wasBelowAVWAP and nowAboveAVWAP))
+reclaimShortPrim = ((useVWAP and wasAboveVWAP and nowBelowVWAP) or (useAVWAP and wasAboveAVWAP and nowBelowAVWAP))
+bullCandle = hammer or dragonfly
+bearCandle = shootingStar or gravestone
+scoreAdd(c, w, use) => use and c ? w : 0
+longScore = scoreAdd(trendOkLong, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(pullbackLong, wPull, useCompPull) + scoreAdd(reclaimLongPrim, wReclaim, useCompReclaim) + scoreAdd(bullFlag, wFlag, useCompFlag) + scoreAdd(precisionLong, wPrec, useCompPrec) + scoreAdd(bullCandle, wCandle, useCompCandle)
+shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(rallyShort, wPull, useCompPull) + scoreAdd(reclaimShortPrim, wReclaim, useCompReclaim) + scoreAdd(bearFlag, wFlag, useCompFlag) + scoreAdd(precisionShort, wPrec, useCompPrec) + scoreAdd(bearCandle, wCandle, useCompCandle)
+
+// Gating toggles
+inSess = not na(time(timeframe.period, sessionStr))
+gateSessOK   = useSessionFilter ? inSess : true
+gateAtrOK    = useAtrGate ? atrTicks >= minAtrTicks : true
+gateHTFLong  = useHTFFilter ? htfBull : true
+gateHTFShort = useHTFFilter ? htfBear : true
+gateSlopeL   = useSlopeFilter ? emaSlopeLong : true
+gateSlopeS   = useSlopeFilter ? emaSlopeShort : true
+
+// Cooldown + daily cap
+var int lastSignalBar = na
+newDay = ta.change(time("D")) != 0
+var int signalsToday = 0
+if newDay
+    signalsToday := 0
+readyForNew = na(lastSignalBar) or (bar_index - lastSignalBar > cooldownBars)
+capRaw = signalsToday < maxSignalsPerDay
+gateDailyOK = useDailyCapGate ? capRaw : true
+
+// SIMPLE triggers (bypass score if chosen)
+simpleLong  = trendOkLong  and (precisionLong or vwapReclaimLong or pullbackLong or bullFlag) and (not useChopGuard or not inVWAPChop)
+simpleShort = trendOkShort and (precisionShort or vwapReclaimShort or rallyShort or bearFlag)  and (not useChopGuard or not inVWAPChop)
+
+// Final setups (mode driven) — Breakout mode uses gates only (base=true) and does not force LTF trend inside the base
+useScore   = triggerMode == "Score"
+useSimple  = triggerMode == "Simple"
+useBreak   = triggerMode == "Breakout"
+baseLongSetup  = (useScore ? (longScore  >= threshLong)  : useSimple ? simpleLong  : true)  and readyForNew and gateDailyOK and gateSessOK and gateAtrOK and gateHTFLong  and gateSlopeL
+baseShortSetup = (useScore ? (shortScore >= threshShort) : useSimple ? simpleShort : true)  and readyForNew and gateDailyOK and gateSessOK and gateAtrOK and gateHTFShort and gateSlopeS
+
+// Confirmation
+longStopPrice  = high + entryConfirmTicks * syminfo.mintick
+shortStopPrice = low  - entryConfirmTicks * syminfo.mintick
+breakoutLongNow  = high >= high[1] + entryConfirmTicks * syminfo.mintick
+breakoutShortNow = low  <= low[1]  - entryConfirmTicks * syminfo.mintick
+longConfirm  = useBreak ? (baseLongSetup and breakoutLongNow)   : (baseLongSetup[1]  and high >= longStopPrice[1])
+shortConfirm = useBreak ? (baseShortSetup and breakoutShortNow) : (baseShortSetup[1] and low  <= shortStopPrice[1])
+
+// Gate Debug panel
+grpDbg = "Debug"
+showGateDebug = input.bool(true, "Show Gate Debug panel", group=grpDbg)
+gateColor(b) => b ? color.new(color.lime, 0) : color.new(color.red, 0)
+textYesNo(b) => b ? "YES" : "NO"
+var table dbg = na
+if barstate.isfirst
+    dbg := table.new(position.top_right, 4, 15, border_width=1)
+if showGateDebug and barstate.islast
+    modeTxt = useScore ? "Score" : useSimple ? "Simple" : "Breakout"
+    table.cell(dbg, 0, 0, "Gate", text_color=color.black, bgcolor=color.new(color.yellow, 0))
+    table.cell(dbg, 1, 0, "LONG", text_color=color.black, bgcolor=color.new(color.yellow, 0))
+    table.cell(dbg, 2, 0, "SHORT", text_color=color.black, bgcolor=color.new(color.yellow, 0))
+    table.cell(dbg, 3, 0, "Mode: " + modeTxt, text_color=color.black, bgcolor=color.new(color.orange, 20))
+    table.cell(dbg, 0, 1, "Score >= Thresh")
+    table.cell(dbg, 1, 1, textYesNo(longScore  >= threshLong),  bgcolor=gateColor(longScore  >= threshLong))
+    table.cell(dbg, 2, 1, textYesNo(shortScore >= threshShort), bgcolor=gateColor(shortScore >= threshShort))
+    table.cell(dbg, 0, 2, "Cooldown OK")
+    table.cell(dbg, 1, 2, textYesNo(readyForNew), bgcolor=gateColor(readyForNew))
+    table.cell(dbg, 2, 2, textYesNo(readyForNew), bgcolor=gateColor(readyForNew))
+    table.cell(dbg, 0, 3, "Daily Cap OK")
+    table.cell(dbg, 1, 3, textYesNo(gateDailyOK), bgcolor=gateColor(gateDailyOK))
+    table.cell(dbg, 2, 3, textYesNo(gateDailyOK), bgcolor=gateColor(gateDailyOK))
+    table.cell(dbg, 0, 4, "Session OK")
+    table.cell(dbg, 1, 4, textYesNo(gateSessOK), bgcolor=gateColor(gateSessOK))
+    table.cell(dbg, 2, 4, textYesNo(gateSessOK), bgcolor=gateColor(gateSessOK))
+    table.cell(dbg, 0, 5, "ATR OK")
+    table.cell(dbg, 1, 5, textYesNo(gateAtrOK), bgcolor=gateColor(gateAtrOK))
+    table.cell(dbg, 2, 5, textYesNo(gateAtrOK), bgcolor=gateColor(gateAtrOK))
+    table.cell(dbg, 0, 6, "HTF OK")
+    table.cell(dbg, 1, 6, textYesNo(gateHTFLong),  bgcolor=gateColor(gateHTFLong))
+    table.cell(dbg, 2, 6, textYesNo(gateHTFShort), bgcolor=gateColor(gateHTFShort))
+    table.cell(dbg, 0, 7, "Slope OK")
+    table.cell(dbg, 1, 7, textYesNo(gateSlopeL), bgcolor=gateColor(gateSlopeL))
+    table.cell(dbg, 2, 7, textYesNo(gateSlopeS), bgcolor=gateColor(gateSlopeS))
+    cgOK = not inVWAPChop or not useChopGuard
+    table.cell(dbg, 0, 8, "ChopGuard OK")
+    table.cell(dbg, 1, 8, textYesNo(cgOK), bgcolor=gateColor(cgOK))
+    table.cell(dbg, 2, 8, textYesNo(cgOK), bgcolor=gateColor(cgOK))
+    table.cell(dbg, 0, 9, "Vol Surge")
+    table.cell(dbg, 1, 9, textYesNo(volSurge), bgcolor=gateColor(volSurge))
+    table.cell(dbg, 2, 9, textYesNo(volSurge), bgcolor=gateColor(volSurge))
+    simpleLongRow  = trendOkLong  and (precisionLong or vwapReclaimLong or pullbackLong or bullFlag)
+    simpleShortRow = trendOkShort and (precisionShort or vwapReclaimShort or rallyShort or bearFlag)
+    table.cell(dbg, 0, 10, "Simple Trigger")
+    table.cell(dbg, 1, 10, textYesNo(simpleLongRow),  bgcolor=gateColor(simpleLongRow))
+    table.cell(dbg, 2, 10, textYesNo(simpleShortRow), bgcolor=gateColor(simpleShortRow))
+    table.cell(dbg, 0, 11, "Setup Active")
+    table.cell(dbg, 1, 11, textYesNo(baseLongSetup),  bgcolor=gateColor(baseLongSetup))
+    table.cell(dbg, 2, 11, textYesNo(baseShortSetup), bgcolor=gateColor(baseShortSetup))
+    table.cell(dbg, 0, 12, "Breakout Now")
+    table.cell(dbg, 1, 12, textYesNo(breakoutLongNow),  bgcolor=gateColor(breakoutLongNow))
+    table.cell(dbg, 2, 12, textYesNo(breakoutShortNow), bgcolor=gateColor(breakoutShortNow))
+    table.cell(dbg, 0, 13, "CONFIRMED")
+    table.cell(dbg, 1, 13, textYesNo(longConfirm),  bgcolor=gateColor(longConfirm))
+    table.cell(dbg, 2, 13, textYesNo(shortConfirm), bgcolor=gateColor(shortConfirm))
+
+// latch cooldown when a new trade just opened
+if barstate.isconfirmed and (longConfirm or shortConfirm)
+    lastSignalBar := bar_index
+    signalsToday += 1
+
+// Plot arrows
+plotshape(showSetups and baseLongSetup,  title="Setup LONG",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.lime, 40), size=size.tiny, text="setup")
+plotshape(showSetups and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 40),  size=size.tiny, text="setup")
+plotshape(longConfirm,  title="A+ LONG (confirmed)",  style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.large, text="A+ LONG")
+plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.large, text="A+ SHORT")
+bgcolor(longConfirm ? color.new(color.lime, 85) : shortConfirm ? color.new(color.red, 85) : na)
+
+// A+ light
+var label light = na
+if barstate.islast
+    if not na(light)
+        label.delete(light)
+    lightText = longConfirm ? "A+ LONG" : shortConfirm ? "A+ SHORT" : "NO A+"
+    lightBg   = longConfirm ? color.new(color.lime, 0) : shortConfirm ? color.new(color.red, 0) : color.new(color.gray, 80)
+    light := label.new(bar_index, high, lightText, xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, textcolor=color.black, color=lightBg, size=size.small)
+
+// Alerts
+alertcondition(enableAlerts and longConfirm,  title="A+ LONG ENTRY",  message="A+ LONG entry fired")
+alertcondition(enableAlerts and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
