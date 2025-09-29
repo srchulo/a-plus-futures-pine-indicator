@@ -46,7 +46,7 @@ useCompRetest  = input.bool(true, "Use VWAP Retest/Flip in score", group=grpDec)
 useCompBase    = input.bool(true, "Use High/Low Base in score", group=grpDec)
 useCompTri     = input.bool(false, "Use Asc/Desc Triangle in score", group=grpDec)
 
-useAtrGate       = input.bool(true, "Use ATR floor gate", group=grpDec)
+useAtrGate       = input.bool(false, "Use ATR floor gate", group=grpDec)
 useSessionFilter = input.bool(true, "Use Session filter", group=grpDec)
 useHTFFilter     = input.bool(true, "Use HTF ribbon filter", group=grpDec)
 useSlopeFilter   = input.bool(true, "Use EMA slope filter", group=grpDec)
