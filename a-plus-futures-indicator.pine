@@ -52,7 +52,7 @@ useHTFFilter     = input.bool(true, "Use HTF ribbon filter", group=grpDec)
 useSlopeFilter   = input.bool(true, "Use EMA slope filter", group=grpDec)
 useChopGuard     = input.bool(true, "Use VWAP chop-guard", group=grpDec)
 useDailyCapGate  = input.bool(true, "Use Daily-cap gate", group=grpDec)
-triggerMode      = input.string("Score", "Trigger mode", options=["Score","Simple","Breakout"], group=grpDec)
+triggerMode      = input.string("Breakout", "Trigger mode", options=["Score","Simple","Breakout"], group=grpDec)
 
 wTrend   = input.int(2, "W Trend", group=grpDec, minval=0, maxval=5)
 wVWAPPb  = input.int(1, "W Near VWAP", group=grpDec, minval=0, maxval=5)
