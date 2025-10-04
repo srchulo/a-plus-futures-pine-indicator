@@ -1,5 +1,5 @@
 //@version=5
-indicator("A+ Futures Setup Scanner — Signals (Tight, Arrows + Light)", overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("srchulo futures strict", overlay=true, max_labels_count=500, max_lines_count=500)
 
 // ---------- Inputs
 grpTrend = "Trend / Filters"
