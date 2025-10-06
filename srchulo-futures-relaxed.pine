@@ -304,25 +304,102 @@ if showGateDebug and barstate.islast
     table.cell(dbg, 0, 9, "Vol Surge")
     table.cell(dbg, 1, 9, textYesNo(volSurge), bgcolor=gateColor(volSurge))
     table.cell(dbg, 2, 9, textYesNo(volSurge), bgcolor=gateColor(volSurge))
-    table.cell(dbg, 0, 10, "Simple Trigger")
-    table.cell(dbg, 1, 10, textYesNo(simpleLong),  bgcolor=gateColor(simpleLong))
-    table.cell(dbg, 2, 10, textYesNo(simpleShort), bgcolor=gateColor(simpleShort))
-    table.cell(dbg, 0, 11, "Setup Active")
-    table.cell(dbg, 1, 11, textYesNo(baseLongSetup),  bgcolor=gateColor(baseLongSetup))
-    table.cell(dbg, 2, 11, textYesNo(baseShortSetup), bgcolor=gateColor(baseShortSetup))
-    table.cell(dbg, 0, 12, "Breakout Now")
-    table.cell(dbg, 1, 12, textYesNo(breakoutLongNow),  bgcolor=gateColor(breakoutLongNow))
-    table.cell(dbg, 2, 12, textYesNo(breakoutShortNow), bgcolor=gateColor(breakoutShortNow))
-    table.cell(dbg, 0, 13, "CONFIRMED")
-    table.cell(dbg, 1, 13, textYesNo(longConfirm),  bgcolor=gateColor(longConfirm))
-    table.cell(dbg, 2, 13, textYesNo(shortConfirm), bgcolor=gateColor(shortConfirm))
-    table.cell(dbg, 0, 14, "ATR ticks / Gate")
-    table.cell(dbg, 1, 14, str.tostring(atrTicks) + " / " + str.tostring(minAtrTicks))
 
 // latch cooldown when a new trade just opened
 if barstate.isconfirmed and (longConfirm or shortConfirm)
     lastSignalBar := bar_index
     signalsToday += 1
+
+// ==================== EXIT / MANAGEMENT (same as A+; running-extreme trails) ====================
+grpExit = "Exit / Management (Continuation Aware)"
+usePartialATR    = input.bool(true, "Take partial at 3×ATR from entry", group=grpExit)
+partialATRs      = input.float(3.0, "Partial ATR multiple", group=grpExit, step=0.1)
+trailATRs        = input.float(1.5, "ATR trail (from HH/LL since entry)", group=grpExit, step=0.1)
+exitOnMomHook    = input.bool(true, "Exit-soon on momentum hook (MACD hist turns up/down)", group=grpExit)
+exitOnPriorHL    = input.bool(true, "Hard exit on prior bar H/L break", group=grpExit)
+exitOnVWAPFlip   = input.bool(true, "Hard exit on VWAP/AVWAP reclaim", group=grpExit)
+exitOnEMASpread  = input.bool(true, "Exit-soon on EMA spread narrowing", group=grpExit)
+emaSpreadLook    = input.int(3, "EMA spread lookback (bars)", group=grpExit, minval=1)
+showTrails       = input.bool(true, "Plot dynamic ATR trails", group=grpExit)
+enableExitAlerts = input.bool(true, "Enable exit/partial alerts", group=grpExit)
+exitHookBars     = input.int(2, "MACD hook pivot bars", group=grpExit, minval=1, maxval=5)
+spreadShrinkPct  = input.float(0.03, "EMA spread shrink ≥", group=grpExit, step=0.005)
+needStruct       = input.bool(true, "Require LH/HL with hook", group=grpExit)
+needVolFade      = input.bool(false, "Require volume < SMA on exit-soon", group=grpExit)
+showExitSoonFlags= input.bool(true, "Show 'Exit Soon' flags", group=grpExit)
+showHardExitFlags= input.bool(true, "Show 'Hard Exit' crosses", group=grpExit)
+exitSoonColor    = input.color(color.new(color.yellow, 0), "Exit Soon color", group=grpExit)
+hardExitColor    = input.color(color.new(color.orange, 0), "Hard Exit color", group=grpExit)
+
+[macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+spreadNow = math.abs(emaM - emaF)
+spreadPrev = math.abs(emaM[emaSpreadLook] - emaF[emaSpreadLook])
+
+var bool inLong = false
+var bool inShort = false
+var float entryPrice = na
+var int entrySide = 0
+longEnter  = barstate.isconfirmed and longConfirm
+shortEnter = barstate.isconfirmed and shortConfirm
+if longEnter
+    inLong := true
+    inShort := false
+    entryPrice := close
+    entrySide := 1
+if shortEnter
+    inShort := true
+    inLong := false
+    entryPrice := close
+    entrySide := -1
+
+// Running extremes since entry (no lookbacks → no buffer errors)
+var float runLL = na
+var float runHH = na
+runLL := inLong  ? ((na(runLL[1]) or longEnter)  ? low  : math.min(runLL[1], low))  : na
+runHH := inShort ? ((na(runHH[1]) or shortEnter) ? high : math.max(runHH[1], high)) : na
+trailLong  = nz(runLL) - atr * trailATRs
+trailShort = nz(runHH) + atr * trailATRs
+
+partialLong  = inLong  and usePartialATR and close >= entryPrice + atr * partialATRs
+partialShort = inShort and usePartialATR and close <= entryPrice - atr * partialATRs
+
+// Exit-Soon conditions (less chatty)
+macdHookDn    = ta.change(macdHist) < 0 and ta.change(macdHist, exitHookBars) >= 0
+macdHookUp    = ta.change(macdHist) > 0 and ta.change(macdHist, exitHookBars) <= 0
+spreadNarrow  = spreadNow <= spreadPrev * (1 - spreadShrinkPct)
+lowerHigh     = high <= high[1]
+higherLow     = low  >= low[1]
+volFade       = volume < volSMA
+
+momHookLong   = inLong  and exitOnMomHook and macdHookDn
+momHookShort  = inShort and exitOnMomHook and macdHookUp
+emaNarrowLong  = inLong  and exitOnEMASpread and spreadNarrow
+emaNarrowShort = inShort and exitOnEMASpread and spreadNarrow
+
+hardExitLong  = inLong  and ((close <= trailLong) or (exitOnVWAPFlip and ((useVWAP and close < vwap) or (useAVWAP and (not na(avwap) and close < avwap)))) or (exitOnPriorHL and close < low[1]))
+hardExitShort = inShort and ((close >= trailShort) or (exitOnVWAPFlip and ((useVWAP and close > vwap) or (useAVWAP and (not na(avwap) and close > avwap)))) or (exitOnPriorHL and close > high[1]))
+
+exitSoonLong  = inLong  and ((momHookLong or emaNarrowLong))  and (not needStruct or lowerHigh)  and (not needVolFade or volFade)
+exitSoonShort = inShort and ((momHookShort or emaNarrowShort)) and (not needStruct or higherLow) and (not needVolFade or volFade)
+
+// auto-flat on hard exit
+if barstate.isconfirmed and hardExitLong
+    inLong := false
+    entrySide := 0
+if barstate.isconfirmed and hardExitShort
+    inShort := false
+    entrySide := 0
+
+// Trails & Exit markers
+plot(showTrails and inLong  ? trailLong  : na, "Long ATR Trail", color=color.new(color.lime, 0), linewidth=1, style=plot.style_linebr)
+plot(showTrails and inShort ? trailShort : na, "Short ATR Trail", color=color.new(color.red, 0), linewidth=1, style=plot.style_linebr)
+plotshape(partialLong,  title="Partial LONG 3xATR",  style=shape.circle, location=location.abovebar, color=color.new(color.lime, 0), size=size.tiny, text="PARTIAL")
+plotshape(partialShort, title="Partial SHORT 3xATR", style=shape.circle, location=location.belowbar, color=color.new(color.red, 0),  size=size.tiny, text="PARTIAL")
+plotshape(showExitSoonFlags and exitSoonLong,  title="Exit Soon LONG",  style=shape.flag,  location=location.abovebar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
+plotshape(showExitSoonFlags and exitSoonShort, title="Exit Soon SHORT", style=shape.flag,  location=location.belowbar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
+plotshape(showHardExitFlags and hardExitLong,  title="HARD EXIT LONG",  style=shape.cross, location=location.abovebar, color=hardExitColor, size=size.tiny, text="EXIT")
+plotshape(showHardExitFlags and hardExitShort, title="HARD EXIT SHORT", style=shape.cross, location=location.belowbar, color=hardExitColor, size=size.tiny, text="EXIT")
+// ================== END EXIT / MANAGEMENT ==================
 
 // Plot arrows
 plotshape(showSetups and baseLongSetup,  title="Setup LONG",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.lime, 40), size=size.tiny, text="setup")
@@ -343,3 +420,11 @@ if barstate.islast
 // Alerts
 alertcondition(enableAlerts and longConfirm,  title="A+ LONG ENTRY",  message="A+ LONG entry fired")
 alertcondition(enableAlerts and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
+
+// Exit/Partial Alerts (same as A+)
+alertcondition(enableExitAlerts and partialLong,  title="A+ LONG PARTIAL",  message="A+ LONG: take partial at 3x ATR from entry")
+alertcondition(enableExitAlerts and partialShort, title="A+ SHORT PARTIAL", message="A+ SHORT: take partial at 3x ATR from entry")
+alertcondition(enableExitAlerts and exitSoonLong,  title="A+ LONG EXIT SOON",  message="A+ LONG: momentum slowing / EMA spread narrowing")
+alertcondition(enableExitAlerts and exitSoonShort, title="A+ SHORT EXIT SOON", message="A+ SHORT: momentum slowing / EMA spread narrowing")
+alertcondition(enableExitAlerts and hardExitLong,  title="A+ LONG HARD EXIT",  message="A+ LONG: trail/VWAP/structure break — exit")
+alertcondition(enableExitAlerts and hardExitShort, title="A+ SHORT HARD EXIT", message="A+ SHORT: trail/VWAP/structure break — exit")
