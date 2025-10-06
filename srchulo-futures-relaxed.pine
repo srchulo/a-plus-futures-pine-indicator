@@ -1,6 +1,12 @@
 //@version=5
 indicator("srchulo futures relaxed", overlay=true, max_labels_count=500, max_lines_count=500)
 
+// ===== Theming (distinct from strict)
+cLong      = color.rgb(102, 204, 255)   // light blue for LONG
+cShort     = color.rgb(255, 160,   0)   // orange for SHORT
+cSetupLong = color.new(cLong, 60)
+cSetupShort= color.new(cShort,60)
+
 // ---------- Inputs
 grpTrend = "Trend / Filters"
 emaFastLen = input.int(8, "EMA Fast", group=grpTrend, minval=1)
@@ -328,8 +334,9 @@ needStruct       = input.bool(true, "Require LH/HL with hook", group=grpExit)
 needVolFade      = input.bool(false, "Require volume < SMA on exit-soon", group=grpExit)
 showExitSoonFlags= input.bool(true, "Show 'Exit Soon' flags", group=grpExit)
 showHardExitFlags= input.bool(true, "Show 'Hard Exit' crosses", group=grpExit)
-exitSoonColor    = input.color(color.new(color.yellow, 0), "Exit Soon color", group=grpExit)
-hardExitColor    = input.color(color.new(color.orange, 0), "Hard Exit color", group=grpExit)
+// NEW default colors for relaxed theme
+exitSoonColor    = input.color(color.rgb(167, 139, 250), "Exit Soon color", group=grpExit)   // purple
+hardExitColor    = input.color(color.rgb(255, 77, 136),  "Hard Exit color", group=grpExit)   // hot pink
 
 [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
 spreadNow = math.abs(emaM - emaF)
@@ -390,23 +397,23 @@ if barstate.isconfirmed and hardExitShort
     inShort := false
     entrySide := 0
 
-// Trails & Exit markers
-plot(showTrails and inLong  ? trailLong  : na, "Long ATR Trail", color=color.new(color.lime, 0), linewidth=1, style=plot.style_linebr)
-plot(showTrails and inShort ? trailShort : na, "Short ATR Trail", color=color.new(color.red, 0), linewidth=1, style=plot.style_linebr)
-plotshape(partialLong,  title="Partial LONG 3xATR",  style=shape.circle, location=location.abovebar, color=color.new(color.lime, 0), size=size.tiny, text="PARTIAL")
-plotshape(partialShort, title="Partial SHORT 3xATR", style=shape.circle, location=location.belowbar, color=color.new(color.red, 0),  size=size.tiny, text="PARTIAL")
+// Trails & Exit markers (relaxed theme colors)
+plot(showTrails and inLong  ? trailLong  : na, "Long ATR Trail", color=cLong,  linewidth=1, style=plot.style_linebr)
+plot(showTrails and inShort ? trailShort : na, "Short ATR Trail", color=cShort, linewidth=1, style=plot.style_linebr)
+plotshape(partialLong,  title="Partial LONG 3xATR",  style=shape.circle, location=location.abovebar, color=cLong,  size=size.tiny, text="PARTIAL")
+plotshape(partialShort, title="Partial SHORT 3xATR", style=shape.circle, location=location.belowbar, color=cShort, size=size.tiny, text="PARTIAL")
 plotshape(showExitSoonFlags and exitSoonLong,  title="Exit Soon LONG",  style=shape.flag,  location=location.abovebar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
 plotshape(showExitSoonFlags and exitSoonShort, title="Exit Soon SHORT", style=shape.flag,  location=location.belowbar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
 plotshape(showHardExitFlags and hardExitLong,  title="HARD EXIT LONG",  style=shape.cross, location=location.abovebar, color=hardExitColor, size=size.tiny, text="EXIT")
 plotshape(showHardExitFlags and hardExitShort, title="HARD EXIT SHORT", style=shape.cross, location=location.belowbar, color=hardExitColor, size=size.tiny, text="EXIT")
 // ================== END EXIT / MANAGEMENT ==================
 
-// Plot arrows
-plotshape(showSetups and baseLongSetup,  title="Setup LONG",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.lime, 40), size=size.tiny, text="setup")
-plotshape(showSetups and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 40),  size=size.tiny, text="setup")
-plotshape(longConfirm,  title="A+ LONG (confirmed)",  style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.large, text="A+ LONG")
-plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.large, text="A+ SHORT")
-bgcolor(longConfirm ? color.new(color.lime, 85) : shortConfirm ? color.new(color.red, 85) : na)
+// Plot arrows (relaxed theme)
+plotshape(showSetups and baseLongSetup,  title="Setup LONG",  style=shape.triangleup,   location=location.belowbar, color=cSetupLong,  size=size.tiny, text="setup")
+plotshape(showSetups and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=cSetupShort, size=size.tiny, text="setup")
+plotshape(longConfirm,  title="A+ LONG (confirmed)",  style=shape.triangleup,   location=location.belowbar, color=cLong,  size=size.large, text="A+ LONG")
+plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=cShort, size=size.large, text="A+ SHORT")
+bgcolor(longConfirm ? color.new(cLong, 85) : shortConfirm ? color.new(cShort, 85) : na)
 
 // A+ light
 var label light = na
@@ -414,14 +421,14 @@ if barstate.islast
     if not na(light)
         label.delete(light)
     lightText = longConfirm ? "A+ LONG" : shortConfirm ? "A+ SHORT" : "NO A+"
-    lightBg   = longConfirm ? color.new(color.lime, 0) : shortConfirm ? color.new(color.red, 0) : color.new(color.gray, 80)
+    lightBg   = longConfirm ? cLong : shortConfirm ? cShort : color.new(color.gray, 80)
     light := label.new(bar_index, high, lightText, xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, textcolor=color.black, color=lightBg, size=size.small)
 
 // Alerts
 alertcondition(enableAlerts and longConfirm,  title="A+ LONG ENTRY",  message="A+ LONG entry fired")
 alertcondition(enableAlerts and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
 
-// Exit/Partial Alerts (same as A+)
+// Exit/Partial Alerts
 alertcondition(enableExitAlerts and partialLong,  title="A+ LONG PARTIAL",  message="A+ LONG: take partial at 3x ATR from entry")
 alertcondition(enableExitAlerts and partialShort, title="A+ SHORT PARTIAL", message="A+ SHORT: take partial at 3x ATR from entry")
 alertcondition(enableExitAlerts and exitSoonLong,  title="A+ LONG EXIT SOON",  message="A+ LONG: momentum slowing / EMA spread narrowing")
