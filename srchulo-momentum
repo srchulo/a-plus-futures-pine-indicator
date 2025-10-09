@@ -2,16 +2,25 @@
 indicator("Alpha Moxie (CSV-tuned) — EMA-Spread% + 8/21/34 + MTF + Session",
      overlay=false, max_labels_count=500)
 
-//===========================
-// Inputs
-//===========================
+//---------------- Inputs
 grpCore = "Core Oscillator"
 fastLen  = input.int(8,  "Fast EMA",  group=grpCore, minval=1)
 slowLen  = input.int(21, "Slow EMA",  group=grpCore, minval=1)
 baseLen  = input.int(34, "Baseline EMA (context)", group=grpCore, minval=1)
-smooth   = input.int(5,  "Oscillator Smoothing",   group=grpCore, minval=1)
+smoothingType = input.string("EMA", "Smoothing Type", group=grpCore, options=["EMA","RMA","SMA"])
+smooth1  = input.int(5,  "Primary Smoothing",      group=grpCore, minval=1)
+smooth2  = input.int(2,  "Extra Smoothing (0=off)",group=grpCore, minval=0)
+srcChoice = input.string("hlc3", "Price Source", options=["close","hlc3","ohlc4"], group=grpCore)
+normBy    = input.string("baselineEMA", "Normalize EMA-spread by", options=["price","baselineEMA"], group=grpCore)
 
-grpNorm  = "Normalization"
+grpCal = "Calibration / Recentre"
+zeroTrim = input.bool(true, "Subtract rolling mean before scale/offset", group=grpCal)
+zTrimLen = input.int(120, "Rolling mean length", minval=20, group=grpCal)
+autoRecentre = input.bool(true, "Auto-recentre (offset = -rolling mean)", group=grpCal)
+scaleA   = input.float(1.0, "Scale (a)", step=0.05, group=grpCal)
+offsetB  = input.float(0.0, "Offset (b) (ignored if auto)", step=0.05, group=grpCal)
+
+grpNorm  = "Signal Gating"
 zLen     = input.int(100, "Z-Score Lookback", group=grpNorm)
 zMinAbs  = input.float(0.30, "Min |Z| for signals", step=0.05, group=grpNorm)
 
@@ -21,12 +30,6 @@ confTF   = input.timeframe("3", "Confirm TF (e.g., 3)", group=grpMTF)
 
 grpEMA   = "EMA Stack Filter"
 requireStack = input.bool(true, "Require 8>21>34 for longs and 8<21<34 for shorts", group=grpEMA)
-
-grpATR   = "ATR Location Labels (optional)"
-showATRLoc  = input.bool(true, "Show ATR location labels", group=grpATR)
-atrLen      = input.int(14, "ATR Length", group=grpATR)
-atrMult1    = input.float(1.0, "Band1 ATR Mult", group=grpATR)
-atrMult2    = input.float(2.0, "Band2 ATR Mult", group=grpATR)
 
 grpSession = "Trading Window"
 sessionOnly = input.bool(true, "Limit to 09:30–11:30 ET", group=grpSession)
@@ -39,119 +42,102 @@ barCloseOnly  = input.bool(true, "Bar-close only (no intrabar)", group=grpSignal
 showLabels    = input.bool(true, "Show A+ labels", group=grpSignals)
 
 grpStyle = "Style"
-colorMode = input.string("Hybrid", "Line Color Mode", group=grpStyle,
-     options=["Sign","Slope","Hybrid"])
+colorMode = input.string("Hybrid", "Line Color Mode", group=grpStyle, options=["Sign","Slope","Hybrid"])
 lineWidth = input.int(3, "Line Width", group=grpStyle, minval=1, maxval=6)
 showZeroShade = input.bool(true, "Shade background by above/below zero", group=grpStyle)
 
-//===========================
-// Core calc
-//===========================
-emaF = ta.ema(close, fastLen)
-emaS = ta.ema(close, slowLen)
-emaB = ta.ema(close, baseLen)
+//---------------- Helpers
+src = srcChoice == "hlc3" ? hlc3 : srcChoice == "ohlc4" ? ohlc4 : close
 
-spreadPct = 100.0 * (emaF - emaS) / close
-oscRaw    = ta.ema(spreadPct, smooth)
+f_smooth(x, n) =>
+    smoothingType == "EMA" ? ta.ema(x, n) : smoothingType == "RMA" ? ta.rma(x, n) : ta.sma(x, n)
 
-// z-score
-f_z(src, len) =>
-    m  = ta.sma(src, len)
-    sd = ta.stdev(src, len)
-    sd > 0 ? (src - m) / sd : 0.0
+// Current-TF recipe
+emaF = ta.ema(src, fastLen)
+emaS = ta.ema(src, slowLen)
+emaB = ta.ema(src, baseLen)
+den  = normBy == "baselineEMA" ? emaB : src
+spreadPct = 100.0 * (emaF - emaS) / den
+
+osc1   = f_smooth(spreadPct, smooth1)
+oscTmp = smooth2 > 0 ? f_smooth(osc1, smooth2) : osc1
+
+mTrim = zeroTrim ? ta.sma(oscTmp, zTrimLen) : 0.0
+off   = autoRecentre ? -mTrim : offsetB
+oscRaw = scaleA * (oscTmp - mTrim) + off
+
+f_z(x, n) =>
+    m  = ta.sma(x, n)
+    sd = ta.stdev(x, n)
+    sd > 0 ? (x - m) / sd : 0.0
 oscZ = f_z(oscRaw, zLen)
 
-// MTF confirm
-f_mtfOscZ(tf) =>
-    _emaF = request.security(syminfo.tickerid, tf, ta.ema(close, fastLen))
-    _emaS = request.security(syminfo.tickerid, tf, ta.ema(close, slowLen))
-    _spr  = request.security(syminfo.tickerid, tf, 100.0 * (_emaF - _emaS) / close)
-    _osc  = request.security(syminfo.tickerid, tf, ta.ema(_spr, smooth))
-    request.security(syminfo.tickerid, tf, f_z(_osc, zLen))
-oscZ_HTF = useMTF ? f_mtfOscZ(confTF) : na
+// HTF confirm: compute using same recipe, evaluated at HTF inside security()
+f_osc_htf() =>
+    _src  = srcChoice == "hlc3" ? hlc3 : srcChoice == "ohlc4" ? ohlc4 : close
+    _emaF = ta.ema(_src, fastLen)
+    _emaS = ta.ema(_src, slowLen)
+    _emaB = ta.ema(_src, baseLen)
+    _den  = normBy == "baselineEMA" ? _emaB : _src
+    _spr  = 100.0 * (_emaF - _emaS) / _den
+    _o1   = f_smooth(_spr, smooth1)
+    _ot   = smooth2 > 0 ? f_smooth(_o1, smooth2) : _o1
+    _mt   = zeroTrim ? ta.sma(_ot, zTrimLen) : 0.0
+    _off  = autoRecentre ? -_mt : offsetB
+    scaleA * (_ot - _mt) + _off
 
-// EMA stack
+oscHTF = useMTF ? request.security(syminfo.tickerid, confTF, f_osc_htf()) : na
+
+// Stack + gates
 bullStack = emaF > emaS and emaS > emaB
 bearStack = emaF < emaS and emaS < emaB
 
-// Session gate
 f_inSession() =>
     sessStart = timestamp(tzMarket, year, month, dayofmonth, sessStartH, sessStartM)
     sessEnd   = timestamp(tzMarket, year, month, dayofmonth, sessEndH,   sessEndM)
     time >= sessStart and time <= sessEnd
 inSess = not sessionOnly or f_inSession()
-
-// Bar-close gate
 confirmed = not barCloseOnly or barstate.isconfirmed
 
-//===========================
-// ATR HUD (optional)
-//===========================
-atr = ta.atr(atrLen)
-mid = emaB
-ub1 = mid + atrMult1*atr, lb1 = mid - atrMult1*atr
-ub2 = mid + atrMult2*atr, lb2 = mid - atrMult2*atr
-
-locInside  = close >= lb1 and close <= ub1
-locEdge    = (close > ub1 and close <= ub2) or (close < lb1 and close >= lb2)
-locMid2nd  = close > ub2 or close < lb2
-
-//===========================
-// A+ Conditions (unchanged)
-//===========================
+//---------------- Signals
 zcUp   = ta.crossover(oscRaw, 0)
 zcDown = ta.crossunder(oscRaw, 0)
 magOKL = math.abs(oscZ) >= zMinAbs and oscRaw > 0
 magOKS = math.abs(oscZ) >= zMinAbs and oscRaw < 0
-
-mtfOKL = not useMTF or (not na(oscZ_HTF) and oscZ_HTF > 0)
-mtfOKS = not useMTF or (not na(oscZ_HTF) and oscZ_HTF < 0)
-
+mtfOKL = not useMTF or (not na(oscHTF) and oscHTF > 0)
+mtfOKS = not useMTF or (not na(oscHTF) and oscHTF < 0)
 stackOKL = not requireStack or bullStack
 stackOKS = not requireStack or bearStack
-
 gate = inSess and confirmed
-
 AplusLong  = gate and zcUp   and magOKL and mtfOKL and stackOKL
 AplusShort = gate and zcDown and magOKS and mtfOKS and stackOKS
 
-//===========================
-// Coloring logic (Sign vs Slope vs Hybrid)
-//===========================
-upCol = #00C853   // green-ish
-dnCol = #FF1744   // red-ish
+//---------------- Plotting
+upCol = #00C853
+dnCol = #FF1744
 zeroCol = #FFFFFF
 
 slopeUp = oscRaw - nz(oscRaw[1]) > 0
-lineCol = colorMode == "Sign"   ? (oscRaw >= 0 ? upCol : dnCol) : colorMode == "Slope"  ? (slopeUp     ? upCol : dnCol) : (slopeUp     ? upCol : dnCol)
+lineCol = colorMode == "Sign"  ? (oscRaw >= 0 ? upCol : dnCol)
+       : colorMode == "Slope" ? (slopeUp     ? upCol : dnCol)
+                              : (slopeUp     ? upCol : dnCol) // Hybrid
 
-//===========================
-// Plots
-//===========================
-plot(oscRaw, title="Oscillator (EMA-Spread %)", style=plot.style_line, color=lineCol, linewidth=lineWidth)
-plot(0, title="Zero", color=zeroCol, transp=70)
+plot(oscRaw, title="Oscillator", color=lineCol, linewidth=lineWidth, style=plot.style_line)
+plot(0,      title="Zero",       color=zeroCol, linewidth=1,       style=plot.style_line, transp=70)
 
-// Optional shade above/below zero (independent of line color)
 bgcolor(showZeroShade and oscRaw >= 0 ? #00FF00 : na, transp=94)
 bgcolor(showZeroShade and oscRaw <  0 ? #FF0000 : na, transp=96)
 
-// Hidden/reference plots
-plot(oscZ, title="Osc Z-Score", color=#00FFFF, display=display.none)
 plot(emaF, "EMA 8",  color=#00FF00, transp=60, display=display.none)
 plot(emaS, "EMA 21", color=#FFA500, transp=60, display=display.none)
 plot(emaB, "EMA 34", color=#8A2BE2, transp=60, display=display.none)
 
-// ATR location labels
-if showATRLoc and barstate.islast
-    labTxt = locInside ? "Inside" : locEdge ? "Edge" : locMid2nd ? "Mid-2nd" : "—"
-    label.new(bar_index, oscRaw, "ATR: " + labTxt, yloc=yloc.price, textcolor=#FFFFFF, style=label.style_label_left, color=#000000)
-
-// Signals/labels
+// Labels
 if showLabels and AplusLong
     label.new(bar_index, oscRaw, "A+ LONG",  color=upCol, textcolor=#000000, style=label.style_label_up)
 if showLabels and AplusShort
     label.new(bar_index, oscRaw, "A+ SHORT", color=dnCol, textcolor=#FFFFFF, style=label.style_label_down)
 
-// Alerts (const messages only)
+// Alerts
 alertcondition(AplusLong,  "A+ LONG",  "A+ LONG (EMA-Spread% cross, MTF/Stack OK, in session)")
 alertcondition(AplusShort, "A+ SHORT", "A+ SHORT (EMA-Spread% cross, MTF/Stack OK, in session)")
