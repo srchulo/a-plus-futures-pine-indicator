@@ -1,5 +1,5 @@
 //@version=5
-indicator("Alpha Orchestrator — 2m/3m Confluence + Blocks (v2)", overlay=true, max_labels_count=500)
+indicator("Alpha Orchestrator — 2m/3m Confluence + Blocks (v3)", overlay=true, max_labels_count=500)
 
 //=========================
 // Inputs
@@ -8,6 +8,7 @@ grpGen = "General"
 tpTicks   = input.int(90,  "TP (ticks, for logging/labels only)", group=grpGen, minval=1)
 slTicks   = input.int(80,  "SL (ticks, for logging/labels only)", group=grpGen, minval=1)
 showPanel = input.bool(true, "Show Top-Right Panel", group=grpGen)
+showCountdown = input.bool(true, "Show bar-close countdown", group=grpGen)
 
 grpTF = "Timeframes"
 tf2  = input.string("2",  "Fast TF (minutes)", group=grpTF, options=["1","2","3","5"])
@@ -49,9 +50,9 @@ wSession     = input.int(5,  "Weight: Inside session window", group=grpScore, mi
 penNear3rd   = input.int(15, "Penalty: Near 3rd ATR", group=grpScore, minval=0, maxval=100)
 penDisagree  = input.int(30, "Penalty: TF Disagree", group=grpScore, minval=0, maxval=100)
 penOffSess   = input.int(20, "Penalty: Outside session or macro", group=grpScore, minval=0, maxval=100)
-
-thrAplus = input.int(80, "A+ threshold", group=grpScore, minval=0, maxval=100)
-thrA     = input.int(65, "A threshold",  group=grpScore, minval=0, maxval=100)
+thrAplus     = input.int(80, "A+ threshold", group=grpScore, minval=0, maxval=100)
+thrA         = input.int(65, "A threshold",  group=grpScore, minval=0, maxval=100)
+headsUpBuffer= input.int(5,  "Heads-up score buffer", group=grpScore, minval=0, tooltip="How close to A/A+ to warn before locked agreement flips")
 
 //=========================
 // Srchulo strict/relaxed adapters (compact core)
@@ -60,17 +61,14 @@ grpSrchulo = "Srchulo Gates (adapter)"
 emaFastLen_s = input.int(8,  "EMA Fast", group=grpSrchulo, minval=1)
 emaMidLen_s  = input.int(21, "EMA Mid",  group=grpSrchulo, minval=1)
 emaSlowLen_s = input.int(34, "EMA Slow", group=grpSrchulo, minval=1)
-
 useRibbon_s     = input.bool(true,  "Require EMA ribbon align",      group=grpSrchulo)
 useVWAP_s       = input.bool(true,  "Use session VWAP",              group=grpSrchulo)
 pullDist_s      = input.float(0.10, "Near VWAP distance (ATR x)",    group=grpSrchulo)
 minVWAPBand_s   = input.float(0.20, "Chop guard band (ATR x)",       group=grpSrchulo)
 useChopGuard_s  = input.bool(true,  "Use VWAP chop-guard",           group=grpSrchulo)
-
 volLen_s     = input.int(50,  "Vol SMA",            group=grpSrchulo)
 volMult_s    = input.float(1.5, "Surge ≥ SMA *",    group=grpSrchulo)
 requireVol_s = input.bool(true, "Require volume surge", group=grpSrchulo)
-
 dojiBodyPct_s = input.float(0.12, "Doji body ≤ x of range", group=grpSrchulo)
 longWickK_s   = input.float(2.0,  "Long/short wick ≥ body *", group=grpSrchulo)
 nearHiPct_s   = input.float(0.25, "Body near high",          group=grpSrchulo)
@@ -106,18 +104,9 @@ squeezeOnExpr(_src) =>
     kcLo  = emaKC - trKC * kcMult
     (bbHi < kcHi) and (bbLo > kcLo)
 
-squeezeOffExpr(_src) =>
-    basis = ta.sma(_src, bbLen)
-    dev   = bbMult * ta.stdev(_src, bbLen)
-    bbHi  = basis + dev
-    bbLo  = basis - dev
-    emaKC = ta.ema(_src, kcLen)
-    trKC  = ta.atr(kcLen)
-    kcHi  = emaKC + trKC * kcMult
-    kcLo  = emaKC - trKC * kcMult
-    (bbHi > kcHi) and (bbLo < kcLo)
-
-// --- Srchulo strict/relaxed gate adapters (compact)
+//=========================
+// Srchulo gates (compact)
+//=========================
 strictLongExpr() =>
     atr  = ta.atr(14)
     emaF = ta.ema(close, emaFastLen_s)
@@ -181,32 +170,34 @@ relaxedShortExpr() =>
     (not useRibbon_s or ribbonBear) and (nearVW or (math.abs(close - emaM) <= atr * 0.20) or (math.abs(close - emaS) <= atr * 0.20))
 
 //=========================
-// Multi-timeframe pulls
+// Multi-timeframe pulls (preview = lookahead_off / locked = lookahead_on)
 //=========================
 getTF(sigTF) =>
     // Price
     cTF = request.security(syminfo.tickerid, sigTF, close, barmerge.gaps_off, barmerge.lookahead_off)
 
-    // Moxie proxy + direction
+    // Moxie proxy + direction (preview)
     mx  = request.security(syminfo.tickerid, sigTF, moxieProxy(close), barmerge.gaps_off, barmerge.lookahead_off)
     dir = request.security(syminfo.tickerid, sigTF, dirFromMoxie(moxieProxy(close)), barmerge.gaps_off, barmerge.lookahead_off)
 
     // Squeeze
     sqOn  = request.security(syminfo.tickerid, sigTF, squeezeOnExpr(close),  barmerge.gaps_off, barmerge.lookahead_off)
-    sqOff = request.security(syminfo.tickerid, sigTF, squeezeOffExpr(close), barmerge.gaps_off, barmerge.lookahead_off)
 
-    // ATR center & 3rd bands (avoid tuple-in-security)
+    // ATR center & 3rd bands
     cCtr = request.security(syminfo.tickerid, sigTF, emaCalc(close, lenBase),                               barmerge.gaps_off, barmerge.lookahead_off)
     aATR = request.security(syminfo.tickerid, sigTF, ta.atr(atrLen),                                        barmerge.gaps_off, barmerge.lookahead_off)
     u3   = request.security(syminfo.tickerid, sigTF, emaCalc(close, lenBase) + ta.atr(atrLen) * atrMult3,   barmerge.gaps_off, barmerge.lookahead_off)
     d3   = request.security(syminfo.tickerid, sigTF, emaCalc(close, lenBase) - ta.atr(atrLen) * atrMult3,   barmerge.gaps_off, barmerge.lookahead_off)
 
-    [cTF, mx, dir, sqOn, sqOff, cCtr, aATR, u3, d3]
+    // Locked direction (no intrabar updates)
+    dir_locked = request.security(syminfo.tickerid, sigTF, dirFromMoxie(moxieProxy(close)), barmerge.gaps_off, barmerge.lookahead_on)
 
-[c2, mx2, dir2, sqOn2, sqOff2, ctr2, atr2, up3_2, dn3_2] = getTF(tf2)
-[c3, mx3, dir3, sqOn3, sqOff3, ctr3, atr3, up3_3, dn3_3] = getTF(tf3)
+    [cTF, mx, dir, dir_locked, sqOn, cCtr, aATR, u3, d3]
 
-// Srchulo gates evaluated inside each TF
+[c2, mx2, dir2, dir2_locked, sqOn2, ctr2, atr2, up3_2, dn3_2] = getTF(tf2)
+[c3, mx3, dir3, dir3_locked, sqOn3, ctr3, atr3, up3_3, dn3_3] = getTF(tf3)
+
+// Srchulo gates evaluated inside each TF (preview series)
 strictL_2 = request.security(syminfo.tickerid, tf2, strictLongExpr(),  barmerge.gaps_off, barmerge.lookahead_off)
 strictS_2 = request.security(syminfo.tickerid, tf2, strictShortExpr(), barmerge.gaps_off, barmerge.lookahead_off)
 relaxL_2  = request.security(syminfo.tickerid, tf2, relaxedLongExpr(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -220,7 +211,8 @@ relaxS_3  = request.security(syminfo.tickerid, tf3, relaxedShortExpr(),barmerge.
 //=========================
 // Strict & Relaxed gates (integrated)
 //=========================
-agreeDir = dir2 == dir3 and dir2 != 0
+agreeDir       = dir2 == dir3 and dir2 != 0
+agreeDirLocked = dir2_locked == dir3_locked and dir2_locked != 0  // locked agreement
 mag2OK   = math.abs(mx2) >= thMoxie
 mag3OK   = math.abs(mx3) >= thMoxie
 
@@ -243,11 +235,7 @@ distToUp3_2_ticks = (up3_2 - c2) * ticksPerPoint
 distToDn3_2_ticks = (c2 - dn3_2) * ticksPerPoint
 distToUp3_3_ticks = (up3_3 - c3) * ticksPerPoint
 distToDn3_3_ticks = (c3 - dn3_3) * ticksPerPoint
-
-near3rdATR = (distToUp3_2_ticks < minTicksTo3rd) or (distToDn3_2_ticks < minTicksTo3rd) or
-             (distToUp3_3_ticks < minTicksTo3rd) or (distToDn3_3_ticks < minTicksTo3rd)
-
-// “At or beyond” 3rd ATR (hard block)
+near3rdATR = (distToUp3_2_ticks < minTicksTo3rd) or (distToDn3_2_ticks < minTicksTo3rd) or (distToUp3_3_ticks < minTicksTo3rd) or (distToDn3_3_ticks < minTicksTo3rd)
 atOrBeyond3rd_2  = c2 >= up3_2 or c2 <= dn3_2
 atOrBeyond3rd_3  = c3 >= up3_3 or c3 <= dn3_3
 atOrBeyond3rdAny = atOrBeyond3rd_2 or atOrBeyond3rd_3
@@ -260,7 +248,7 @@ squeezeSupport = (sqOn2 or sqOn3) and agreeDir
 //=========================
 // Session / Macro / Cooldown
 //=========================
-inSess        = isInSession(sessionInp)
+inSess         = isInSession(sessionInp)
 offSessOrMacro = (useSession and not inSess) or macroBlock
 
 var int lastSignalBar = na
@@ -282,6 +270,13 @@ score -= (near3rdATR)                         ? penNear3rd  : 0
 score -= (offSessOrMacro)                     ? penOffSess  : 0
 
 tier = score >= thrAplus ? "A+" : score >= thrA ? "A" : "B"
+
+//=========================
+// Heads-up logic (preview vs locked)
+//=========================
+headsUpAgree = agreeDir and not agreeDirLocked
+softHeadAplus = (score >= thrAplus - headsUpBuffer) and (score < thrAplus) and not atOrBeyond3rdAny and not offSessOrMacro and headsUpAgree
+softHeadA     = (score >= thrA - headsUpBuffer)     and (score < thrA)     and not atOrBeyond3rdAny and not offSessOrMacro and headsUpAgree
 
 //=========================
 // Hard Blocks
@@ -324,39 +319,52 @@ reason     = str.format("{0} | {1} | {2} | {3}", moxieTxt, squeezeTxt, atrTxt, s
 var table panel = na
 if showPanel
     if na(panel)
-        panel := table.new(position.top_right, 1, 6)
+        panel := table.new(position.top_right, 1, 8)
     table.cell(panel, 0, 0, "Alpha Orchestrator", text_size=size.large, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(panel, 0, 1, str.format("Tier: {0}  Score: {1}", tier, str.tostring(score)), text_color=color.white, bgcolor=hardBlock ? color.new(color.red, 0) : (tier=="A+" ? color.new(color.green, 0) : color.new(color.orange, 0)))
-    table.cell(panel, 0, 2, str.format("Dir: {0}", dirTxt))
-    table.cell(panel, 0, 3, str.format("TP: {0}t  SL: {1}t", tpTicks, slTicks))
-    table.cell(panel, 0, 4, reason)
-    table.cell(panel, 0, 5, hardBlock ? "BLOCK: " + reasonBlocks : "OK", text_color=color.white, bgcolor=hardBlock ? color.new(color.red, 0) : color.new(color.teal, 70))
+    table.cell(panel, 0, 2, str.format("Dir: {0}", dirTxt),            text_color=color.white)
+    table.cell(panel, 0, 3, str.format("TP: {0}t  SL: {1}t", tpTicks, slTicks), text_color=color.white)
+    table.cell(panel, 0, 4, reason,                                     text_color=color.white)
+
+    // New rows: preview vs locked and countdown
+    table.cell(panel, 0, 5, str.format("Preview agree: {0}   Locked agree: {1}", agreeDir ? "✔" : "—", agreeDirLocked ? "✔" : "—"), text_color=color.white, bgcolor= headsUpAgree ? color.new(color.orange, 0) : color.new(color.black, 80))
+    // Countdown (seconds)
+    barMs   = timeframe.in_seconds(timeframe.period) * 1000
+    msToEnd = (time + barMs) - timenow
+    secLeft = math.max(0, math.floor(msToEnd / 1000))
+    table.cell(panel, 0, 6, showCountdown ? str.format("Bar closes in: {0}s", str.tostring(secLeft)) : "", text_color=color.white)
+    table.cell(panel, 0, 7, hardBlock ? "BLOCK: " + reasonBlocks : "OK", text_color=color.white, bgcolor=hardBlock ? color.new(color.red, 0) : color.new(color.teal, 70))
 
 //=========================
 // Fire Conditions (shadow)
 //=========================
 fireAplus = (tier == "A+") and not hardBlock
 fireA     = (tier == "A")   and not hardBlock
-
 if fireAplus or fireA
     lastSignalBar := bar_index
 
 //=========================
-// Alerts (static alertconditions + dynamic alert())
+// Alerts
 //=========================
 alertMsg(kind) =>
-    str.format("[{0}] {1} | Ticker={2} | TFs={3}/{4} | Score={5} | Dir={6} | Moxie2={7,number,#.####} Moxie3={8,number,#.####} | Sqz2={9} Sqz3={10} | Dist3ATR2(up:{11,number,#} dn:{12,number,#}) Dist3ATR3(up:{13,number,#} dn:{14,number,#}) | TP={15} SL={16} | Sess={17} Macro={18}", kind, timenow, syminfo.ticker, tf2, tf3, score, dirTxt, mx2, mx3, sqOn2, sqOn3, distToUp3_2_ticks, distToDn3_2_ticks, distToUp3_3_ticks, distToDn3_3_ticks, tpTicks, slTicks, inSess, macroBlock)
+    str.format("[{0}] {1} | Ticker={2} | TFs={3}/{4} | Score={5} | Dir={6} | Moxie2={7,number,#.####} Moxie3={8,number,#.####} | Sqz2={9} Sqz3={10} | Dist3ATR2(up:{11,number,#} dn:{12,number,#}) Dist3ATR3(up:{13,number,#} dn:{14,number,#}) | TP={15} SL={16} | Sess={17} Macro={18} | PreviewAgree={19} LockedAgree={20}", kind, timenow, syminfo.ticker, tf2, tf3, score, dirTxt, mx2, mx3, sqOn2, sqOn3, distToUp3_2_ticks, distToDn3_2_ticks, distToUp3_3_ticks, distToDn3_3_ticks, tpTicks, slTicks, inSess, macroBlock, agreeDir, agreeDirLocked)
 
-// Static (compile-time) messages
+// Static (compile-time)
 alertcondition(fireAplus, title="A+ Signal (No Block)", message="A+")
 alertcondition(fireA,     title="A Signal (No Block)",  message="A")
 alertcondition(hardBlock, title="HARD BLOCK",           message="BLOCK")
+alertcondition(softHeadAplus, title="HEADS-UP A+", message="HEADSUP A+")
+alertcondition(softHeadA,     title="HEADS-UP A",  message="HEADSUP A")
 
 // Dynamic payloads
 if barstate.isconfirmed
     if fireAplus
         alert(alertMsg("A+"), alert.freq_once_per_bar_close)
     if fireA
-        alert(alertMsg("A"), alert.freq_once_per_bar_close)
+        alert(alertMsg("A"),  alert.freq_once_per_bar_close)
     if hardBlock
         alert(alertMsg("BLOCK"), alert.freq_once_per_bar_close)
+    if softHeadAplus
+        alert(alertMsg("HEADSUP A+"), alert.freq_once_per_bar_close)
+    if softHeadA
+        alert(alertMsg("HEADSUP A"),  alert.freq_once_per_bar_close)
