@@ -1,9 +1,9 @@
 //@version=5
-indicator("srchulo futures relaxed — updated", overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("srchulo futures relaxed", overlay=true, max_labels_count=500, max_lines_count=500)
 
 // ===== Theming (distinct from strict)
-cLong      = color.rgb(102, 204, 255)   // light blue for LONG
-cShort     = color.rgb(255, 160,   0)   // orange for SHORT
+cLong      = color.rgb(102, 204, 255)
+cShort     = color.rgb(255, 160,   0)
 cSetupLong = color.new(cLong, 60)
 cSetupShort= color.new(cShort,60)
 
@@ -64,11 +64,15 @@ useDailyCapGate  = input.bool(true,  "Use Daily-cap gate", group=grpDec)
 triggerMode      = input.string("Breakout", "Trigger mode", options=["Score","Simple","Breakout"], group=grpDec)
 
 // NEW: optional 3rd-ATR block + one-and-done + range guard + soft heads-up proximity
-use3rdATRBlock = input.bool(false, "Block entries at 3rd ATR",           group=grpDec)
-atrMult3_gate  = input.float(3.0,  "ATR x for 3rd-ATR block",            group=grpDec, step=0.1)
+use3rdATRBlock = input.bool(false, "Block entries at 3rd ATR", group=grpDec)
+atrMult3_gate  = input.float(3.0,  "ATR x for 3rd-ATR block", group=grpDec, step=0.1)
 oneAndDone     = input.bool(false, "One-and-done (stop after first confirm)", group=grpDec)
-minRangeATR    = input.float(0.20, "Min bar range (ATR x)",              group=grpDec, step=0.05)
-nearTicks      = input.int(3, "Heads-up proximity (ticks)",              group=grpDec, minval=0)
+minRangeATR    = input.float(0.20, "Min bar range (ATR x)", group=grpDec, step=0.05)
+nearTicks      = input.int(3, "Heads-up proximity (ticks)", group=grpDec, minval=0)
+
+// NEW: >2nd-ATR momentum+volume filters (symmetrical)
+useATR2MomFilter = input.bool(true, "Use >2nd-ATR momentum+vol filter (both sides)", group=grpDec)
+volRelaxException = input.float(1.20, "Vol × when >2nd ATR (Relaxed)", group=grpDec, step=0.05)
 
 wTrend   = input.int(2, "W Trend", group=grpDec, minval=0, maxval=5)
 wVWAPPb  = input.int(1, "W Near VWAP", group=grpDec, minval=0, maxval=5)
@@ -158,12 +162,8 @@ htfBull = htfE1 > htfE2 and htfE2 > htfE3
 htfBear = htfE1 < htfE2 and htfE2 < htfE3
 
 // --- HTF heads-up (preview vs locked) ---
-htfBull_preview = request.security(syminfo.tickerid, htfTF,
-     ta.ema(close, emaFastLen) > ta.ema(close, emaMidLen) and ta.ema(close, emaMidLen) > ta.ema(close, emaSlowLen),
-     lookahead=barmerge.lookahead_off)
-htfBear_preview = request.security(syminfo.tickerid, htfTF,
-     ta.ema(close, emaFastLen) < ta.ema(close, emaMidLen) and ta.ema(close, emaMidLen) < ta.ema(close, emaSlowLen),
-     lookahead=barmerge.lookahead_off)
+htfBull_preview = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaFastLen) > ta.ema(close, emaMidLen) and ta.ema(close, emaMidLen) > ta.ema(close, emaSlowLen), lookahead=barmerge.lookahead_off)
+htfBear_preview = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaFastLen) < ta.ema(close, emaMidLen) and ta.ema(close, emaMidLen) < ta.ema(close, emaSlowLen), lookahead=barmerge.lookahead_off)
 htfBull_locked = htfBull
 htfBear_locked = htfBear
 headsUpLong  = htfBull_preview and not htfBull_locked
@@ -195,9 +195,7 @@ bearEngulf = close<open and open>=close[1] and close<=open[1] and close<close[1]
 insideBar  = high<high[1] and low>low[1]
 
 // Proximity + chop guard
-withinPctOfATR(src, pct) =>
-    na(src) ? false : math.abs(close - src) <= atr * pct
-
+withinPctOfATR(src, pct) => na(src) ? false : math.abs(close - src) <= atr * pct
 nearAnyVWAP_raw = (useVWAP and withinPctOfATR(vwap, pullDist)) or (useAVWAP and withinPctOfATR(avwap, pullDist))
 
 // raw chop signal each bar
@@ -258,31 +256,9 @@ bullCandle = hammer or dragonfly
 bearCandle = shootingStar or gravestone
 scoreAdd(c, w, use) => use and c ? w : 0
 
-longScore = scoreAdd(trendOkLong, wTrend, useCompTrend)
-          + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW)
-          + scoreAdd(volOK, wVolume, useCompVolume)
-          + scoreAdd(pullbackLong, wPull, useCompPull)
-          + scoreAdd(reclaimLongPrim, wReclaim, useCompReclaim)
-          + scoreAdd(bullFlag, wFlag, useCompFlag)
-          + scoreAdd(precisionLong, wPrec, useCompPrec)
-          + scoreAdd(bullCandle, wCandle, useCompCandle)
-          + scoreAdd(bullEngulf, wEngulf, useCompEngulf)
-          + scoreAdd(bullRetest, wRetest, useCompRetest)
-          + scoreAdd(highBase, wBase, useCompBase)
-          + scoreAdd(ascTri, wTri, useCompTri)
+longScore = scoreAdd(trendOkLong, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(pullbackLong, wPull, useCompPull) + scoreAdd(reclaimLongPrim, wReclaim, useCompReclaim) + scoreAdd(bullFlag, wFlag, useCompFlag) + scoreAdd(precisionLong, wPrec, useCompPrec) + scoreAdd(bullCandle, wCandle, useCompCandle) + scoreAdd(bullEngulf, wEngulf, useCompEngulf) + scoreAdd(bullRetest, wRetest, useCompRetest) + scoreAdd(highBase, wBase, useCompBase) + scoreAdd(ascTri, wTri, useCompTri)
 
-shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend)
-          + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW)
-          + scoreAdd(volOK, wVolume, useCompVolume)
-          + scoreAdd(rallyShort, wPull, useCompPull)
-          + scoreAdd(reclaimShortPrim, wReclaim, useCompReclaim)
-          + scoreAdd(bearFlag, wFlag, useCompFlag)
-          + scoreAdd(precisionShort, wPrec, useCompPrec)
-          + scoreAdd(bearCandle, wCandle, useCompCandle)
-          + scoreAdd(bearEngulf, wEngulf, useCompEngulf)
-          + scoreAdd(bearRetest, wRetest, useCompRetest)
-          + scoreAdd(lowBase, wBase, useCompBase)
-          + scoreAdd(descTri, wTri, useCompTri)
+shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(rallyShort, wPull, useCompPull) + scoreAdd(reclaimShortPrim, wReclaim, useCompReclaim) + scoreAdd(bearFlag, wFlag, useCompFlag) + scoreAdd(precisionShort, wPrec, useCompPrec) + scoreAdd(bearCandle, wCandle, useCompCandle) + scoreAdd(bearEngulf, wEngulf, useCompEngulf) + scoreAdd(bearRetest, wRetest, useCompRetest) + scoreAdd(lowBase, wBase, useCompBase) + scoreAdd(descTri, wTri, useCompTri)
 
 // Gating toggles
 gateSessOK   = useSessionFilter ? inSess : true
@@ -317,13 +293,21 @@ dn3_gate   = ema34 - atr * atrMult3_gate
 atOrBeyond3rd = close >= up3_gate or close <= dn3_gate
 rangeOK    = (high - low) >= atr * minRangeATR
 
+// NEW: >2nd-ATR helpers (symmetrical, relaxed)
+up2_gate = ema34 + atr * 2.0
+dn2_gate = ema34 - atr * 2.0
+momRise2 = close > close[1] and close[1] > close[2]
+momFall2 = close < close[1] and close[1] < close[2]
+relaxedATRMomOK_L = (not atOrBeyond3rd) and ((close <= up2_gate and (emaSlopeLong or htfBull_locked)) or (close > up2_gate and (emaSlopeLong or htfBull_locked) and momRise2 and (volume >= volSMA * volRelaxException)))
+relaxedATRMomOK_S = (not atOrBeyond3rd) and ((close >= dn2_gate and (emaSlopeShort or htfBear_locked)) or (close < dn2_gate and (emaSlopeShort or htfBear_locked) and momFall2 and (volume >= volSMA * volRelaxException)))
+
 // Final setups (mode driven) — Breakout mode uses gates only (base=true)
 // Build base gates then add extra guards
 baseLongGates_core  = readyForNew and gateDailyOK and gateSessOK and gateAtrOK and gateHTFLong  and gateSlopeL and trendOkLong  and (not useChopGuard or not inVWAPChop)
 baseShortGates_core = readyForNew and gateDailyOK and gateSessOK and gateAtrOK and gateHTFShort and gateSlopeS and trendOkShort and (not useChopGuard or not inVWAPChop)
 
-baseLongGates  = baseLongGates_core  and (not use3rdATRBlock or not atOrBeyond3rd) and (not oneAndDone or not tookEntryToday)
-baseShortGates = baseShortGates_core and (not use3rdATRBlock or not atOrBeyond3rd) and (not oneAndDone or not tookEntryToday)
+baseLongGates  = baseLongGates_core  and (not use3rdATRBlock or not atOrBeyond3rd) and (not oneAndDone or not tookEntryToday) and (not useATR2MomFilter or relaxedATRMomOK_L)
+baseShortGates = baseShortGates_core and (not use3rdATRBlock or not atOrBeyond3rd) and (not oneAndDone or not tookEntryToday) and (not useATR2MomFilter or relaxedATRMomOK_S)
 
 useScore   = triggerMode == "Score"
 useSimple  = triggerMode == "Simple"
@@ -346,10 +330,8 @@ shortConfirm = finalize(shortConfirm_raw)
 
 // ---- Soft heads-up alert (near trigger with preview HTF)
 pxBuf = nearTicks * safeMintick
-nearTriggerLong  = (useBreak ? (baseLongSetup  and high >= (high[1] + entryConfirmTicks * safeMintick) - pxBuf)
-                             : (baseLongSetup[1] and high >= ((high[1] + entryConfirmTicks * safeMintick) - pxBuf)))
-nearTriggerShort = (useBreak ? (baseShortSetup and low  <= (low[1]  - entryConfirmTicks * safeMintick) + pxBuf)
-                             : (baseShortSetup[1] and low  <= ((low[1]  - entryConfirmTicks * safeMintick) + pxBuf)))
+nearTriggerLong  = (useBreak ? (baseLongSetup  and high >= (high[1] + entryConfirmTicks * safeMintick) - pxBuf) : (baseLongSetup[1] and high >= ((high[1] + entryConfirmTicks * safeMintick) - pxBuf)))
+nearTriggerShort = (useBreak ? (baseShortSetup and low  <= (low[1]  - entryConfirmTicks * safeMintick) + pxBuf) : (baseShortSetup[1] and low  <= ((low[1]  - entryConfirmTicks * safeMintick) + pxBuf)))
 softHeadsUpLong  = (not useSessionFilter or inSess) and nearTriggerLong  and htfBull_preview and not htfBull_locked
 softHeadsUpShort = (not useSessionFilter or inSess) and nearTriggerShort and htfBear_preview and not htfBear_locked
 alertcondition(softHeadsUpLong,  title="Heads-Up LONG",  message="Heads-up: close could confirm LONG")
@@ -422,8 +404,8 @@ needStruct       = input.bool(true,  "Require LH/HL with hook", group=grpExit)
 needVolFade      = input.bool(false, "Require volume < SMA on exit-soon", group=grpExit)
 showExitSoonFlags= input.bool(true,  "Show 'Exit Soon' flags", group=grpExit)
 showHardExitFlags= input.bool(true,  "Show 'Hard Exit' crosses", group=grpExit)
-exitSoonColor    = input.color(color.rgb(167, 139, 250), "Exit Soon color", group=grpExit)   // purple
-hardExitColor    = input.color(color.rgb(255, 77, 136),  "Hard Exit color", group=grpExit)   // hot pink
+exitSoonColor    = input.color(color.rgb(167, 139, 250), "Exit Soon color", group=grpExit)
+hardExitColor    = input.color(color.rgb(255, 77, 136),  "Hard Exit color", group=grpExit)
 
 [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
 spreadNow = math.abs(emaM - emaF)
