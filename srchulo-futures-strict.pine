@@ -9,6 +9,22 @@ emaSlowLen = input.int(34, "EMA Slow", group=grpTrend, minval=1)
 useRibbon  = input.bool(true, "Require EMA ribbon alignment (LTF)", group=grpTrend)
 htfTF      = input.string("15", "HTF EMA ribbon (minutes)", group=grpTrend)
 
+// === Internal "Moxie-like" slope settings (MTF-aware)
+grpSlope = "Moxie-like Slope Filter"
+slopeMode = input.string("MTF (All selected must agree)", "Slope Mode", options=["Current TF only","MTF (All selected must agree)"], group=grpSlope)
+useTF_2m  = input.bool(true,  "Use 2m", group=grpSlope)
+useTF_3m  = input.bool(true,  "Use 3m", group=grpSlope)
+useTF_5m  = input.bool(false, "Use 5m", group=grpSlope)
+
+// Slope calc tuning (uses your 8/21/34 EMA family)
+slopeLen      = input.int(5,   "Slope window (bars)", group=grpSlope, minval=2)
+slopeSmooth   = input.int(3,   "Slope smoothing (EMA)", group=grpSlope, minval=1)
+slopeMagLTF   = input.float(0.00010, "Min slope magnitude (LTF)", group=grpSlope, step=0.00001)
+slopeMagHTF   = input.float(0.00008, "Min slope magnitude (MTF)", group=grpSlope, step=0.00001)
+persistLTF    = input.int(1,   "Persistence LTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
+persistMTF    = input.int(2,   "Persistence MTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
+freezeSlopeMTF= input.bool(true, "Freeze MTF at closed bar (no intrabar flicker)", group=grpSlope)
+
 grpVWAP = "VWAP / AVWAP"
 useVWAP  = input.bool(true, "Use session VWAP", group=grpVWAP)
 useAVWAP = input.bool(true, "Use Anchored VWAP (auto RTH open)", group=grpVWAP)
@@ -181,8 +197,77 @@ ribbonBear = emaF < emaM and emaM < emaS
 trendOkLong  = useRibbon ? ribbonBull : true
 trendOkShort = useRibbon ? ribbonBear : true
 
-emaSlopeLong  = emaM > emaM[5] and emaS > emaS[5]
-emaSlopeShort = emaM < emaM[5] and emaS < emaS[5]
+// --------- Internal slope helpers
+f_internal_slope(_close, _fastLen, _midLen, _slowLen, _slopeLen, _smooth) =>
+    _fast   = ta.ema(_close, _fastLen)
+    _mid    = ta.ema(_close, _midLen)
+    _slow   = ta.ema(_close, _slowLen)
+    _spread = (_fast - _mid) + (_mid - _slow)  // emphasize ribbon steepness
+    _raw    = ta.linreg(_spread, _slopeLen, 0)
+    _sm     = _smooth > 1 ? ta.ema(_raw, _smooth) : _raw
+    nz(_sm) / math.max(math.abs(_mid), 1e-6)
+
+f_slope_ok(tf, magMin, persistBars, _freeze) =>
+    _lk = _freeze ? barmerge.lookahead_on : barmerge.lookahead_off
+    _s  = request.security(syminfo.tickerid, tf, f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), lookahead=_lk)
+    _up   = _s >  magMin
+    _down = _s < -magMin
+    _upOK   = ta.barssince(_down) > persistBars
+    _downOK = ta.barssince(_up)   > persistBars
+    [_up, _down, _upOK, _downOK]
+
+f_slope_current() =>
+    _s  = f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth)
+    _up   = _s >  slopeMagLTF
+    _down = _s < -slopeMagLTF
+    _upOK   = ta.barssince(_down) > persistLTF
+    _downOK = ta.barssince(_up)   > persistLTF
+    [_up, _down, _upOK, _downOK]
+
+// ===== New slope consensus (replaces emaSlopeLong/Short)
+var string TF2 = "2"
+var string TF3 = "3"
+var string TF5 = "5"
+
+// Current-TF slope (declare fresh locals via destructuring)
+[ctf_up, ctf_dn, ctf_upok, ctf_dnok] = f_slope_current()
+
+// MTF aggregation
+mtf_any_selected = false
+mtf_all_up = true
+mtf_all_dn = true
+
+if slopeMode == "MTF (All selected must agree)"
+    if useTF_2m
+        mtf_any_selected := true
+        [u2, d2, uok2, dok2] = f_slope_ok(TF2, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u2 and uok2)
+        mtf_all_dn := mtf_all_dn and (d2 and dok2)
+
+    if useTF_3m
+        mtf_any_selected := true
+        [u3, d3, uok3, dok3] = f_slope_ok(TF3, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u3 and uok3)
+        mtf_all_dn := mtf_all_dn and (d3 and dok3)
+
+    if useTF_5m
+        mtf_any_selected := true
+        [u5, d5, uok5, dok5] = f_slope_ok(TF5, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u5 and uok5)
+        mtf_all_dn := mtf_all_dn and (d5 and dok5)
+
+// Fallback: if MTF mode is chosen but no TFs are selected, use current TF
+useCurrentFallback = (slopeMode == "MTF (All selected must agree)") and (not mtf_any_selected)
+
+// Final slope gates used by the script
+slopeLongOK_new  = slopeMode == "Current TF only"      ? (ctf_up and ctf_upok) :
+                   useCurrentFallback                  ? (ctf_up and ctf_upok)  :
+                   mtf_all_up
+
+slopeShortOK_new = slopeMode == "Current TF only"      ? (ctf_dn and ctf_dnok) :
+                   useCurrentFallback                  ? (ctf_dn and ctf_dnok)  :
+                   mtf_all_dn
+
 
 // Session & VWAPs
 vwap = ta.vwap(close)
@@ -341,8 +426,8 @@ gateSessOK  = useSessionFilter ? inSess : true
 gateAtrOK   = useAtrGate ? atrTicks >= minAtrTicks : true
 gateHTFLong = useHTFFilter ? htfBull : true
 gateHTFShort= useHTFFilter ? htfBear : true
-gateSlopeL  = useSlopeFilter ? emaSlopeLong : true
-gateSlopeS  = useSlopeFilter ? emaSlopeShort: true
+gateSlopeL  = useSlopeFilter ? slopeLongOK_new  : true
+gateSlopeS  = useSlopeFilter ? slopeShortOK_new : true
 
 // Cooldown + daily cap + one-and-done
 var int  lastSignalBar   = na
@@ -374,8 +459,8 @@ up2_gate = ema34 + atr * 2.0
 dn2_gate = ema34 - atr * 2.0
 momRise2 = close > close[1] and close[1] > close[2]
 momFall2 = close < close[1] and close[1] < close[2]
-strictATRMomOK_L = (not atOrBeyond3rd) and ((close <= up2_gate and emaSlopeLong and momLongOK) or (close > up2_gate and emaSlopeLong and htfBull_locked and momLongOK and (volume >= volSMA * volException)))
-strictATRMomOK_S = (not atOrBeyond3rd) and ((close >= dn2_gate and emaSlopeShort and momShortOK) or (close < dn2_gate and emaSlopeShort and htfBear_locked and momShortOK and (volume >= volSMA * volException)))
+strictATRMomOK_L = (not atOrBeyond3rd) and ((close <= up2_gate and slopeLongOK_new and momLongOK) or (close > up2_gate and slopeLongOK_new and htfBull_locked and momLongOK and (volume >= volSMA * volException)))
+strictATRMomOK_S = (not atOrBeyond3rd) and ((close >= dn2_gate and slopeShortOK_new and momShortOK) or (close < dn2_gate and slopeShortOK_new and htfBear_locked and momShortOK and (volume >= volSMA * volException)))
 
 // NEW: base gate bundles (core)
 baseLongGates_core  = readyForNew and gateDailyOK and gateSessOK and gateAtrOK and gateHTFLong and gateSlopeL and trendOkLong and cgOK and aboveVW and (not requireEMAMSideBase or aboveEMAM) and (not requireNearVWBase or nearAnyVWAP) and momLongOK and (not overLong) and clvLongOK
