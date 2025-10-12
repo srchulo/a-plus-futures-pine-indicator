@@ -122,6 +122,20 @@ sessionStr = input.session("0935-1600", "RTH windows (exchange time)", group=grp
 ticksTol   = input.int(4, "Structure tolerance (ticks)", group=grpDec)
 retestBars = input.int(5, "VWAP retest within N bars",   group=grpDec)
 
+// ---------- Targets / Stops (HUD)
+grpTP = "Targets / Stops (HUD)"
+tpMode       = input.string("ATRx", "TP Mode", options=["FixedTicks","ATRx"], group=grpTP)
+tpTicksFixed = input.int(90, "TP (ticks) when Fixed", group=grpTP, minval=1)
+tpATRmult    = input.float(2.2, "TP = ATR × k (MNQ ≈ 2.0–2.6)", group=grpTP, step=0.1, minval=0.5)
+tpMinTicks   = input.int(60, "Min TP (ticks) floor", group=grpTP, minval=1)
+tpMaxTicks   = input.int(160,"Max TP (ticks) cap",   group=grpTP, minval=10)
+
+slMode       = input.string("ATRx", "SL Mode", options=["FixedTicks","ATRx"], group=grpTP)
+slTicksFixed = input.int(120, "SL (ticks) when Fixed", group=grpTP, minval=1)
+slATRmult    = input.float(2.8, "SL = ATR × k (MNQ ≈ 2.4–3.2)", group=grpTP, step=0.1, minval=0.5)
+slMinTicks   = input.int(80, "Min SL (ticks) floor",  group=grpTP, minval=1)
+slMaxTicks   = input.int(200,"Max SL (ticks) cap",    group=grpTP, minval=10)
+
 // ---------- NEW: Exit/Management
 grpExit = "Exit / Management (Continuation Aware)"
 usePartialATR    = input.bool(true, "Take partial at 3×ATR from entry", group=grpExit)
@@ -393,6 +407,12 @@ baseShortSetup = finalize(baseShortSetup_raw)
 longConfirm    = finalize(longConfirm_raw)
 shortConfirm   = finalize(shortConfirm_raw)
 
+// ---------- Adaptive TP/SL compute (HUD)
+_tpTicksDyn = tpMode == "FixedTicks" ? tpTicksFixed : math.round(math.max(tpMinTicks, math.min(tpMaxTicks, atrTicks * tpATRmult)))
+_slTicksDyn = slMode == "FixedTicks" ? slTicksFixed : math.round(math.max(slMinTicks, math.min(slMaxTicks, atrTicks * slATRmult)))
+tpTicksNow = _tpTicksDyn
+slTicksNow = _slTicksDyn
+
 // ---------- NEW: Position state, momentum & exits
 [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
 spreadNow  = math.abs(emaM - emaF)
@@ -511,3 +531,18 @@ softHeadsUpLong  = (not useSessionFilter or inSess) and nearTriggerLong  and htf
 softHeadsUpShort = (not useSessionFilter or inSess) and nearTriggerShort and htfBear_preview and not htfBear_locked
 alertcondition(softHeadsUpLong,  title="Heads-Up LONG",  message="Heads-up: close could confirm LONG")
 alertcondition(softHeadsUpShort, title="Heads-Up SHORT", message="Heads-up: close could confirm SHORT")
+
+// ---------- Top-right HUD: TP/SL, R:R, Breakeven win%
+rr        = slTicksNow > 0 ?  (tpTicksNow * 1.0) / slTicksNow : na
+breakeven = slTicksNow + tpTicksNow > 0 ? slTicksNow * 100.0 / (slTicksNow + tpTicksNow) : na
+txtRR = na(rr) ? "—" : str.tostring(rr, format.mintick)
+txtBE= na(breakeven) ? "—" : str.tostring(breakeven, format.mintick) + "%"
+
+var table hud = na
+if barstate.isfirst
+    hud := table.new(position.top_right, 1, 4, border_width=1)
+if barstate.islast
+    table.cell(hud, 0, 0, "TP: " + str.tostring(tpTicksNow) + " ticks", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 1, "SL: " + str.tostring(slTicksNow) + " ticks", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 2, "R:R ≈ " + txtRR,                 text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 3, "BE Win% ≈ " + txtBE,             text_color=color.white, bgcolor=color.new(color.black, 0))
