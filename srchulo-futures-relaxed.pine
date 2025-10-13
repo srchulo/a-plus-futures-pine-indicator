@@ -18,6 +18,21 @@ htfTF      = input.string("15", "HTF EMA ribbon (minutes)", group=grpTrend)
 freezeHTF   = input.bool(true,  "Freeze HTF values (no intrabar updates)", group=grpTrend)
 calcOnClose = input.bool(false, "Lock signals on bar close (no flicker)",  group=grpTrend)
 
+// === Internal "Moxie-like" slope settings (MTF-aware) — added
+grpSlope = "Moxie-like Slope Filter"
+slopeMode = input.string("MTF (All selected must agree)", "Slope Mode", options=["Current TF only","MTF (All selected must agree)"], group=grpSlope)
+useTF_2m  = input.bool(true,  "Use 2m", group=grpSlope)
+useTF_3m  = input.bool(true,  "Use 3m", group=grpSlope)
+useTF_5m  = input.bool(false, "Use 5m", group=grpSlope)
+// tuning
+slopeLen      = input.int(5,   "Slope window (bars)", group=grpSlope, minval=2)
+slopeSmooth   = input.int(3,   "Slope smoothing (EMA)", group=grpSlope, minval=1)
+slopeMagLTF   = input.float(0.00018, "Min slope magnitude (LTF)", group=grpSlope, step=0.00001)
+slopeMagHTF   = input.float(0.00013, "Min slope magnitude (MTF)", group=grpSlope, step=0.00001)
+persistLTF    = input.int(1,   "Persistence LTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
+persistMTF    = input.int(2,   "Persistence MTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
+freezeSlopeMTF= input.bool(true, "Freeze MTF at closed bar (no intrabar flicker)", group=grpSlope)
+
 grpVWAP = "VWAP / AVWAP"
 useVWAP  = input.bool(true, "Use session VWAP", group=grpVWAP)
 useAVWAP = input.bool(true, "Use Anchored VWAP (auto RTH open)", group=grpVWAP)
@@ -121,10 +136,11 @@ ribbonBear = emaF < emaM and emaM < emaS
 trendOkLong  = useRibbon ? ribbonBull : true
 trendOkShort = useRibbon ? ribbonBear : true
 
+// Keep original simple slope vars (used elsewhere visually if needed)
 emaSlopeLong  = emaM > emaM[5] and emaS > emaS[5]
 emaSlopeShort = emaM < emaM[5] and emaS < emaS[5]
 
-// Session & VWAPs
+// -------------------- Session & VWAPs --------------------
 vwap = ta.vwap(close)
 inSess = not na(time(timeframe.period, sessionStr))
 sessionStart = inSess and not inSess[1]
@@ -210,6 +226,77 @@ inVWAPChop     = useChopGuard ? (calcOnClose ? inVWAPChop_close : inVWAPChop_raw
 
 nearAnyVWAP = nearAnyVWAP_raw
 
+// ================== NEW SLOPE (MOXIE-LIKE) LOGIC ==================
+// helpers
+f_internal_slope(_close, _fastLen, _midLen, _slowLen, _slopeLen, _smooth) =>
+    _fast   = ta.ema(_close, _fastLen)
+    _mid    = ta.ema(_close, _midLen)
+    _slow   = ta.ema(_close, _slowLen)
+    _spread = (_fast - _mid) + (_mid - _slow)
+    _raw    = ta.linreg(_spread, _slopeLen, 0)
+    _sm     = _smooth > 1 ? ta.ema(_raw, _smooth) : _raw
+    nz(_sm) / math.max(math.abs(_mid), 1e-6)
+
+f_slope_ok(tf, magMin, persistBars, _freeze) =>
+    _lk = _freeze ? barmerge.lookahead_on : barmerge.lookahead_off
+    _s  = request.security(syminfo.tickerid, tf, f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), lookahead=_lk)
+    _up   = _s >  magMin
+    _down = _s < -magMin
+    _upOK   = ta.barssince(_down) > persistBars
+    _downOK = ta.barssince(_up)   > persistBars
+    [_up, _down, _upOK, _downOK]
+
+f_slope_current() =>
+    _s  = f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth)
+    _up   = _s >  slopeMagLTF
+    _down = _s < -slopeMagLTF
+    _upOK   = ta.barssince(_down) > persistLTF
+    _downOK = ta.barssince(_up)   > persistLTF
+    [_up, _down, _upOK, _downOK]
+
+// consensus
+var string TF2 = "2"
+var string TF3 = "3"
+var string TF5 = "5"
+
+// current TF
+[ctf_up, ctf_dn, ctf_upok, ctf_dnok] = f_slope_current()
+
+// MTF aggregation
+mtf_any_selected = false
+mtf_all_up = true
+mtf_all_dn = true
+
+if slopeMode == "MTF (All selected must agree)"
+    if useTF_2m
+        mtf_any_selected := true
+        [u2, d2, uok2, dok2] = f_slope_ok(TF2, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u2 and uok2)
+        mtf_all_dn := mtf_all_dn and (d2 and dok2)
+    if useTF_3m
+        mtf_any_selected := true
+        [u3, d3, uok3, dok3] = f_slope_ok(TF3, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u3 and uok3)
+        mtf_all_dn := mtf_all_dn and (d3 and dok3)
+    if useTF_5m
+        mtf_any_selected := true
+        [u5, d5, uok5, dok5] = f_slope_ok(TF5, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u5 and uok5)
+        mtf_all_dn := mtf_all_dn and (d5 and dok5)
+
+// Fallback: if MTF mode but nothing selected, use current TF
+useCurrentFallback = (slopeMode == "MTF (All selected must agree)") and (not mtf_any_selected)
+
+// Final slope gates for relaxed script
+slopeLongOK_new  = slopeMode == "Current TF only"      ? (ctf_up and ctf_upok) :
+                   useCurrentFallback                  ? (ctf_up and ctf_upok)  :
+                   mtf_all_up
+
+slopeShortOK_new = slopeMode == "Current TF only"      ? (ctf_dn and ctf_dnok) :
+                   useCurrentFallback                  ? (ctf_dn and ctf_dnok)  :
+                   mtf_all_dn
+// ================== END NEW SLOPE LOGIC ==================
+
 // Setups
 bullReversalCandle  = hammer or dragonfly or (close > open and close > open[1] and low <= low[1])
 pullbackLong        = trendOkLong  and nearAnyVWAP and bullReversalCandle and close > ta.highest(high[1], 1)
@@ -260,13 +347,13 @@ longScore = scoreAdd(trendOkLong, wTrend, useCompTrend) + scoreAdd(not inVWAPCho
 
 shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(rallyShort, wPull, useCompPull) + scoreAdd(reclaimShortPrim, wReclaim, useCompReclaim) + scoreAdd(bearFlag, wFlag, useCompFlag) + scoreAdd(precisionShort, wPrec, useCompPrec) + scoreAdd(bearCandle, wCandle, useCompCandle) + scoreAdd(bearEngulf, wEngulf, useCompEngulf) + scoreAdd(bearRetest, wRetest, useCompRetest) + scoreAdd(lowBase, wBase, useCompBase) + scoreAdd(descTri, wTri, useCompTri)
 
-// Gating toggles
+// Gating toggles  (ONLY change here: use new slope gates)
 gateSessOK   = useSessionFilter ? inSess : true
 gateAtrOK    = useAtrGate ? atrTicks >= minAtrTicks : true
 gateHTFLong  = useHTFFilter ? htfBull : true
 gateHTFShort = useHTFFilter ? htfBear : true
-gateSlopeL   = useSlopeFilter ? emaSlopeLong : true
-gateSlopeS   = useSlopeFilter ? emaSlopeShort : true
+gateSlopeL   = useSlopeFilter ? slopeLongOK_new  : true
+gateSlopeS   = useSlopeFilter ? slopeShortOK_new : true
 
 // Cooldown + daily cap + one-and-done
 var int  lastSignalBar   = na
@@ -370,8 +457,8 @@ if showGateDebug and barstate.islast
     table.cell(dbg, 1, 6, textYesNo(gateHTFLong),  bgcolor=gateColor(gateHTFLong))
     table.cell(dbg, 2, 6, textYesNo(gateHTFShort), bgcolor=gateColor(gateHTFShort))
     table.cell(dbg, 0, 7, "Slope OK")
-    table.cell(dbg, 1, 7, textYesNo(emaSlopeLong), bgcolor=gateColor(emaSlopeLong))
-    table.cell(dbg, 2, 7, textYesNo(emaSlopeShort), bgcolor=gateColor(emaSlopeShort))
+    table.cell(dbg, 1, 7, textYesNo(gateSlopeL), bgcolor=gateColor(gateSlopeL))
+    table.cell(dbg, 2, 7, textYesNo(gateSlopeS), bgcolor=gateColor(gateSlopeS))
     cgOK_vis = not inVWAPChop or not useChopGuard
     table.cell(dbg, 0, 8, "ChopGuard OK")
     table.cell(dbg, 1, 8, textYesNo(cgOK_vis), bgcolor=gateColor(cgOK_vis))
@@ -469,7 +556,7 @@ plot(showTrails and inShort ? trailShort : na, "Short ATR Trail", color=cShort, 
 plotshape(partialLong,  title="Partial LONG 3xATR",  style=shape.circle, location=location.abovebar, color=cLong,  size=size.tiny, text="PARTIAL")
 plotshape(partialShort, title="Partial SHORT 3xATR", style=shape.circle, location=location.belowbar, color=cShort, size=size.tiny, text="PARTIAL")
 plotshape(showExitSoonFlags and exitSoonLong,  title="Exit Soon LONG",  style=shape.flag,  location=location.abovebar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
-plotshape(showExitSoonFlags and exitSoonShort, title="Exit Soon SHORT", style=shape.flag,  location=location.belowbar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
+plotshape(showExitSoonFlags and exitSoonShort, title="Exit Soon SHORT", style=shape.flag,  location=location.belowbar, color=exitSoonColor, size=size.tiny, text="EXIT")
 plotshape(showHardExitFlags and hardExitLong,  title="HARD EXIT LONG",  style=shape.cross, location=location.abovebar, color=hardExitColor, size=size.tiny, text="EXIT")
 plotshape(showHardExitFlags and hardExitShort, title="HARD EXIT SHORT", style=shape.cross, location=location.belowbar, color=hardExitColor, size=size.tiny, text="EXIT")
 
