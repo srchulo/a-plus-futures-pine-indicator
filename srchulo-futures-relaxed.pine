@@ -461,7 +461,7 @@ alertcondition(softHeadsUpShort, title="Heads-Up SHORT", message="Heads-up: clos
 
 // Gate Debug panel
 grpDbg = "Debug"
-showGateDebug = input.bool(true, "Show Gate Debug panel", group=grpDbg)
+showGateDebug = input.bool(false, "Show Gate Debug panel", group=grpDbg)
 gateColor(b) => b ? color.new(color.lime, 0) : color.new(color.red, 0)
 textYesNo(b) => b ? "YES" : "NO"
 var table dbg = na
