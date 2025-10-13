@@ -12,18 +12,23 @@ htfTF      = input.string("15", "HTF EMA ribbon (minutes)", group=grpTrend)
 // === Internal "Moxie-like" slope settings (MTF-aware)
 grpSlope = "Moxie-like Slope Filter"
 slopeMode = input.string("MTF (All selected must agree)", "Slope Mode", options=["Current TF only","MTF (All selected must agree)"], group=grpSlope)
-useTF_2m  = input.bool(true,  "Use 2m", group=grpSlope)
-useTF_3m  = input.bool(true,  "Use 3m", group=grpSlope)
-useTF_5m  = input.bool(false, "Use 5m", group=grpSlope)
+useTF_2m   = input.bool(true,  "Use 2m",  group=grpSlope)
+useTF_3m   = input.bool(true,  "Use 3m",  group=grpSlope)
+useTF_5m   = input.bool(false, "Use 5m",  group=grpSlope)
+useTF_15m  = input.bool(false, "Use 15m", group=grpSlope)
+useTF_30m  = input.bool(false, "Use 30m", group=grpSlope)
+useTF_1h   = input.bool(false, "Use 1h",  group=grpSlope)
+useTF_4h   = input.bool(false, "Use 4h",  group=grpSlope)
+useTF_1D   = input.bool(false, "Use 1D",  group=grpSlope)
 
 // Slope calc tuning (uses your 8/21/34 EMA family)
-slopeLen      = input.int(5,   "Slope window (bars)", group=grpSlope, minval=2)
-slopeSmooth   = input.int(3,   "Slope smoothing (EMA)", group=grpSlope, minval=1)
-slopeMagLTF   = input.float(0.00018, "Min slope magnitude (LTF)", group=grpSlope, step=0.00001)
-slopeMagHTF   = input.float(0.00013, "Min slope magnitude (MTF)", group=grpSlope, step=0.00001)
-persistLTF    = input.int(1,   "Persistence LTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
-persistMTF    = input.int(2,   "Persistence MTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
-freezeSlopeMTF= input.bool(true, "Freeze MTF at closed bar (no intrabar flicker)", group=grpSlope)
+slopeLen       = input.int(5,   "Slope window (bars)", group=grpSlope, minval=2)
+slopeSmooth    = input.int(3,   "Slope smoothing (EMA)", group=grpSlope, minval=1)
+slopeMagLTF    = input.float(0.00018, "Min slope magnitude (LTF)", group=grpSlope, step=0.00001)
+slopeMagHTF    = input.float(0.00013, "Min slope magnitude (MTF)", group=grpSlope, step=0.00001)
+persistLTF     = input.int(1,   "Persistence LTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
+persistMTF     = input.int(2,   "Persistence MTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
+freezeSlopeMTF = input.bool(false, "Freeze MTF at closed bar (no intrabar flicker)", group=grpSlope)
 
 grpVWAP = "VWAP / AVWAP"
 useVWAP  = input.bool(true, "Use session VWAP", group=grpVWAP)
@@ -72,7 +77,7 @@ triggerMode      = input.string("Breakout", "Trigger mode", options=["Score","Si
 
 // NEW: anti-repaint controls
 calcOnClose = input.bool(false, "Lock signals on bar close (no flicker)", group=grpDec)
-freezeHTF   = input.bool(true,  "Freeze HTF values (no intrabar updates)", group=grpDec)
+freezeHTF   = input.bool(false,  "Freeze HTF values (no intrabar updates)", group=grpDec)
 
 // NEW: toggles for base alignment
 requireNearVWBase    = input.bool(false,"Base requires Near-VWAP", group=grpDec)
@@ -110,7 +115,7 @@ minRangeATR    = input.float(0.20, "Min bar range (ATR x)", group=grpDec, step=0
 nearTicks      = input.int(3, "Heads-up proximity (ticks)", group=grpDec, minval=0)
 
 // NEW: >2nd-ATR momentum+volume filters (symmetrical)
-useATR2MomFilter = input.bool(true, "Use >2nd-ATR momentum+vol filter (both sides)", group=grpDec)
+useATR2MomFilter = input.bool(true, "Use >2nd ATR momentum+vol filter (both sides)", group=grpDec)
 volException = input.float(1.60, "Vol × when >2nd ATR (Strict)", group=grpDec, step=0.05)
 
 wTrend   = input.int(2, "W Trend", group=grpDec, minval=0, maxval=5)
@@ -174,7 +179,7 @@ exitSoonColor    = input.color(color.new(color.yellow, 0), "Exit Soon color", gr
 hardExitColor    = input.color(color.new(color.orange, 0), "Hard Exit color", group=grpExit)
 
 // ---------- Show / Alerts
-showContext   = input.bool(true,  "Plot EMAs + VWAP/AVWAP",  group="Show / Alerts")
+showContext   = input.bool(false,  "Plot EMAs + VWAP/AVWAP",  group="Show / Alerts")
 showSetups    = input.bool(true,  "Plot setup arrows",       group="Show / Alerts")
 enableAlerts  = input.bool(true,  "Enable confirmed entry alerts", group="Show / Alerts")
 showCountdown = input.bool(true,  "Show bar-close countdown", group="Show / Alerts")
@@ -225,9 +230,14 @@ f_slope_current() =>
     [_up, _down, _upOK, _downOK]
 
 // ===== New slope consensus (replaces emaSlopeLong/Short)
-var string TF2 = "2"
-var string TF3 = "3"
-var string TF5 = "5"
+var string TF2    = "2"
+var string TF3    = "3"
+var string TF5    = "5"
+var string TF15   = "15"
+var string TF30   = "30"
+var string TF60   = "60"
+var string TF240  = "240"
+var string TFD    = "D"
 
 // Current-TF slope (declare fresh locals via destructuring)
 [ctf_up, ctf_dn, ctf_upok, ctf_dnok] = f_slope_current()
@@ -255,6 +265,36 @@ if slopeMode == "MTF (All selected must agree)"
         [u5, d5, uok5, dok5] = f_slope_ok(TF5, slopeMagHTF, persistMTF, freezeSlopeMTF)
         mtf_all_up := mtf_all_up and (u5 and uok5)
         mtf_all_dn := mtf_all_dn and (d5 and dok5)
+
+    if useTF_15m
+        mtf_any_selected := true
+        [u15, d15, uok15, dok15] = f_slope_ok(TF15, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u15 and uok15)
+        mtf_all_dn := mtf_all_dn and (d15 and dok15)
+
+    if useTF_30m
+        mtf_any_selected := true
+        [u30, d30, uok30, dok30] = f_slope_ok(TF30, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u30 and uok30)
+        mtf_all_dn := mtf_all_dn and (d30 and dok30)
+
+    if useTF_1h
+        mtf_any_selected := true
+        [u60, d60, uok60, dok60] = f_slope_ok(TF60, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u60 and uok60)
+        mtf_all_dn := mtf_all_dn and (d60 and dok60)
+
+    if useTF_4h
+        mtf_any_selected := true
+        [u240, d240, uok240, dok240] = f_slope_ok(TF240, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (u240 and uok240)
+        mtf_all_dn := mtf_all_dn and (d240 and dok240)
+
+    if useTF_1D
+        mtf_any_selected := true
+        [ud, dd, uokd, dokd] = f_slope_ok(TFD, slopeMagHTF, persistMTF, freezeSlopeMTF)
+        mtf_all_up := mtf_all_up and (ud and uokd)
+        mtf_all_dn := mtf_all_dn and (dd and dokd)
 
 // Fallback: if MTF mode is chosen but no TFs are selected, use current TF
 useCurrentFallback = (slopeMode == "MTF (All selected must agree)") and (not mtf_any_selected)
@@ -311,10 +351,8 @@ htfBull_preview = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaFas
 htfBear_preview = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaFastLen) < ta.ema(close, emaMidLen) and ta.ema(close, emaMidLen) < ta.ema(close, emaSlowLen), lookahead=barmerge.lookahead_off)
 htfBull_locked = htfBull
 htfBear_locked = htfBear
-headsUpLong  = htfBull_preview and not htfBull_locked
-headsUpShort = htfBear_preview and not htfBear_locked
-plotshape(headsUpLong,  title="HTF Heads-Up (Long)",  style=shape.circle, location=location.top,    size=size.tiny, color=color.new(color.green, 0))
-plotshape(headsUpShort, title="HTF Heads-Up (Short)", style=shape.circle, location=location.bottom, size=size.tiny, color=color.new(color.red,   0))
+plotshape(htfBull_preview and not htfBull_locked,  title="HTF Heads-Up (Long)",  style=shape.circle, location=location.top,    size=size.tiny, color=color.new(color.green, 0))
+plotshape(htfBear_preview and not htfBear_locked,  title="HTF Heads-Up (Short)", style=shape.circle, location=location.bottom, size=size.tiny, color=color.new(color.red,   0))
 
 // Volume
 volSMA = ta.sma(volume, volLen)
