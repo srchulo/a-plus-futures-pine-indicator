@@ -1,6 +1,6 @@
 //@version=5
 indicator("Flush Continuation + Exit (Moxie 0-cross — both sides, profit-optimized + MOX)",
-     overlay=true, max_labels_count=500, max_lines_count=500)
+     overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
 
 // ========== Helpers ==========
 slope(src, len) => (src - nz(src[len])) / len
