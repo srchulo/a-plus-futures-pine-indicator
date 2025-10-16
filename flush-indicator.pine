@@ -62,6 +62,11 @@ minHoldLongBase  = input.int(20, "Longs after 0↑: min-hold bars",  minval=1, g
 moxATRAdapt      = input.bool(true, "ATR adapt MOX (±20%/±10%)", group=groupMOX)
 revThresh        = input.int(2, "Reversal Strength needed for early exit", minval=1, maxval=5, group=groupMOX)
 
+// --- Timeframe Scaling (NEW)
+groupScale = "Timeframe Scaling"
+baselineTFmin = input.int(3, "Baseline timeframe (minutes)", minval=1, group=groupScale)  // tuned on 3m
+scaleEnabled  = input.bool(true, "Auto-scale bar-based settings by timeframe", group=groupScale)
+
 // --- Display & Logger
 groupDisp = "Display"
 minimalMode   = input.bool(false, "Minimal mode (show only MOX / EARLY / EXIT)", group=groupDisp)
@@ -110,6 +115,13 @@ var int _lastIdx = na
 if barstate.islast
     _lastIdx := bar_index
 allowLabels = na(_lastIdx) ? true : bar_index >= (_lastIdx - labelLookbackBars)
+
+// ===== Timeframe multiplier (NEW)
+tfMult = scaleEnabled and timeframe.isminutes ? (timeframe.multiplier * 1.0) / baselineTFmin : 1.0
+barsLateScaled  = math.max(1, math.round(barsLate * tfMult))
+pxBarsWinScaled = math.max(1, math.round(pxBarsWin * tfMult))
+// modest scaling for confirmation-like concepts (none in this version)
+// (if you later add crossConfirmBars / crossWindowBars, scale similarly)
 
 // ========== Core series ==========
 ema8  = ta.ema(close, 8)
@@ -172,9 +184,11 @@ fcsDn += (moxieProxy < 0 and slope(moxieProxy,3) < 0) ? wMoxieRun : 0
 fcsDn += ((ema21 - ema8) - nz((ema21 - ema8)[1]) + (ema34 - ema21) - nz((ema34 - ema21)[1]) > 0) ? wEMAGapAcc : 0
 fcsDn += (impulse and bearBody) ? wImpulse : 0
 fcsDn += earlyBoostDn ? wEarlyBoost : 0
+// scaled "too late" penalty
+tooLateDn = barsSinceDown > barsLateScaled
+fcsDn -= (tooLateDn ? wTooLate : 0)
 fcsDn -= ((close <= bandN3dn) and (low < bandN3dn) and closePct > 0.60) ? wTouchWick : 0
 fcsDn -= bullDiv ? wDiv : 0
-fcsDn -= (barsSinceDown > barsLate) ? wTooLate : 0
 
 // Longs continuation (FCS↑)
 earlyBoostUp = (moxieCrossUp or barsSinceUp <= 1) and fastDelta > avgDelta * (-0.6) and (impulse and bullBody or volThrust and bullBody)
@@ -190,9 +204,11 @@ fcsUp += (moxieProxy > 0 and slope(moxieProxy,3) > 0) ? wMoxieRun : 0
 fcsUp += ((ema8 - ema21) - nz((ema8 - ema21)[1]) + (ema21 - ema34) - nz((ema21 - ema34)[1]) > 0) ? wEMAGapAcc : 0
 fcsUp += (impulse and bullBody) ? wImpulse : 0
 fcsUp += earlyBoostUp ? wEarlyBoost : 0
+// scaled "too late" penalty
+tooLateUp = barsSinceUp > barsLateScaled
+fcsUp -= (tooLateUp ? wTooLate : 0)
 fcsUp -= ((close >= bandP3up) and (high > bandP3up) and topWickPct > 0.60) ? wTouchWick : 0
 fcsUp -= bearDiv ? wDiv : 0
-fcsUp -= (barsSinceUp > barsLate) ? wTooLate : 0
 
 // ===== Entry labels (respect toggles + allowLabels)
 if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDn >= entryThresh
@@ -201,7 +217,12 @@ if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp 
     label.new(bar_index, low,  "FCS↑: " + str.tostring(fcsUp), style=label.style_label_up,   textcolor=color.white, color=color.new(color.green, 0))
 
 // ===== Extreme detectors (PCX bottom for shorts, PCT top for longs)
-dynWin = pxAdaptive ? (atr > atrMed ?  math.max(7, pxBarsWin - 3) : math.min(12, pxBarsWin + 2)) : pxBarsWin
+// scaled px window (with scaled ±offsets)
+offMinus = math.max(1, math.round(3 * tfMult))
+offPlus  = math.max(1, math.round(2 * tfMult))
+dynWin   = pxAdaptive
+     ? (atr > atrMed ? math.max(1, pxBarsWinScaled - offMinus) : pxBarsWinScaled + offPlus)
+     : pxBarsWinScaled
 
 withinPostDn  = pxEnabled and barsSinceDown >= 0 and barsSinceDown <= dynWin
 pcx = 0
@@ -232,15 +253,16 @@ var bool inLong  = false
 var int  barsLong = 0
 var int  longMOX  = 0
 
+// MOX helpers — scale min-hold by timeframe (NEW)
 getMinHoldShort() =>
     base = minHoldShortBase
-    adj  = moxATRAdapt ? (atr > atrMed ? math.round(base * 0.8) : math.round(base * 1.1)) : base
-    math.max(1, adj)
+    baseScaled = scaleEnabled ? math.round(base * tfMult) : base
+    math.max(1, baseScaled)
 
 getMinHoldLong() =>
     base = minHoldLongBase
-    adj  = moxATRAdapt ? (atr > atrMed ? math.round(base * 0.8) : math.round(base * 1.1)) : base
-    math.max(1, adj)
+    baseScaled = scaleEnabled ? math.round(base * tfMult) : base
+    math.max(1, baseScaled)
 
 // Enter states
 if (barsSinceDown <= 2) and (fcsDn >= entryThresh)
@@ -249,7 +271,7 @@ if (barsSinceDown <= 2) and (fcsDn >= entryThresh)
     shortMOX := getMinHoldShort()
     if allowLabels and _showMOX
         label.new(bar_index, high, "MOX↓ set: " + str.tostring(shortMOX), style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
-    logIdx := logDo("SHORT", "ENTRY", close, fcsDn, pcx, NAf, logIdx)
+    logIdx := logDo("SHORT", "ENTRY", close, fcsDn, NAf, NAf, logIdx)
 
 if (barsSinceUp <= 2) and (fcsUp >= entryThresh)
     inLong  := true
@@ -294,8 +316,7 @@ if allowLabels and _showMOX and inShort and barsShort == shortMOX
 if allowLabels and _showMOX and inLong and barsLong == longMOX
     label.new(bar_index, high, "MOX↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.yellow, 0))
 
-// ===== EARLY EXIT (hardened)
-// SHORTS
+// ===== EARLY EXIT (hardened) — unchanged
 tcsStrongDn   = tcsDown >= 3
 moxieStillDn  = slope(moxieProxy, 3) < 0 and moxieProxy < 0
 deepBelow2ATR = (ema21 - 2.0*atr) - close > 0.4*atr
@@ -324,12 +345,11 @@ suppressEarlyShort = deepBelow2ATR and moxieStillDn and tcsStrongDn
 
 if allowLabels and _showEARLY and inShort and earlyExitOkShort and not suppressEarlyShort
     label.new(bar_index, low, "EARLY EXIT↓", style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
-    logIdx := logDo("SHORT", "EARLY↓", close, fcsDn, pcx, tcsDown+rssUpFromDown, logIdx)
+    logIdx := logDo("SHORT", "EARLY↓", close, fcsDn, NAf, tcsDown+rssUpFromDown, logIdx)
     if closeOnEarly
         inShort   := false
         barsShort := 0
 
-// LONGS (mirror)
 tcsStrongUp   = tcsUp >= 3
 moxieStillUp  = slope(moxieProxy, 3) > 0 and moxieProxy > 0
 deepAbove2ATR = close - (ema21 + 2.0*atr) > 0.4*atr
@@ -358,12 +378,12 @@ suppressEarlyLong = deepAbove2ATR and moxieStillUp and tcsStrongUp
 
 if allowLabels and _showEARLY and inLong and earlyExitOkLong and not suppressEarlyLong
     label.new(bar_index, high, "EARLY EXIT↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.teal, 0))
-    logIdx := logDo("LONG", "EARLY↑", close, fcsUp, pct, tcsUp+rssDnFromUp, logIdx)
+    logIdx := logDo("LONG", "EARLY↑", close, fcsUp, NAf, tcsUp+rssDnFromUp, logIdx)
     if closeOnEarly
         inLong   := false
         barsLong := 0
 
-// ===== Final EXIT (confirmed) — allowed only after MOX unless TCS weakens
+// ===== Final EXIT (confirmed) — unchanged thresholds
 exitShortAllowed = inShort and (barsShort >= shortMOX or tcsDown <= 1)
 exitShortCond =
       (close > ema8) or (close > vwapSess) or bullDiv
@@ -371,7 +391,7 @@ exitShortCond =
    or (close > math.max(high[1], high[2])) or (fcsDn <= exitThresh) or (barsShort > holdBarsMax)
 if allowLabels and _showEXIT and exitShortAllowed and exitShortCond
     label.new(bar_index, low, "EXIT↓", style=label.style_label_up, textcolor=color.white, color=color.new(color.lime, 0))
-    logIdx := logDo("SHORT", "EXIT↓", close, fcsDn, pcx, tcsDown, logIdx)
+    logIdx := logDo("SHORT", "EXIT↓", close, fcsDn, NAf, tcsDown, logIdx)
     inShort   := false
     barsShort := 0
 
@@ -382,7 +402,7 @@ exitLongCond =
    or (close < math.min(low[1], low[2])) or (fcsUp <= exitThresh) or (barsLong > holdBarsMax)
 if allowLabels and _showEXIT and exitLongAllowed and exitLongCond
     label.new(bar_index, high, "EXIT↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.lime, 0))
-    logIdx := logDo("LONG", "EXIT↑", close, fcsUp, pct, tcsUp, logIdx)
+    logIdx := logDo("LONG", "EXIT↑", close, fcsUp, NAf, tcsUp, logIdx)
     inLong   := false
     barsLong := 0
 
