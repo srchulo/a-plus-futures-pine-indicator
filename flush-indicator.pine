@@ -2,7 +2,6 @@
 indicator("Flush Continuation + Exit (Moxie 0-cross — both sides, profit-optimized + MOX)",
      overlay=true, max_labels_count=500, max_lines_count=500)
 
-
 // ========== Helpers ==========
 slope(src, len) => (src - nz(src[len])) / len
 
@@ -63,6 +62,45 @@ minHoldLongBase  = input.int(20, "Longs after 0↑: min-hold bars",  minval=1, g
 moxATRAdapt      = input.bool(true, "ATR adapt MOX (±20%/±10%)", group=groupMOX)
 revThresh        = input.int(2, "Reversal Strength needed for early exit", minval=1, maxval=5, group=groupMOX)
 
+// --- Display & Logger
+groupDisp = "Display"
+minimalMode   = input.bool(false, "Minimal mode (show only MOX / EARLY / EXIT)", group=groupDisp)
+showFCS       = input.bool(true,  "Show FCS labels", group=groupDisp)
+showPCX       = input.bool(true,  "Show PCX labels", group=groupDisp)
+showPCT       = input.bool(true,  "Show PCT labels", group=groupDisp)
+showMOX       = input.bool(true,  "Show MOX labels", group=groupDisp)
+showEARLY     = input.bool(true,  "Show EARLY EXIT labels", group=groupDisp)
+showEXIT      = input.bool(true,  "Show EXIT labels", group=groupDisp)
+
+groupLog = "Event Logger"
+logEnabled    = input.bool(false, "Show on-chart event log (table)", group=groupLog)
+logRows       = input.int(8, "Rows to keep", minval=3, maxval=20, group=groupLog)
+
+// Apply minimal mode
+_showFCS   = minimalMode ? false : showFCS
+_showPCX   = minimalMode ? false : showPCX
+_showPCT   = minimalMode ? false : showPCT
+_showMOX   = showMOX or minimalMode
+_showEARLY = showEARLY or minimalMode
+_showEXIT  = showEXIT or minimalMode
+
+// ===== Logger — declare first; pure function returns next index
+var table t = na
+var int logIdx = 0
+var float NAf = na
+
+logDo(string _side, string _event, float _price, float _fcs, float _pxx, float _tcs_rss, int _idx) =>
+    if logEnabled and not na(t)
+        row = 1 + (_idx % logRows)
+        table.cell(t, 0, row, str.tostring(bar_index))
+        table.cell(t, 1, row, _side)
+        table.cell(t, 2, row, _event)
+        table.cell(t, 3, row, str.tostring(_price, format.mintick))
+        table.cell(t, 4, row, na(_fcs)     ? "" : str.tostring(_fcs))
+        table.cell(t, 5, row, na(_pxx)     ? "" : str.tostring(_pxx))
+        table.cell(t, 6, row, na(_tcs_rss) ? "" : str.tostring(_tcs_rss))
+    _idx + 1
+
 // ========== Core series ==========
 ema8  = ta.ema(close, 8)
 ema21 = ta.ema(close, 21)
@@ -80,9 +118,9 @@ vwapSess  = ta.vwap(close)
 atr       = ta.atr(atrLen)
 atrMed    = ta.sma(atr, 200)
 
-bandN3dn  = ema21 - 3.0 * atr     // −3 ATR (bottom band)
+bandN3dn  = ema21 - 3.0 * atr     // −3 ATR
 bandN2_5dn= ema21 - 2.5 * atr
-bandP3up  = ema21 + 3.0 * atr     // +3 ATR (top band)
+bandP3up  = ema21 + 3.0 * atr     // +3 ATR
 bandP2_5up= ema21 + 2.5 * atr
 
 volThrust = volume / ta.sma(volume, lenVol) >= volMult
@@ -146,16 +184,15 @@ fcsUp -= ((close >= bandP3up) and (high > bandP3up) and topWickPct > 0.60) ? wTo
 fcsUp -= bearDiv ? wDiv : 0
 fcsUp -= (barsSinceUp > barsLate) ? wTooLate : 0
 
-// ===== Entry labels (visual only)
-if (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDn >= entryThresh
+// ===== Entry labels (respect toggles)
+if _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDn >= entryThresh
     label.new(bar_index, high, "FCS↓: " + str.tostring(fcsDn), style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
-if (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUp >= entryThresh
+if _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUp >= entryThresh
     label.new(bar_index, low,  "FCS↑: " + str.tostring(fcsUp), style=label.style_label_up,   textcolor=color.white, color=color.new(color.green, 0))
 
 // ===== Extreme detectors (PCX bottom for shorts, PCT top for longs)
 dynWin = pxAdaptive ? (atr > atrMed ?  math.max(7, pxBarsWin - 3) : math.min(12, pxBarsWin + 2)) : pxBarsWin
 
-// PCX (bottom after 0↓)
 withinPostDn  = pxEnabled and barsSinceDown >= 0 and barsSinceDown <= dynWin
 pcx = 0
 pcx += (withinPostDn and moxieProxy < 0 and slope(moxieProxy,3) > 0 and moxieProxy > moxieProxy[1]) ? 1 : 0
@@ -163,10 +200,9 @@ pcx += (withinPostDn and rsi < 35 and slope(rsi,3) > 0) ? 1 : 0
 pcx += (withinPostDn and (volume / ta.sma(volume, lenVol) >= pxVolMult)) ? 1 : 0
 pcx += (withinPostDn and ((low < bandN3dn) or (close <= bandN2_5dn)) and ((high - low) > 0 ? (close - low) / (high - low) > pxWickMin : false)) ? 1 : 0
 pcx += (withinPostDn and ((close >= ema21 - 1.8*atr) or ta.crossover(close, ema8) or (close > vwapSess) or (close > high[1]) or (close > close[1] and close[1] > close[2]))) ? 1 : 0
-if withinPostDn and pcx >= pxThresh
+if _showPCX and withinPostDn and pcx >= pxThresh
     label.new(bar_index, low, "PCX: " + str.tostring(pcx), style=label.style_label_up, textcolor=color.white, color=color.new(color.lime, 0))
 
-// PCT (top after 0↑)
 withinPostUp  = pxEnabled and barsSinceUp >= 0 and barsSinceUp <= dynWin
 pct = 0
 pct += (withinPostUp and moxieProxy > 0 and slope(moxieProxy,3) < 0 and moxieProxy < moxieProxy[1]) ? 1 : 0
@@ -174,10 +210,10 @@ pct += (withinPostUp and rsi > 65 and slope(rsi,3) < 0) ? 1 : 0
 pct += (withinPostUp and (volume / ta.sma(volume, lenVol) >= pxVolMult)) ? 1 : 0
 pct += (withinPostUp and ((high > bandP3up) or (close >= bandP2_5up)) and ((high - low) > 0 ? (high - close) / (high - low) > pxWickMin : false)) ? 1 : 0
 pct += (withinPostUp and ((close <= ema21 + 1.8*atr) or ta.crossunder(close, ema8) or (close < vwapSess) or (close < low[1]) or (close < close[1] and close[1] < close[2]))) ? 1 : 0
-if withinPostUp and pct >= pxThresh
+if _showPCT and withinPostUp and pct >= pxThresh
     label.new(bar_index, high, "PCT: " + str.tostring(pct), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
 
-// ========== Position States (Short & Long tracked separately) ==========
+// ========== Position States ==========
 var bool inShort = false
 var int  barsShort = 0
 var int  shortMOX  = 0
@@ -196,21 +232,24 @@ getMinHoldLong() =>
     adj  = moxATRAdapt ? (atr > atrMed ? math.round(base * 0.8) : math.round(base * 1.1)) : base
     math.max(1, adj)
 
-// --- Enter Short on FCS↓ near cross
+// Enter states
 if (barsSinceDown <= 2) and (fcsDn >= entryThresh)
     inShort  := true
     barsShort:= 0
     shortMOX := getMinHoldShort()
-    label.new(bar_index, high, "MOX↓ set: " + str.tostring(shortMOX), style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
+    if _showMOX
+        label.new(bar_index, high, "MOX↓ set: " + str.tostring(shortMOX), style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
+    logIdx := logDo("SHORT", "ENTRY", close, fcsDn, pcx, NAf, logIdx)
 
-// --- Enter Long on FCS↑ near cross (mirror)
 if (barsSinceUp <= 2) and (fcsUp >= entryThresh)
     inLong  := true
     barsLong:= 0
     longMOX := getMinHoldLong()
-    label.new(bar_index, low, "MOX↑ set: " + str.tostring(longMOX), style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
+    if _showMOX
+        label.new(bar_index, low, "MOX↑ set: " + str.tostring(longMOX), style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
+    logIdx := logDo("LONG", "ENTRY", close, fcsUp, NAf, NAf, logIdx)
 
-// ===== Reversal Strength & Trend Continuation (both sides)
+// ===== Reversal Strength & Trend Continuation
 tcsDown = 0
 tcsDown += ribbonBear and ribbonSlopeDn ? 1 : 0
 tcsDown += close < vwapSess ? 1 : 0
@@ -239,19 +278,18 @@ rssDnFromUp += (close < close[1] and close[1] < close[2]) ? 1 : 0
 rssDnFromUp += (rsi < 50 and slope(rsi,3) < 0) ? 1 : 0
 rssDnFromUp += close <= ema21 + 2*atr ? 1 : 0
 
-// ===== MOX labels at timer
-if inShort and barsShort == shortMOX
+// MOX labels
+if _showMOX and inShort and barsShort == shortMOX
     label.new(bar_index, low, "MOX↓", style=label.style_label_up, textcolor=color.white, color=color.new(color.yellow, 0))
-if inLong and barsLong == longMOX
+if _showMOX and inLong and barsLong == longMOX
     label.new(bar_index, high, "MOX↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.yellow, 0))
 
-// ===== EARLY EXIT (hardened) =====
-// ---- SHORTS (after 0↓)
+// ===== EARLY EXIT (hardened)
+// SHORTS
 tcsStrongDn   = tcsDown >= 3
 moxieStillDn  = slope(moxieProxy, 3) < 0 and moxieProxy < 0
 deepBelow2ATR = (ema21 - 2.0*atr) - close > 0.4*atr
 
-// Failure-test-of-low (FTL): second poke + weaker body/longer lower wick + vol not increasing
 bodySize   = math.abs(close - open)
 prevBody   = math.abs(close[1] - open[1])
 ftlSecondPoke = low <= low[2]
@@ -259,12 +297,10 @@ ftlWeaker     = (bodySize < prevBody) and ((high - low) > 0 ? (close - low) / (h
 ftlVolOK      = volume <= volume[1]
 ftlValid      = ftlSecondPoke and ftlWeaker and ftlVolOK
 
-// Added confirmations
 higherLow        = low > low[1]
 twoClosesAbove8  = close > ema8 and close[1] > ema8
 volDecay         = ta.sma(volume, 3) < ta.sma(volume, 20)
 
-// Stricter timing/score if trend strong
 requiredRSSShort = revThresh + (tcsStrongDn ? 2 : 1)
 minFracShort     = tcsStrongDn ? 0.70 : 0.50
 allowEarlyShort  = inShort and barsShort >= math.floor(shortMOX * minFracShort)
@@ -272,33 +308,29 @@ allowEarlyShort  = inShort and barsShort >= math.floor(shortMOX * minFracShort)
 earlyExitOkShort =
      allowEarlyShort
   and rssUpFromDown >= requiredRSSShort
-  and ftlValid
-  and higherLow
-  and twoClosesAbove8
-  and volDecay
+  and ftlValid and higherLow and twoClosesAbove8 and volDecay
 
 suppressEarlyShort = deepBelow2ATR and moxieStillDn and tcsStrongDn
 
-if inShort and earlyExitOkShort and not suppressEarlyShort
+if _showEARLY and inShort and earlyExitOkShort and not suppressEarlyShort
     label.new(bar_index, low, "EARLY EXIT↓", style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
+    logIdx := logDo("SHORT", "EARLY↓", close, fcsDn, pcx, tcsDown+rssUpFromDown, logIdx)
     if closeOnEarly
         inShort   := false
         barsShort := 0
 
-// ---- LONGS (after 0↑) — mirror
+// LONGS (mirror)
 tcsStrongUp   = tcsUp >= 3
 moxieStillUp  = slope(moxieProxy, 3) > 0 and moxieProxy > 0
 deepAbove2ATR = close - (ema21 + 2.0*atr) > 0.4*atr
 
-// Failure-test-of-high (FTH): second poke + weaker body/longer upper wick + vol not increasing
 bodySizeU     = math.abs(close - open)
 prevBodyU     = math.abs(close[1] - open[1])
 fthSecondPoke = high >= high[2]
-fthWeaker     = (bodySizeU < prevBodyU) and ((high - low) > 0 ? (high - close) / (high - low) > pxWickMin : false)
+fthWeaker     = (bodySizeU < prevBodyU) and ((high - close) / math.max(high - low, 1e-6) > pxWickMin)
 fthVolOK      = volume <= volume[1]
 fthValid      = fthSecondPoke and fthWeaker and fthVolOK
 
-// Added confirmations
 lowerHigh        = high < high[1]
 twoClosesBelow8  = close < ema8 and close[1] < ema8
 volDecayU        = ta.sma(volume, 3) < ta.sma(volume, 20)
@@ -310,39 +342,37 @@ allowEarlyLong  = inLong and barsLong >= math.floor(longMOX * minFracLong)
 earlyExitOkLong =
      allowEarlyLong
   and rssDnFromUp >= requiredRSSLong
-  and fthValid
-  and lowerHigh
-  and twoClosesBelow8
-  and volDecayU
+  and fthValid and lowerHigh and twoClosesBelow8 and volDecayU
 
 suppressEarlyLong = deepAbove2ATR and moxieStillUp and tcsStrongUp
 
-if inLong and earlyExitOkLong and not suppressEarlyLong
+if _showEARLY and inLong and earlyExitOkLong and not suppressEarlyLong
     label.new(bar_index, high, "EARLY EXIT↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.teal, 0))
+    logIdx := logDo("LONG", "EARLY↑", close, fcsUp, pct, tcsUp+rssDnFromUp, logIdx)
     if closeOnEarly
         inLong   := false
         barsLong := 0
 
 // ===== Final EXIT (confirmed) — allowed only after MOX unless TCS weakens
-// Shorts
 exitShortAllowed = inShort and (barsShort >= shortMOX or tcsDown <= 1)
 exitShortCond =
       (close > ema8) or (close > vwapSess) or bullDiv
    or ((low < bandN3dn) and ((close >= ema21 - 1.8*atr) or (close > high[1])))
    or (close > math.max(high[1], high[2])) or (fcsDn <= exitThresh) or (barsShort > holdBarsMax)
-if exitShortAllowed and exitShortCond
+if _showEXIT and exitShortAllowed and exitShortCond
     label.new(bar_index, low, "EXIT↓", style=label.style_label_up, textcolor=color.white, color=color.new(color.lime, 0))
+    logIdx := logDo("SHORT", "EXIT↓", close, fcsDn, pcx, tcsDown, logIdx)
     inShort   := false
     barsShort := 0
 
-// Longs
 exitLongAllowed = inLong and (barsLong >= longMOX or tcsUp <= 1)
 exitLongCond =
       (close < ema8) or (close < vwapSess) or bearDiv
    or ((high > bandP3up) and ((close <= ema21 + 1.8*atr) or (close < low[1])))
    or (close < math.min(low[1], low[2])) or (fcsUp <= exitThresh) or (barsLong > holdBarsMax)
-if exitLongAllowed and exitLongCond
+if _showEXIT and exitLongAllowed and exitLongCond
     label.new(bar_index, high, "EXIT↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.lime, 0))
+    logIdx := logDo("LONG", "EXIT↑", close, fcsUp, pct, tcsUp, logIdx)
     inLong   := false
     barsLong := 0
 
@@ -351,3 +381,14 @@ if inShort
     barsShort += 1
 if inLong
     barsLong  += 1
+
+// ===== Simple on-chart logger (table) — ring buffer (no shifting) =====
+if logEnabled and na(t)
+    t := table.new(position.top_right, 7, logRows + 1)
+    table.cell(t, 0, 0, "Bar",   text_color=color.white, bgcolor=color.new(color.silver, 25))
+    table.cell(t, 1, 0, "Side",  text_color=color.white, bgcolor=color.new(color.silver, 25))
+    table.cell(t, 2, 0, "Event", text_color=color.white, bgcolor=color.new(color.silver, 25))
+    table.cell(t, 3, 0, "Price", text_color=color.white, bgcolor=color.new(color.silver, 25))
+    table.cell(t, 4, 0, "FCS",   text_color=color.white, bgcolor=color.new(color.silver, 25))
+    table.cell(t, 5, 0, "PCX/PCT",text_color=color.white, bgcolor=color.new(color.silver, 25))
+    table.cell(t, 6, 0, "TCS/RSS",text_color=color.white, bgcolor=color.new(color.silver, 25))
