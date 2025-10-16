@@ -245,16 +245,79 @@ if inShort and barsShort == shortMOX
 if inLong and barsLong == longMOX
     label.new(bar_index, high, "MOX↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.yellow, 0))
 
-// ===== EARLY EXIT (only with strong reversal & after 40% MOX)
-allowEarlyShort = inShort and barsShort >= math.floor(shortMOX * 0.4) and rssUpFromDown >= revThresh
-if allowEarlyShort
+// ===== EARLY EXIT (hardened) =====
+// ---- SHORTS (after 0↓)
+tcsStrongDn   = tcsDown >= 3
+moxieStillDn  = slope(moxieProxy, 3) < 0 and moxieProxy < 0
+deepBelow2ATR = (ema21 - 2.0*atr) - close > 0.4*atr
+
+// Failure-test-of-low (FTL): second poke + weaker body/longer lower wick + vol not increasing
+bodySize   = math.abs(close - open)
+prevBody   = math.abs(close[1] - open[1])
+ftlSecondPoke = low <= low[2]
+ftlWeaker     = (bodySize < prevBody) and ((high - low) > 0 ? (close - low) / (high - low) > pxWickMin : false)
+ftlVolOK      = volume <= volume[1]
+ftlValid      = ftlSecondPoke and ftlWeaker and ftlVolOK
+
+// Added confirmations
+higherLow        = low > low[1]
+twoClosesAbove8  = close > ema8 and close[1] > ema8
+volDecay         = ta.sma(volume, 3) < ta.sma(volume, 20)
+
+// Stricter timing/score if trend strong
+requiredRSSShort = revThresh + (tcsStrongDn ? 2 : 1)
+minFracShort     = tcsStrongDn ? 0.70 : 0.50
+allowEarlyShort  = inShort and barsShort >= math.floor(shortMOX * minFracShort)
+
+earlyExitOkShort =
+     allowEarlyShort
+  and rssUpFromDown >= requiredRSSShort
+  and ftlValid
+  and higherLow
+  and twoClosesAbove8
+  and volDecay
+
+suppressEarlyShort = deepBelow2ATR and moxieStillDn and tcsStrongDn
+
+if inShort and earlyExitOkShort and not suppressEarlyShort
     label.new(bar_index, low, "EARLY EXIT↓", style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
     if closeOnEarly
         inShort   := false
         barsShort := 0
 
-allowEarlyLong = inLong and barsLong >= math.floor(longMOX * 0.4) and rssDnFromUp >= revThresh
-if allowEarlyLong
+// ---- LONGS (after 0↑) — mirror
+tcsStrongUp   = tcsUp >= 3
+moxieStillUp  = slope(moxieProxy, 3) > 0 and moxieProxy > 0
+deepAbove2ATR = close - (ema21 + 2.0*atr) > 0.4*atr
+
+// Failure-test-of-high (FTH): second poke + weaker body/longer upper wick + vol not increasing
+bodySizeU     = math.abs(close - open)
+prevBodyU     = math.abs(close[1] - open[1])
+fthSecondPoke = high >= high[2]
+fthWeaker     = (bodySizeU < prevBodyU) and ((high - low) > 0 ? (high - close) / (high - low) > pxWickMin : false)
+fthVolOK      = volume <= volume[1]
+fthValid      = fthSecondPoke and fthWeaker and fthVolOK
+
+// Added confirmations
+lowerHigh        = high < high[1]
+twoClosesBelow8  = close < ema8 and close[1] < ema8
+volDecayU        = ta.sma(volume, 3) < ta.sma(volume, 20)
+
+requiredRSSLong = revThresh + (tcsStrongUp ? 2 : 1)
+minFracLong     = tcsStrongUp ? 0.70 : 0.50
+allowEarlyLong  = inLong and barsLong >= math.floor(longMOX * minFracLong)
+
+earlyExitOkLong =
+     allowEarlyLong
+  and rssDnFromUp >= requiredRSSLong
+  and fthValid
+  and lowerHigh
+  and twoClosesBelow8
+  and volDecayU
+
+suppressEarlyLong = deepAbove2ATR and moxieStillUp and tcsStrongUp
+
+if inLong and earlyExitOkLong and not suppressEarlyLong
     label.new(bar_index, high, "EARLY EXIT↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.teal, 0))
     if closeOnEarly
         inLong   := false
