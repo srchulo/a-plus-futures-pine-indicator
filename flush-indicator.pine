@@ -1,6 +1,6 @@
 //@version=5
 indicator("Flush Continuation + Exit (Moxie 0-cross — both sides, profit-optimized + MOX)",
-     overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
+     overlay=true, max_labels_count=500, max_lines_count=500)
 
 // ========== Helpers ==========
 slope(src, len) => (src - nz(src[len])) / len
@@ -78,7 +78,9 @@ showEARLY     = input.bool(true,  "Show EARLY EXIT labels", group=groupDisp)
 showEXIT      = input.bool(true,  "Show EXIT labels", group=groupDisp)
 
 // Label rendering window + thin markers
-labelLookbackBars = input.int(5000, "Label lookback (bars)", minval=100, group=groupDisp)
+labelLookbackBars = input.int(50000, "Label lookback (bars)", minval=100, group=groupDisp)
+showAllHistory    = input.bool(false, "Show labels on full history", group=groupDisp,
+     tooltip="ON draws labels across all available bars (uses label budget faster). OFF limits to recent window.")
 showHistoryShapes = input.bool(true, "Show thin historical markers", group=groupDisp)
 
 groupLog = "Event Logger"
@@ -114,7 +116,7 @@ logDo(string _side, string _event, float _price, float _fcs, float _pxx, float _
 var int _lastIdx = na
 if barstate.islast
     _lastIdx := bar_index
-allowLabels = na(_lastIdx) ? true : bar_index >= (_lastIdx - labelLookbackBars)
+allowLabels = showAllHistory ? true : (na(_lastIdx) ? true : bar_index >= (_lastIdx - labelLookbackBars))
 
 // ===== Timeframe multiplier (NEW)
 tfMult = scaleEnabled and timeframe.isminutes ? (timeframe.multiplier * 1.0) / baselineTFmin : 1.0
