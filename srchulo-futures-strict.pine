@@ -7,14 +7,8 @@ profile = input.string("RTH", "Profile", options=["RTH","ETH (Globex)","ETH (Eur
 sessionStr_RTH = input.session("0935-1600", "RTH windows (exchange time)", group=grpProfile)
 ethTradeStr_Globex = "1805-0925"
 ethTradeStr_Europe = "0200-0925"
-anchorStr =
-     profile == "RTH"          ? "0930-1600" :
-     profile == "ETH (Europe)" ? "0200-1300" :
-                                  "1800-1700"
-sessionTradeStr =
-     profile == "RTH"          ? sessionStr_RTH :
-     profile == "ETH (Europe)" ? ethTradeStr_Europe :
-                                  ethTradeStr_Globex
+anchorStr = profile == "RTH" ? "0930-1600" : profile == "ETH (Europe)" ? "0200-1300" : "1800-1700"
+sessionTradeStr = profile == "RTH" ? sessionStr_RTH : profile == "ETH (Europe)" ? ethTradeStr_Europe : ethTradeStr_Globex
 
 // ---------- Inputs
 grpTrend = "Trend / Filters"
@@ -51,6 +45,8 @@ useAVWAP = input.bool(true, "Use Anchored VWAP (profile open)", group=grpVWAP)
 anchorTime = input.time(timestamp("01 Jan 2025 09:30 -0500"), "Anchored start (unused; uses profile)", group=grpVWAP)
 pullDist   = input.float(0.10, "Near VWAP distance (% ATR)", group=grpVWAP)
 minVWAPBand = input.float(0.20, "Chop guard band (ATR*x)",   group=grpVWAP)
+// NEW: color input so it won't visually clash with the relaxed script
+avwapColor = input.color(color.new(color.purple, 0), "AVWAP color", group=grpVWAP)
 
 grpVol = "Volume"
 volLen  = input.int(50, "Vol SMA", group=grpVol)
@@ -92,7 +88,7 @@ triggerMode      = input.string("Breakout", "Trigger mode", options=["Score","Si
 
 // NEW: anti-repaint controls
 calcOnClose = input.bool(false, "Lock signals on bar close (no flicker)", group=grpDec)
-freezeHTF   = input.bool(false,  "Freeze HTF values (no intrabar updates)", group=grpDec)
+freezeHTF   = input.bool(false, "Freeze HTF values (no intrabar updates)", group=grpDec)
 
 // NEW: toggles for base alignment
 requireNearVWBase    = input.bool(false,"Base requires Near-VWAP", group=grpDec)
@@ -217,110 +213,66 @@ trendOkShort = useRibbon ? ribbonBear : true
 
 // --------- Internal slope helpers
 f_internal_slope(_close, _fastLen, _midLen, _slowLen, _slopeLen, _smooth) =>
-    _fast   = ta.ema(_close, _fastLen)
-    _mid    = ta.ema(_close, _midLen)
-    _slow   = ta.ema(_close, _slowLen)
-    _spread = (_fast - _mid) + (_mid - _slow)  // emphasize ribbon steepness
-    _raw    = ta.linreg(_spread, _slopeLen, 0)
-    _sm     = _smooth > 1 ? ta.ema(_raw, _smooth) : _raw
-    nz(_sm) / math.max(math.abs(_mid), 1e-6)
+    _fast = ta.ema(_close, _fastLen), _mid = ta.ema(_close, _midLen), _slow = ta.ema(_close, _slowLen), _spread = (_fast - _mid) + (_mid - _slow), _raw = ta.linreg(_spread, _slopeLen, 0), _sm = _smooth > 1 ? ta.ema(_raw, _smooth) : _raw, nz(_sm) / math.max(math.abs(_mid), 1e-6)
 
 f_slope_ok(tf, magMin, persistBars, _freeze) =>
     _lk = _freeze ? barmerge.lookahead_on : barmerge.lookahead_off
-    _s  = request.security(syminfo.tickerid, tf, f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), lookahead=_lk)
-    _up   = _s >  magMin
-    _down = _s < -magMin
-    _upOK   = ta.barssince(_down) > persistBars
-    _downOK = ta.barssince(_up)   > persistBars
-    [_up, _down, _upOK, _downOK]
+    _s = request.security(syminfo.tickerid, tf, f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), lookahead=_lk)
+    _up = _s > magMin, _down = _s < -magMin, _upOK = ta.barssince(_down) > persistBars, _downOK = ta.barssince(_up) > persistBars, [_up, _down, _upOK, _downOK]
 
 f_slope_current() =>
-    _s  = f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth)
-    _up   = _s >  slopeMagLTF
-    _down = _s < -slopeMagLTF
-    _upOK   = ta.barssince(_down) > persistLTF
-    _downOK = ta.barssince(_up)   > persistLTF
-    [_up, _down, _upOK, _downOK]
+    _s = f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth)
+    _up = _s > slopeMagLTF, _down = _s < -slopeMagLTF, _upOK = ta.barssince(_down) > persistLTF, _downOK = ta.barssince(_up) > persistLTF, [_up, _down, _upOK, _downOK]
 
-// ===== New slope consensus (replaces emaSlopeLong/Short)
-var string TF2    = "2"
-var string TF3    = "3"
-var string TF5    = "5"
-var string TF15   = "15"
-var string TF30   = "30"
-var string TF60   = "60"
-var string TF240  = "240"
-var string TFD    = "D"
-
-// Current-TF slope (declare fresh locals via destructuring)
+// ===== New slope consensus
+var string TF2="2", TF3="3", TF5="5", TF15="15", TF30="30", TF60="60", TF240="240", TFD="D"
 [ctf_up, ctf_dn, ctf_upok, ctf_dnok] = f_slope_current()
-
-// MTF aggregation
-mtf_any_selected = false
-mtf_all_up = true
-mtf_all_dn = true
-
+mtf_any_selected = false, mtf_all_up = true, mtf_all_dn = true
 if slopeMode == "MTF (All selected must agree)"
     if useTF_2m
         mtf_any_selected := true
         [u2, d2, uok2, dok2] = f_slope_ok(TF2, slopeMagHTF, persistMTF, freezeSlopeMTF)
         mtf_all_up := mtf_all_up and (u2 and uok2)
         mtf_all_dn := mtf_all_dn and (d2 and dok2)
-
     if useTF_3m
         mtf_any_selected := true
         [u3, d3, uok3, dok3] = f_slope_ok(TF3, slopeMagHTF, persistMTF, freezeSlopeMTF)
         mtf_all_up := mtf_all_up and (u3 and uok3)
         mtf_all_dn := mtf_all_dn and (d3 and dok3)
-
     if useTF_5m
         mtf_any_selected := true
         [u5, d5, uok5, dok5] = f_slope_ok(TF5, slopeMagHTF, persistMTF, freezeSlopeMTF)
         mtf_all_up := mtf_all_up and (u5 and uok5)
         mtf_all_dn := mtf_all_dn and (d5 and dok5)
-
     if useTF_15m
         mtf_any_selected := true
         [u15, d15, uok15, dok15] = f_slope_ok(TF15, slopeMagHTF, persistMTF, freezeSlopeMTF)
         mtf_all_up := mtf_all_up and (u15 and uok15)
         mtf_all_dn := mtf_all_dn and (d15 and dok15)
-
     if useTF_30m
         mtf_any_selected := true
         [u30, d30, uok30, dok30] = f_slope_ok(TF30, slopeMagHTF, persistMTF, freezeSlopeMTF)
         mtf_all_up := mtf_all_up and (u30 and uok30)
         mtf_all_dn := mtf_all_dn and (d30 and dok30)
-
     if useTF_1h
         mtf_any_selected := true
         [u60, d60, uok60, dok60] = f_slope_ok(TF60, slopeMagHTF, persistMTF, freezeSlopeMTF)
         mtf_all_up := mtf_all_up and (u60 and uok60)
         mtf_all_dn := mtf_all_dn and (d60 and dok60)
-
     if useTF_4h
         mtf_any_selected := true
         [u240, d240, uok240, dok240] = f_slope_ok(TF240, slopeMagHTF, persistMTF, freezeSlopeMTF)
         mtf_all_up := mtf_all_up and (u240 and uok240)
         mtf_all_dn := mtf_all_dn and (d240 and dok240)
-
     if useTF_1D
         mtf_any_selected := true
         [ud, dd, uokd, dokd] = f_slope_ok(TFD, slopeMagHTF, persistMTF, freezeSlopeMTF)
         mtf_all_up := mtf_all_up and (ud and uokd)
         mtf_all_dn := mtf_all_dn and (dd and dokd)
 
-// Fallback: if MTF mode is chosen but no TFs are selected, use current TF
 useCurrentFallback = (slopeMode == "MTF (All selected must agree)") and (not mtf_any_selected)
-
-// Final slope gates used by the script
-slopeLongOK_new  = slopeMode == "Current TF only"      ? (ctf_up and ctf_upok) :
-                   useCurrentFallback                  ? (ctf_up and ctf_upok)  :
-                   mtf_all_up
-
-slopeShortOK_new = slopeMode == "Current TF only"      ? (ctf_dn and ctf_dnok) :
-                   useCurrentFallback                  ? (ctf_dn and ctf_dnok)  :
-                   mtf_all_dn
-
+slopeLongOK_new  = slopeMode == "Current TF only" ? (ctf_up and ctf_upok) : useCurrentFallback ? (ctf_up and ctf_upok) : mtf_all_up
+slopeShortOK_new = slopeMode == "Current TF only" ? (ctf_dn and ctf_dnok) : useCurrentFallback ? (ctf_dn and ctf_dnok) : mtf_all_dn
 
 // Session & VWAPs (UPDATED)
 vwap = ta.vwap(close)
@@ -328,27 +280,30 @@ inTradeSess  = not na(time(timeframe.period, sessionTradeStr))
 inAnchor     = not na(time(timeframe.period, anchorStr))
 sessionStart = inAnchor and not inAnchor[1]
 
+// --- NEW: Anchor diagnostics (marker + “Anchor OK” flag for HUD)
+var bool _newDayFlag = false
+_newDayFlag := ta.change(time("D")) != 0
+plotshape(sessionStart, title="AVWAP Anchor", style=shape.triangledown, location=location.top, size=size.tiny, color=color.new(color.purple, 0), text="AVWAP")
+barsSinceAnchor = ta.barssince(sessionStart)
+barsSinceDay = ta.barssince(_newDayFlag)
+anchorOK_today = (not na(barsSinceAnchor)) and (not na(barsSinceDay)) and (barsSinceAnchor <= barsSinceDay)
+
 // Anchored VWAP (profile anchor open)
 var float avwap = na
 var float aPV = 0.0
 var float aV  = 0.0
 if barstate.isnew
     if sessionStart
-        aPV := 0.0
-        aV  := 0.0
+        aPV := 0.0, aV := 0.0
     if inTradeSess
         tp = (high + low + close) / 3.0
-        aPV += tp * volume
-        aV  += volume
+        aPV += tp * volume, aV += volume
         avwap := aV > 0 ? aPV / aV : na
     if not inTradeSess
-        aPV := 0.0
-        aV  := 0.0
-        avwap := na
+        aPV := 0.0, aV := 0.0, avwap := na
 
-// context plots
-plot((showContext and useVWAP) ? vwap : na, "VWAP", color=color.new(color.teal, 0), linewidth=2)
-plot((showContext and useAVWAP) ? avwap : na, "Anchor VWAP (profile open)", color=color.new(color.purple, 0), linewidth=2)
+plot((showContext and useVWAP)  ? vwap  : na, "VWAP", color=color.new(color.teal, 0), linewidth=2)
+plot((showContext and useAVWAP) ? avwap : na, "Anchor VWAP (profile open)", color=avwapColor, linewidth=3)
 plot(showContext ? emaF : na, "EMA Fast", color=color.new(color.white, 0))
 plot(showContext ? emaM : na, "EMA Mid",  color=color.new(color.orange, 0))
 plot(showContext ? emaS : na, "EMA Slow", color=color.new(color.maroon, 0))
@@ -428,7 +383,7 @@ belowSMA = close < sma200 - atr * smaBuf
 
 // Setups
 bullReversalCandle = hammer or dragonfly or (close > open and close > open[1] and low <= low[1])
-pullbackLong       = trendOkLong  and nearAnyVWAP and bullReversalCandle and close > ta.highest(high[1], 1)
+pullbackLong       = trendOkLong and nearAnyVWAP and bullReversalCandle and close > ta.highest(high[1], 1)
 bearReversalCandle = shootingStar or gravestone or (close < open and close < open[1] and high >= high[1])
 rallyShort         = trendOkShort and nearAnyVWAP and bearReversalCandle and close < ta.lowest(low[1], 1)
 
@@ -436,40 +391,40 @@ wasBelowVWAP = useVWAP and close[1] < vwap[1]
 nowAboveVWAP = useVWAP and close > vwap
 wasAboveVWAP = useVWAP and close[1] > vwap[1]
 nowBelowVWAP = useVWAP and close < vwap
-vwapReclaimLong  = trendOkLong  and (wasBelowVWAP and nowAboveVWAP) and volOK
+vwapReclaimLong  = trendOkLong and (wasBelowVWAP and nowAboveVWAP) and volOK
 vwapReclaimShort = trendOkShort and (wasAboveVWAP and nowBelowVWAP) and volOK
 
 // VWAP retest/flip (after reclaim)
 tolP = atr * 0.10
-bullRetest = ta.barssince(wasBelowVWAP and nowAboveVWAP) <= retestBars and math.abs(low - vwap)  <= tolP and close > vwap
+bullRetest = ta.barssince(wasBelowVWAP and nowAboveVWAP) <= retestBars and math.abs(low - vwap) <= tolP and close > vwap
 bearRetest = ta.barssince(wasAboveVWAP and nowBelowVWAP) <= retestBars and math.abs(high - vwap) <= tolP and close < vwap
 
 // Flags / Bases / Triangles
 rangeHi  = ta.highest(high, flagLookback)
 rangeLo  = ta.lowest(low,  flagLookback)
 rangeTight = (rangeHi - rangeLo) <= atr * flagTightPct
-bullFlag  = trendOkLong  and rangeTight and close > rangeHi[1] + atr * breakBufATR
+bullFlag  = trendOkLong and rangeTight and close > rangeHi[1] + atr * breakBufATR
 bearFlag  = trendOkShort and rangeTight and close < rangeLo[1] - atr * breakBufATR
 tolPx  = ticksTol * safeMintick
 flatHi = math.abs(rangeHi - rangeHi[1]) <= tolPx
 flatLo = math.abs(rangeLo - rangeLo[1]) <= tolPx
 riseL  = ta.lowest(low, flagLookback)  > ta.lowest(low, flagLookback)[1]
 fallH  = ta.highest(high,flagLookback) < ta.highest(high,flagLookback)[1]
-highBase = trendOkLong  and rangeTight and flatHi and riseL
+highBase = trendOkLong and rangeTight and flatHi and riseL
 lowBase  = trendOkShort and rangeTight and flatLo and fallH
-ascTri   = trendOkLong  and flatHi and riseL
+ascTri   = trendOkLong and flatHi and riseL
 descTri  = trendOkShort and flatLo and fallH
 
 // Precision
-precisionLong  = trendOkLong  and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
+precisionLong  = trendOkLong and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
 precisionShort = trendOkShort and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bearReversalCandle
 
 // Scoring
+scoreAdd(c, w, use) => use and c ? w : 0
 reclaimLongPrim  = wasBelowVWAP and nowAboveVWAP
 reclaimShortPrim = wasAboveVWAP and nowBelowVWAP
 bullCandle = hammer or dragonfly
 bearCandle = shootingStar or gravestone
-scoreAdd(c, w, use) => use and c ? w : 0
 longScore = scoreAdd(trendOkLong, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(pullbackLong, wPull, useCompPull) + scoreAdd(reclaimLongPrim, wReclaim, useCompReclaim) + scoreAdd(bullFlag, wFlag, useCompFlag) + scoreAdd(precisionLong, wPrec, useCompPrec) + scoreAdd(bullCandle, wCandle, useCompCandle) + scoreAdd(bullEngulf, wEngulf, useCompEngulf) + scoreAdd(bullRetest, wRetest, useCompRetest) + scoreAdd(highBase, wBase, useCompBase) + scoreAdd(ascTri, wTri, useCompTri)
 shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(rallyShort, wPull, useCompPull) + scoreAdd(reclaimShortPrim, wReclaim, useCompReclaim) + scoreAdd(bearFlag, wFlag, useCompFlag) + scoreAdd(precisionShort, wPrec, useCompPrec) + scoreAdd(bearCandle, wCandle, useCompCandle) + scoreAdd(bearEngulf, wEngulf, useCompEngulf) + scoreAdd(bearRetest, wRetest, useCompRetest) + scoreAdd(lowBase, wBase, useCompBase) + scoreAdd(descTri, wTri, useCompTri)
 
@@ -487,24 +442,21 @@ newDay               = ta.change(time("D")) != 0
 var int  signalsToday    = 0
 var bool tookEntryToday  = false
 if newDay
-    signalsToday   := 0
-    lastSignalBar  := na
-    tookEntryToday := false
-
+    signalsToday := 0, lastSignalBar := na, tookEntryToday := false
 readyForNew = na(lastSignalBar) or (bar_index - lastSignalBar > cooldownBars)
 capRaw      = signalsToday < maxSignalsPerDay
 gateDailyOK = useDailyCapGate ? capRaw : true
 
 // SIMPLE triggers (bypass score if chosen)
-simpleLong  = trendOkLong  and (precisionLong or vwapReclaimLong or bullRetest or bullEngulf or pullbackLong or bullFlag or highBase or ascTri) and (not useChopGuard or not inVWAPChop)
+simpleLong  = trendOkLong and (precisionLong or vwapReclaimLong or bullRetest or bullEngulf or pullbackLong or bullFlag or highBase or ascTri) and (not useChopGuard or not inVWAPChop)
 simpleShort = trendOkShort and (precisionShort or vwapReclaimShort or bearRetest or bearEngulf or rallyShort or bearFlag or lowBase or descTri) and (not useChopGuard or not inVWAPChop)
 
 // NEW: 3rd-ATR block + range quality + one-and-done
-ema34      = ta.ema(close, 34)
-up3_gate   = ema34 + atr * atrMult3_gate
-dn3_gate   = ema34 - atr * atrMult3_gate
+ema34 = ta.ema(close, 34)
+up3_gate = ema34 + atr * atrMult3_gate
+dn3_gate = ema34 - atr * atrMult3_gate
 atOrBeyond3rd = close >= up3_gate or close <= dn3_gate
-rangeOK    = (high - low) >= atr * minRangeATR
+rangeOK = (high - low) >= atr * minRangeATR
 
 // NEW: >2nd-ATR helpers (symmetrical)
 up2_gate = ema34 + atr * 2.0
@@ -534,8 +486,8 @@ longStopPrice  = high + entryConfirmTicks * safeMintick
 shortStopPrice = low  - entryConfirmTicks * safeMintick
 breakoutLongNow  = (high - low) >= atr * 0.20 and high >= ta.highest(high, breakBarsL)[1] + entryConfirmTicks * safeMintick
 breakoutShortNow = (high - low) >= atr * 0.20 and low  <= ta.lowest(low, breakBarsS)[1]  - entryConfirmTicks * safeMintick
-longConfirm_raw  = (useBreak ? (baseLongSetup_raw  and breakoutLongNow)  : (baseLongSetup_raw[1]  and high >= longStopPrice[1])) and rangeOK
-shortConfirm_raw = (useBreak ? (baseShortSetup_raw and breakoutShortNow) : (baseShortSetup_raw[1] and low  <= shortStopPrice[1])) and rangeOK
+longConfirm_raw  = (useBreak ? (baseLongSetup_raw and breakoutLongNow) : (baseLongSetup_raw[1] and high >= longStopPrice[1])) and rangeOK
+shortConfirm_raw = (useBreak ? (baseShortSetup_raw and breakoutShortNow) : (baseShortSetup_raw[1] and low <= shortStopPrice[1])) and rangeOK
 
 // --- Finalization: lock on bar close if enabled
 finalize(b) => calcOnClose ? (barstate.isconfirmed ? b : false) : b
@@ -555,32 +507,22 @@ slTicksNow = _slTicksDyn
 spreadNow  = math.abs(emaM - emaF)
 spreadPrev = math.abs(emaM[emaSpreadLook] - emaF[emaSpreadLook])
 
-var bool inLong = false
-var bool inShort= false
+var bool inLong = false, inShort = false
 var float entryPrice = na
 var int   entrySide  = 0
 longEnter  = barstate.isconfirmed and longConfirm
 shortEnter = barstate.isconfirmed and shortConfirm
 if longEnter
-    inLong := true
-    inShort := false
-    entryPrice := close
-    entrySide := 1
+    inLong := true, inShort := false, entryPrice := close, entrySide := 1
 if shortEnter
-    inShort := true
-    inLong := false
-    entryPrice := close
-    entrySide := -1
+    inShort := true, inLong := false, entryPrice := close, entrySide := -1
 
 barsSinceLong  = ta.barssince(longEnter)
 barsSinceShort = ta.barssince(shortEnter)
-
-// SAFE dynamic lengths
 histAvail = bar_index + 1
 _safeLen(x) => math.max(1, math.min(histAvail, math.min(500, nz(x) + 1)))
 lenL = _safeLen(barsSinceLong)
 lenS = _safeLen(barsSinceShort)
-
 llSince   = ta.lowest(low,  lenL)
 hhSince   = ta.highest(high, lenS)
 trailLong = llSince - atr * trailATRs
@@ -608,17 +550,13 @@ exitSoonShort  = inShort and ((momHookShort or emaNarrowShort)) and (not needStr
 
 // latch cooldown, day flags
 if barstate.isconfirmed and (longConfirm or shortConfirm)
-    lastSignalBar := bar_index
-    signalsToday += 1
-    tookEntryToday := true
+    lastSignalBar := bar_index, signalsToday += 1, tookEntryToday := true
 
 // auto-flat state on hard exit
 if barstate.isconfirmed and hardExitLong
-    inLong := false
-    entrySide := 0
+    inLong := false, entrySide := 0
 if barstate.isconfirmed and hardExitShort
-    inShort := false
-    entrySide := 0
+    inShort := false, entrySide := 0
 
 // ---------- Trails & Exit markers
 plot(showTrails and inLong ? trailLong : na,  "Long ATR Trail",  color=color.new(color.lime, 0), linewidth=1, style=plot.style_linebr)
@@ -653,33 +591,26 @@ alertcondition(enableExitAlerts and canAlert and hardExitShort, title="A+ SHORT 
 // --- Bar-close countdown label
 var label _cd = na
 if showCountdown and barstate.islast
-    barMs   = timeframe.in_seconds(timeframe.period) * 1000
+    barMs = timeframe.in_seconds(timeframe.period) * 1000
     msToEnd = (time + barMs) - timenow
     secLeft = math.max(0, math.floor(msToEnd / 1000))
     if not na(_cd)
         label.delete(_cd)
     _cd := label.new(bar_index, high, str.tostring(secLeft) + "s", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, textcolor=color.white, color=color.new(color.black, 0), size=size.tiny)
 
-// ---- Soft heads-up alert (near trigger with preview HTF)
-pxBuf = nearTicks * safeMintick
-nearTriggerLong  = (useBreak ? (baseLongSetup  and high >= (high[1] + entryConfirmTicks * safeMintick) - pxBuf) : (baseLongSetup[1] and high >= ((high[1] + entryConfirmTicks * safeMintick) - pxBuf)))
-nearTriggerShort = (useBreak ? (baseShortSetup and low  <= (low[1]  - entryConfirmTicks * safeMintick) + pxBuf) : (baseShortSetup[1] and low  <= ((low[1]  - entryConfirmTicks * safeMintick) + pxBuf)))
-softHeadsUpLong  = (not useSessionFilter or inTradeSess) and nearTriggerLong  and htfBull_preview and not htfBull_locked
-softHeadsUpShort = (not useSessionFilter or inTradeSess) and nearTriggerShort and htfBear_preview and not htfBear_locked
-alertcondition(softHeadsUpLong,  title="Heads-Up LONG",  message="Heads-up: close could confirm LONG")
-alertcondition(softHeadsUpShort, title="Heads-Up SHORT", message="Heads-up: close could confirm SHORT")
-
-// ---------- Top-right HUD: TP/SL, R:R, Breakeven win%
-rr        = slTicksNow > 0 ?  (tpTicksNow * 1.0) / slTicksNow : na
+// ---------- Top-right HUD: TP/SL, R:R, Breakeven win% + Anchor OK
+rr        = slTicksNow > 0 ? (tpTicksNow * 1.0) / slTicksNow : na
 breakeven = slTicksNow + tpTicksNow > 0 ? slTicksNow * 100.0 / (slTicksNow + tpTicksNow) : na
-txtRR = na(rr) ? "—" : str.tostring(rr, format.mintick)
-txtBE= na(breakeven) ? "—" : str.tostring(breakeven, format.mintick) + "%"
+txtRR     = na(rr) ? "—" : str.tostring(rr, format.mintick)
+txtBE     = na(breakeven) ? "—" : str.tostring(breakeven, format.mintick) + "%"
+txtAnchor = anchorOK_today ? "YES" : "NO"
 
 var table hud = na
 if barstate.isfirst
-    hud := table.new(position.top_right, 1, 4, border_width=1)
+    hud := table.new(position.top_right, 1, 5, border_width=1)
 if barstate.islast
     table.cell(hud, 0, 0, "TP: " + str.tostring(tpTicksNow) + " ticks", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 1, "SL: " + str.tostring(slTicksNow) + " ticks", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 2, "R:R ≈ " + txtRR,                 text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 3, "BE Win% ≈ " + txtBE,             text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 4, "Anchor OK: " + txtAnchor,        text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
