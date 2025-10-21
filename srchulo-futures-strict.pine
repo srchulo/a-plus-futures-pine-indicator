@@ -1,6 +1,21 @@
 //@version=5
 indicator("srchulo futures strict", overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
 
+// ---------- Profile / Sessions (NEW)
+grpProfile = "Profile / Sessions"
+profile = input.string("RTH", "Profile", options=["RTH","ETH (Globex)","ETH (Europe)"], group=grpProfile)
+sessionStr_RTH = input.session("0935-1600", "RTH windows (exchange time)", group=grpProfile)
+ethTradeStr_Globex = "1805-0925"
+ethTradeStr_Europe = "0200-0925"
+anchorStr =
+     profile == "RTH"          ? "0930-1600" :
+     profile == "ETH (Europe)" ? "0200-1300" :
+                                  "1800-1700"
+sessionTradeStr =
+     profile == "RTH"          ? sessionStr_RTH :
+     profile == "ETH (Europe)" ? ethTradeStr_Europe :
+                                  ethTradeStr_Globex
+
 // ---------- Inputs
 grpTrend = "Trend / Filters"
 emaFastLen = input.int(8, "EMA Fast", group=grpTrend, minval=1)
@@ -32,8 +47,8 @@ freezeSlopeMTF = input.bool(false, "Freeze MTF at closed bar (no intrabar flicke
 
 grpVWAP = "VWAP / AVWAP"
 useVWAP  = input.bool(true, "Use session VWAP", group=grpVWAP)
-useAVWAP = input.bool(true, "Use Anchored VWAP (auto RTH open)", group=grpVWAP)
-anchorTime = input.time(timestamp("01 Jan 2025 09:30 -0500"), "Anchored start (unused; auto RTH open)", group=grpVWAP)
+useAVWAP = input.bool(true, "Use Anchored VWAP (profile open)", group=grpVWAP)
+anchorTime = input.time(timestamp("01 Jan 2025 09:30 -0500"), "Anchored start (unused; uses profile)", group=grpVWAP)
 pullDist   = input.float(0.10, "Near VWAP distance (% ATR)", group=grpVWAP)
 minVWAPBand = input.float(0.20, "Chop guard band (ATR*x)",   group=grpVWAP)
 
@@ -137,8 +152,6 @@ minAtrTicks = input.int(22,"Min ATR (ticks) gate",  group=grpDec)
 entryConfirmTicks = input.int(2, "Entry confirmation (ticks beyond signal bar)", group=grpDec, minval=1)
 cooldownBars = input.int(10, "Cooldown bars", group=grpDec)
 maxSignalsPerDay = input.int(12, "Max signals per day", group=grpDec)
-sessionStr = input.session("0935-1600", "RTH windows (exchange time)", group=grpDec)
-
 // Pattern tolerances
 ticksTol   = input.int(4, "Structure tolerance (ticks)", group=grpDec)
 retestBars = input.int(5, "VWAP retest within N bars",   group=grpDec)
@@ -309,12 +322,13 @@ slopeShortOK_new = slopeMode == "Current TF only"      ? (ctf_dn and ctf_dnok) :
                    mtf_all_dn
 
 
-// Session & VWAPs
+// Session & VWAPs (UPDATED)
 vwap = ta.vwap(close)
-inSess = not na(time(timeframe.period, sessionStr))
-sessionStart = inSess and not inSess[1]
+inTradeSess  = not na(time(timeframe.period, sessionTradeStr))
+inAnchor     = not na(time(timeframe.period, anchorStr))
+sessionStart = inAnchor and not inAnchor[1]
 
-// Anchored VWAP auto-anchored to RTH open
+// Anchored VWAP (profile anchor open)
 var float avwap = na
 var float aPV = 0.0
 var float aV  = 0.0
@@ -322,19 +336,19 @@ if barstate.isnew
     if sessionStart
         aPV := 0.0
         aV  := 0.0
-    if inSess
+    if inTradeSess
         tp = (high + low + close) / 3.0
         aPV += tp * volume
         aV  += volume
         avwap := aV > 0 ? aPV / aV : na
-    if not inSess
+    if not inTradeSess
         aPV := 0.0
         aV  := 0.0
         avwap := na
 
 // context plots
 plot((showContext and useVWAP) ? vwap : na, "VWAP", color=color.new(color.teal, 0), linewidth=2)
-plot((showContext and useAVWAP) ? avwap : na, "Anchor VWAP (RTH Open)", color=color.new(color.purple, 0), linewidth=2)
+plot((showContext and useAVWAP) ? avwap : na, "Anchor VWAP (profile open)", color=color.new(color.purple, 0), linewidth=2)
 plot(showContext ? emaF : na, "EMA Fast", color=color.new(color.white, 0))
 plot(showContext ? emaM : na, "EMA Mid",  color=color.new(color.orange, 0))
 plot(showContext ? emaS : na, "EMA Slow", color=color.new(color.maroon, 0))
@@ -460,7 +474,7 @@ longScore = scoreAdd(trendOkLong, wTrend, useCompTrend) + scoreAdd(not inVWAPCho
 shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(rallyShort, wPull, useCompPull) + scoreAdd(reclaimShortPrim, wReclaim, useCompReclaim) + scoreAdd(bearFlag, wFlag, useCompFlag) + scoreAdd(precisionShort, wPrec, useCompPrec) + scoreAdd(bearCandle, wCandle, useCompCandle) + scoreAdd(bearEngulf, wEngulf, useCompEngulf) + scoreAdd(bearRetest, wRetest, useCompRetest) + scoreAdd(lowBase, wBase, useCompBase) + scoreAdd(descTri, wTri, useCompTri)
 
 // Gating toggles
-gateSessOK  = useSessionFilter ? inSess : true
+gateSessOK  = useSessionFilter ? inTradeSess : true
 gateAtrOK   = useAtrGate ? atrTicks >= minAtrTicks : true
 gateHTFLong = useHTFFilter ? htfBull : true
 gateHTFShort= useHTFFilter ? htfBear : true
@@ -624,7 +638,7 @@ plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, 
 bgcolor(longConfirm ? color.new(color.lime, 85) : shortConfirm ? color.new(color.red, 85) : na)
 
 // Alerts (entries) — session-aware
-canAlert = not useSessionFilter or inSess
+canAlert = not useSessionFilter or inTradeSess
 alertcondition(enableAlerts and canAlert and longConfirm,  title="A+ LONG ENTRY",  message="A+ LONG entry fired")
 alertcondition(enableAlerts and canAlert and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
 
@@ -650,8 +664,8 @@ if showCountdown and barstate.islast
 pxBuf = nearTicks * safeMintick
 nearTriggerLong  = (useBreak ? (baseLongSetup  and high >= (high[1] + entryConfirmTicks * safeMintick) - pxBuf) : (baseLongSetup[1] and high >= ((high[1] + entryConfirmTicks * safeMintick) - pxBuf)))
 nearTriggerShort = (useBreak ? (baseShortSetup and low  <= (low[1]  - entryConfirmTicks * safeMintick) + pxBuf) : (baseShortSetup[1] and low  <= ((low[1]  - entryConfirmTicks * safeMintick) + pxBuf)))
-softHeadsUpLong  = (not useSessionFilter or inSess) and nearTriggerLong  and htfBull_preview and not htfBull_locked
-softHeadsUpShort = (not useSessionFilter or inSess) and nearTriggerShort and htfBear_preview and not htfBear_locked
+softHeadsUpLong  = (not useSessionFilter or inTradeSess) and nearTriggerLong  and htfBull_preview and not htfBull_locked
+softHeadsUpShort = (not useSessionFilter or inTradeSess) and nearTriggerShort and htfBear_preview and not htfBear_locked
 alertcondition(softHeadsUpLong,  title="Heads-Up LONG",  message="Heads-up: close could confirm LONG")
 alertcondition(softHeadsUpShort, title="Heads-Up SHORT", message="Heads-up: close could confirm SHORT")
 
