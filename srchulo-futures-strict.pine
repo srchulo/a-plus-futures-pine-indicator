@@ -7,7 +7,9 @@ profile = input.string("RTH", "Profile", options=["RTH","ETH (Globex)","ETH (Eur
 sessionStr_RTH = input.session("0935-1600", "RTH windows (exchange time)", group=grpProfile)
 ethTradeStr_Globex = "1805-0925"
 ethTradeStr_Europe = "0200-0925"
-anchorStr = profile == "RTH" ? "0930-1600" : profile == "ETH (Europe)" ? "0200-1300" : "1800-1700"
+anchorStr = profile == "RTH" ? "0930-1600"
+          : profile == "ETH (Europe)" ? "0200-1300"
+          : "1700-1600"   // ETH (Globex) in Chicago time
 sessionTradeStr = profile == "RTH" ? sessionStr_RTH : profile == "ETH (Europe)" ? ethTradeStr_Europe : ethTradeStr_Globex
 
 // --- Timezone (force session/anchor interpretation in chosen zone)
