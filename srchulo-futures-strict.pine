@@ -10,6 +10,12 @@ ethTradeStr_Europe = "0200-0925"
 anchorStr = profile == "RTH" ? "0930-1600" : profile == "ETH (Europe)" ? "0200-1300" : "1800-1700"
 sessionTradeStr = profile == "RTH" ? sessionStr_RTH : profile == "ETH (Europe)" ? ethTradeStr_Europe : ethTradeStr_Globex
 
+// --- Timezone (force session/anchor interpretation in chosen zone)
+tzRTH    = "America/New_York"
+tzCME    = "America/Chicago"
+tzEurope = "Europe/London"
+tzProfile = profile == "RTH" ? tzRTH : profile == "ETH (Europe)" ? tzEurope : tzCME
+
 // ---------- Inputs
 grpTrend = "Trend / Filters"
 emaFastLen = input.int(8, "EMA Fast", group=grpTrend, minval=1)
@@ -276,8 +282,8 @@ slopeShortOK_new = slopeMode == "Current TF only" ? (ctf_dn and ctf_dnok) : useC
 
 // Session & VWAPs (UPDATED)
 vwap = ta.vwap(close)
-inTradeSess  = not na(time(timeframe.period, sessionTradeStr))
-inAnchor     = not na(time(timeframe.period, anchorStr))
+inTradeSess  = not na(time(timeframe.period, sessionTradeStr, tzProfile))
+inAnchor     = not na(time(timeframe.period, anchorStr,      tzProfile))
 sessionStart = inAnchor and not inAnchor[1]
 
 // --- NEW: Anchor diagnostics (marker + “Anchor OK” flag for HUD)

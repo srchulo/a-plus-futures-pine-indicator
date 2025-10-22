@@ -1,5 +1,5 @@
 //@version=5
-indicator("srchulo futures relaxed", overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("srchulo futures relaxed", overlay=true, max_labels_count=500)
 
 // ===== Theming (distinct from strict)
 cLong = color.rgb(102, 204, 255)
@@ -19,6 +19,12 @@ anchorStr = profile == "RTH" ? "0930-1600" : profile == "ETH (Europe)" ? "0200-1
 
 // Trade windows (where signals are allowed)
 sessionTradeStr = profile == "RTH" ? sessionStr_RTH : profile == "ETH (Europe)" ? ethTradeStr_Europe : ethTradeStr_Globex
+
+// --- Timezone (force session/anchor interpretation in chosen zone)
+tzRTH    = "America/New_York"
+tzCME    = "America/Chicago"
+tzEurope = "Europe/London"
+tzProfile = profile == "RTH" ? tzRTH : profile == "ETH (Europe)" ? tzEurope : tzCME
 
 // ---------- Inputs
 grpTrend = "Trend / Filters"
@@ -146,8 +152,8 @@ emaSlopeShort = emaM < emaM[5] and emaS < emaS[5]
 
 // -------------------- Session & VWAPs (UPDATED) --------------------
 vwap = ta.vwap(close)
-inTradeSess = not na(time(timeframe.period, sessionTradeStr))
-inAnchor = not na(time(timeframe.period, anchorStr))
+inTradeSess = not na(time(timeframe.period, sessionTradeStr, tzProfile))
+inAnchor = not na(time(timeframe.period, anchorStr,      tzProfile))
 sessionStart = inAnchor and not inAnchor[1]
 
 // --- Anchor diagnostics (marker + daily OK flag)
