@@ -7,101 +7,98 @@ profile = input.string("RTH", "Profile", options=["RTH","ETH (Globex)","ETH (Eur
 sessionStr_RTH = input.session("0935-1600", "RTH windows (exchange time)", group=grpProfile)
 ethTradeStr_Globex = "1805-0925"
 ethTradeStr_Europe = "0200-0925"
-anchorStr = profile == "RTH" ? "0930-1600"
-          : profile == "ETH (Europe)" ? "0200-1300"
-          : "1700-1600"   // ETH (Globex) in Chicago time
+anchorStr = profile == "RTH" ? "0930-1600" : profile == "ETH (Europe)" ? "0200-1300" : "1700-1600"
 sessionTradeStr = profile == "RTH" ? sessionStr_RTH : profile == "ETH (Europe)" ? ethTradeStr_Europe : ethTradeStr_Globex
 
 // --- Timezone (force session/anchor interpretation in chosen zone)
-tzRTH    = "America/New_York"
-tzCME    = "America/Chicago"
+tzRTH = "America/New_York"
+tzCME = "America/Chicago"
 tzEurope = "Europe/London"
 tzProfile = profile == "RTH" ? tzRTH : profile == "ETH (Europe)" ? tzEurope : tzCME
 
 // ---------- Inputs
 grpTrend = "Trend / Filters"
 emaFastLen = input.int(8, "EMA Fast", group=grpTrend, minval=1)
-emaMidLen  = input.int(21, "EMA Mid",  group=grpTrend, minval=1)
+emaMidLen = input.int(21, "EMA Mid", group=grpTrend, minval=1)
 emaSlowLen = input.int(34, "EMA Slow", group=grpTrend, minval=1)
-useRibbon  = input.bool(true, "Require EMA ribbon alignment (LTF)", group=grpTrend)
-htfTF      = input.string("15", "HTF EMA ribbon (minutes)", group=grpTrend)
+useRibbon = input.bool(true, "Require EMA ribbon alignment (LTF)", group=grpTrend)
+htfTF = input.string("15", "HTF EMA ribbon (minutes)", group=grpTrend)
 
 // === Internal "Moxie-like" slope settings (MTF-aware)
 grpSlope = "Moxie-like Slope Filter"
 slopeMode = input.string("MTF (All selected must agree)", "Slope Mode", options=["Current TF only","MTF (All selected must agree)"], group=grpSlope)
-useTF_2m   = input.bool(true,  "Use 2m",  group=grpSlope)
-useTF_3m   = input.bool(true,  "Use 3m",  group=grpSlope)
-useTF_5m   = input.bool(false, "Use 5m",  group=grpSlope)
-useTF_15m  = input.bool(false, "Use 15m", group=grpSlope)
-useTF_30m  = input.bool(false, "Use 30m", group=grpSlope)
-useTF_1h   = input.bool(false, "Use 1h",  group=grpSlope)
-useTF_4h   = input.bool(false, "Use 4h",  group=grpSlope)
-useTF_1D   = input.bool(false, "Use 1D",  group=grpSlope)
+useTF_2m = input.bool(true, "Use 2m", group=grpSlope)
+useTF_3m = input.bool(true, "Use 3m", group=grpSlope)
+useTF_5m = input.bool(false, "Use 5m", group=grpSlope)
+useTF_15m = input.bool(false, "Use 15m", group=grpSlope)
+useTF_30m = input.bool(false, "Use 30m", group=grpSlope)
+useTF_1h = input.bool(false, "Use 1h", group=grpSlope)
+useTF_4h = input.bool(false, "Use 4h", group=grpSlope)
+useTF_1D = input.bool(false, "Use 1D", group=grpSlope)
 
 // Slope calc tuning (uses your 8/21/34 EMA family)
-slopeLen       = input.int(5,   "Slope window (bars)", group=grpSlope, minval=2)
-slopeSmooth    = input.int(3,   "Slope smoothing (EMA)", group=grpSlope, minval=1)
-slopeMagLTF    = input.float(0.00018, "Min slope magnitude (LTF)", group=grpSlope, step=0.00001)
-slopeMagHTF    = input.float(0.00013, "Min slope magnitude (MTF)", group=grpSlope, step=0.00001)
-persistLTF     = input.int(1,   "Persistence LTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
-persistMTF     = input.int(2,   "Persistence MTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
+slopeLen = input.int(5, "Slope window (bars)", group=grpSlope, minval=2)
+slopeSmooth = input.int(3, "Slope smoothing (EMA)", group=grpSlope, minval=1)
+slopeMagLTF = input.float(0.00018, "Min slope magnitude (LTF)", group=grpSlope, step=0.00001)
+slopeMagHTF = input.float(0.00013, "Min slope magnitude (MTF)", group=grpSlope, step=0.00001)
+persistLTF = input.int(1, "Persistence LTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
+persistMTF = input.int(2, "Persistence MTF (bars ≥)", group=grpSlope, minval=0, maxval=5)
 freezeSlopeMTF = input.bool(false, "Freeze MTF at closed bar (no intrabar flicker)", group=grpSlope)
 
 grpVWAP = "VWAP / AVWAP"
-useVWAP  = input.bool(true, "Use session VWAP", group=grpVWAP)
+useVWAP = input.bool(true, "Use session VWAP", group=grpVWAP)
 useAVWAP = input.bool(true, "Use Anchored VWAP (profile open)", group=grpVWAP)
 anchorTime = input.time(timestamp("01 Jan 2025 09:30 -0500"), "Anchored start (unused; uses profile)", group=grpVWAP)
-pullDist   = input.float(0.10, "Near VWAP distance (% ATR)", group=grpVWAP)
-minVWAPBand = input.float(0.20, "Chop guard band (ATR*x)",   group=grpVWAP)
-// NEW: color input so it won't visually clash with the relaxed script
+pullDist = input.float(0.10, "Near VWAP distance (% ATR)", group=grpVWAP)
+minVWAPBand = input.float(0.20, "Chop guard band (ATR*x)", group=grpVWAP)
 avwapColor = input.color(color.new(color.purple, 0), "AVWAP color", group=grpVWAP)
 
 grpVol = "Volume"
-volLen  = input.int(50, "Vol SMA", group=grpVol)
+volLen = input.int(50, "Vol SMA", group=grpVol)
 volMult = input.float(1.5, "Surge ≥ SMA *", group=grpVol)
 requireVol = input.bool(true, "Require volume surge", group=grpVol)
 
 grpDoji = "Candle Patterns"
 dojiBodyPct = input.float(0.12, "Doji body ≤ x of range", group=grpDoji)
-longWickK   = input.float(2.0,  "Long wick ≥ body *",     group=grpDoji)
-nearHiPct   = input.float(0.25, "Body near high",         group=grpDoji)
-nearLoPct   = input.float(0.25, "Body near low",          group=grpDoji)
+longWickK = input.float(2.0, "Long wick ≥ body *", group=grpDoji)
+nearHiPct = input.float(0.25, "Body near high", group=grpDoji)
+nearLoPct = input.float(0.25, "Body near low", group=grpDoji)
 
 grpCont = "Continuation / Flag"
 flagLookback = input.int(25, "Flag window", group=grpCont)
 flagTightPct = input.float(0.45, "Flag tightness (≤ ATR * x)", group=grpCont)
-breakBufATR  = input.float(0.10, "Breakout buffer (ATR * x)",   group=grpCont)
+breakBufATR = input.float(0.10, "Breakout buffer (ATR * x)", group=grpCont)
 
 grpDec = "Decision Engine (weights + gating)"
-useCompTrend   = input.bool(true, "Use Trend in score",          group=grpDec)
-useCompNearVW  = input.bool(true, "Use Near VWAP in score",      group=grpDec)
-useCompVolume  = input.bool(true, "Use Volume in score",         group=grpDec)
-useCompPull    = input.bool(true, "Use Pullback/Rally in score", group=grpDec)
-useCompReclaim = input.bool(true, "Use VWAP Reclaim in score",   group=grpDec)
-useCompFlag    = input.bool(true, "Use Flag in score",           group=grpDec)
-useCompPrec    = input.bool(true, "Use Precision EMA in score",  group=grpDec)
-useCompCandle  = input.bool(true, "Use Reversal Candle in score",group=grpDec)
-useCompEngulf  = input.bool(true, "Use Engulfing in score",      group=grpDec)
-useCompRetest  = input.bool(true, "Use VWAP Retest/Flip in score", group=grpDec)
-useCompBase    = input.bool(true, "Use High/Low Base in score",  group=grpDec)
-useCompTri     = input.bool(false,"Use Asc/Desc Triangle in score", group=grpDec)
+useCompTrend = input.bool(true, "Use Trend in score", group=grpDec)
+useCompNearVW = input.bool(true, "Use Near VWAP in score", group=grpDec)
+useCompVolume = input.bool(true, "Use Volume in score", group=grpDec)
+useCompPull = input.bool(true, "Use Pullback/Rally in score", group=grpDec)
+useCompReclaim = input.bool(true, "Use VWAP Reclaim in score", group=grpDec)
+useCompFlag = input.bool(true, "Use Flag in score", group=grpDec)
+useCompPrec = input.bool(true, "Use Precision EMA in score", group=grpDec)
+useCompCandle = input.bool(true, "Use Reversal Candle in score", group=grpDec)
+useCompEngulf = input.bool(true, "Use Engulfing in score", group=grpDec)
+useCompRetest = input.bool(true, "Use VWAP Retest/Flip in score", group=grpDec)
+useCompBase = input.bool(true, "Use High/Low Base in score", group=grpDec)
+useCompTri = input.bool(false, "Use Asc/Desc Triangle in score", group=grpDec)
 
-useAtrGate       = input.bool(false, "Use ATR floor gate", group=grpDec)
-useSessionFilter = input.bool(true,  "Use Session filter", group=grpDec)
-useHTFFilter     = input.bool(true,  "Use HTF ribbon filter", group=grpDec)
-useSlopeFilter   = input.bool(true,  "Use EMA slope filter", group=grpDec)
-useChopGuard     = input.bool(true,  "Use VWAP chop-guard", group=grpDec)
-useDailyCapGate  = input.bool(true,  "Use Daily-cap gate", group=grpDec)
-triggerMode      = input.string("Breakout", "Trigger mode", options=["Score","Simple","Breakout"], group=grpDec)
+useAtrGate = input.bool(false, "Use ATR floor gate", group=grpDec)
+useSessionFilter = input.bool(true, "Use Session filter", group=grpDec)
+useHTFFilter = input.bool(true, "Use HTF ribbon filter", group=grpDec)
+useSlopeFilter = input.bool(true, "Use EMA slope filter", group=grpDec)
+useChopGuard = input.bool(true, "Use VWAP chop-guard", group=grpDec)
+useDailyCapGate = input.bool(true, "Use Daily-cap gate", group=grpDec)
+triggerMode = input.string("Breakout", "Trigger mode", options=["Score","Simple","Breakout"], group=grpDec)
 
 // NEW: anti-repaint controls
 calcOnClose = input.bool(false, "Lock signals on bar close (no flicker)", group=grpDec)
-freezeHTF   = input.bool(false, "Freeze HTF values (no intrabar updates)", group=grpDec)
+freezeHTF = input.bool(false, "Freeze HTF values (no intrabar updates)", group=grpDec)
 
 // NEW: toggles for base alignment
-requireNearVWBase    = input.bool(false,"Base requires Near-VWAP", group=grpDec)
-requireEMAMSideBase  = input.bool(true, "Base requires EMA-Mid side", group=grpDec)
-requirePatternBreak  = input.bool(true, "Breakout requires a pattern", group=grpDec)
+requireNearVWBase = input.bool(false, "Base requires Near-VWAP", group=grpDec)
+requireEMAMSideBase = input.bool(true, "Base requires EMA-Mid side", group=grpDec)
+requirePatternBreak = input.bool(true, "Breakout requires a pattern", group=grpDec)
 
 // Momentum / body quality
 bodyAtrMin = input.float(0.12, "Min body as ATR fraction", group=grpDec, minval=0.0, step=0.01)
@@ -113,7 +110,7 @@ emaSideBuf = input.float(0.03, "EMA side buffer (ATR x)", group=grpDec, minval=0
 kcLen = input.int(20, "Keltner length", group=grpDec, minval=1)
 kcMult = input.float(1.5, "Keltner ATR mult", group=grpDec, minval=0.1, step=0.1)
 kcBuf = input.float(0.10, "Keltner buffer (ATR x)", group=grpDec, minval=0.0, step=0.01)
-clvMinLong  = input.float(0.60, "Min close location (long)",  group=grpDec, minval=0.0, maxval=1.0, step=0.01)
+clvMinLong = input.float(0.60, "Min close location (long)", group=grpDec, minval=0.0, maxval=1.0, step=0.01)
 clvMaxShort = input.float(0.40, "Max close location (short)", group=grpDec, minval=0.0, maxval=1.0, step=0.01)
 
 // 200-SMA guard (shorts only)
@@ -122,84 +119,83 @@ smaLen = input.int(200, "Trend SMA length", group=grpDec, minval=50)
 smaBuf = input.float(0.10, "SMA buffer (ATR x)", group=grpDec, minval=0.0, step=0.01)
 
 // NEW: asymmetric breakout + KC slope guard inputs
-breakBarsL = input.int(2, "Breakout lookback LONG (bars)",  group=grpDec, minval=1)
+breakBarsL = input.int(2, "Breakout lookback LONG (bars)", group=grpDec, minval=1)
 breakBarsS = input.int(2, "Breakout lookback SHORT (bars)", group=grpDec, minval=1)
 useKCSlopeGuard = input.bool(true, "Use Keltner slope guard (shorts)", group=grpDec)
 
 // NEW: optional 3rd-ATR block + one-and-done + range + soft heads-up proximity
 use3rdATRBlock = input.bool(false, "Block entries at 3rd ATR", group=grpDec)
-atrMult3_gate  = input.float(3.0, "ATR x for 3rd-ATR block", group=grpDec, step=0.1)
-oneAndDone     = input.bool(false, "One-and-done (stop after first confirm)", group=grpDec)
-minRangeATR    = input.float(0.20, "Min bar range (ATR x)", group=grpDec, step=0.05)
-nearTicks      = input.int(3, "Heads-up proximity (ticks)", group=grpDec, minval=0)
+atrMult3_gate = input.float(3.0, "ATR x for 3rd-ATR block", group=grpDec, step=0.1)
+oneAndDone = input.bool(false, "One-and-done (stop after first confirm)", group=grpDec)
+minRangeATR = input.float(0.20, "Min bar range (ATR x)", group=grpDec, step=0.05)
+nearTicks = input.int(3, "Heads-up proximity (ticks)", group=grpDec, minval=0)
 
 // NEW: >2nd-ATR momentum+volume filters (symmetrical)
 useATR2MomFilter = input.bool(true, "Use >2nd ATR momentum+vol filter (both sides)", group=grpDec)
 volException = input.float(1.60, "Vol × when >2nd ATR (Strict)", group=grpDec, step=0.05)
 
-wTrend   = input.int(2, "W Trend", group=grpDec, minval=0, maxval=5)
-wVWAPPb  = input.int(1, "W Near VWAP", group=grpDec, minval=0, maxval=5)
-wVolume  = input.int(1, "W Volume", group=grpDec, minval=0, maxval=5)
-wPull    = input.int(2, "W Pull/Rally", group=grpDec, minval=0, maxval=5)
+wTrend = input.int(2, "W Trend", group=grpDec, minval=0, maxval=5)
+wVWAPPb = input.int(1, "W Near VWAP", group=grpDec, minval=0, maxval=5)
+wVolume = input.int(1, "W Volume", group=grpDec, minval=0, maxval=5)
+wPull = input.int(2, "W Pull/Rally", group=grpDec, minval=0, maxval=5)
 wReclaim = input.int(3, "W Reclaim", group=grpDec, minval=0, maxval=5)
-wFlag    = input.int(0, "W Flag", group=grpDec, minval=0, maxval=5)
-wPrec    = input.int(2, "W Precision", group=grpDec, minval=0, maxval=5)
-wCandle  = input.int(1, "W Candle", group=grpDec, minval=0, maxval=5)
-wEngulf  = input.int(2, "W Engulf", group=grpDec, minval=0, maxval=5)
-wRetest  = input.int(3, "W VWAP Retest", group=grpDec, minval=0, maxval=5)
-wBase    = input.int(2, "W Base", group=grpDec, minval=0, maxval=5)
-wTri     = input.int(1, "W Triangle", group=grpDec, minval=0, maxval=5)
+wFlag = input.int(0, "W Flag", group=grpDec, minval=0, maxval=5)
+wPrec = input.int(2, "W Precision", group=grpDec, minval=0, maxval=5)
+wCandle = input.int(1, "W Candle", group=grpDec, minval=0, maxval=5)
+wEngulf = input.int(2, "W Engulf", group=grpDec, minval=0, maxval=5)
+wRetest = input.int(3, "W VWAP Retest", group=grpDec, minval=0, maxval=5)
+wBase = input.int(2, "W Base", group=grpDec, minval=0, maxval=5)
+wTri = input.int(1, "W Triangle", group=grpDec, minval=0, maxval=5)
 
-threshLong  = input.int(5, "Score threshold LONG",  group=grpDec, minval=1)
+threshLong = input.int(5, "Score threshold LONG", group=grpDec, minval=1)
 threshShort = input.int(5, "Score threshold SHORT", group=grpDec, minval=1)
-minAtrTicks = input.int(22,"Min ATR (ticks) gate",  group=grpDec)
+minAtrTicks = input.int(22, "Min ATR (ticks) gate", group=grpDec)
 entryConfirmTicks = input.int(2, "Entry confirmation (ticks beyond signal bar)", group=grpDec, minval=1)
 cooldownBars = input.int(10, "Cooldown bars", group=grpDec)
 maxSignalsPerDay = input.int(12, "Max signals per day", group=grpDec)
-// Pattern tolerances
-ticksTol   = input.int(4, "Structure tolerance (ticks)", group=grpDec)
-retestBars = input.int(5, "VWAP retest within N bars",   group=grpDec)
+ticksTol = input.int(4, "Structure tolerance (ticks)", group=grpDec)
+retestBars = input.int(5, "VWAP retest within N bars", group=grpDec)
 
 // ---------- Targets / Stops (HUD)
 grpTP = "Targets / Stops (HUD)"
-tpMode       = input.string("ATRx", "TP Mode", options=["FixedTicks","ATRx"], group=grpTP)
+tpMode = input.string("ATRx", "TP Mode", options=["FixedTicks","ATRx"], group=grpTP)
 tpTicksFixed = input.int(90, "TP (ticks) when Fixed", group=grpTP, minval=1)
-tpATRmult    = input.float(2.2, "TP = ATR × k (MNQ ≈ 2.0–2.6)", group=grpTP, step=0.1, minval=0.5)
-tpMinTicks   = input.int(60, "Min TP (ticks) floor", group=grpTP, minval=1)
-tpMaxTicks   = input.int(160,"Max TP (ticks) cap",   group=grpTP, minval=10)
+tpATRmult = input.float(2.2, "TP = ATR × k (MNQ ≈ 2.0–2.6)", group=grpTP, step=0.1, minval=0.5)
+tpMinTicks = input.int(60, "Min TP (ticks) floor", group=grpTP, minval=1)
+tpMaxTicks = input.int(160, "Max TP (ticks) cap", group=grpTP, minval=10)
 
-slMode       = input.string("ATRx", "SL Mode", options=["FixedTicks","ATRx"], group=grpTP)
+slMode = input.string("ATRx", "SL Mode", options=["FixedTicks","ATRx"], group=grpTP)
 slTicksFixed = input.int(120, "SL (ticks) when Fixed", group=grpTP, minval=1)
-slATRmult    = input.float(2.8, "SL = ATR × k (MNQ ≈ 2.4–3.2)", group=grpTP, step=0.1, minval=0.5)
-slMinTicks   = input.int(80, "Min SL (ticks) floor",  group=grpTP, minval=1)
-slMaxTicks   = input.int(200,"Max SL (ticks) cap",    group=grpTP, minval=10)
+slATRmult = input.float(2.8, "SL = ATR × k (MNQ ≈ 2.4–3.2)", group=grpTP, step=0.1, minval=0.5)
+slMinTicks = input.int(80, "Min SL (ticks) floor", group=grpTP, minval=1)
+slMaxTicks = input.int(200, "Max SL (ticks) cap", group=grpTP, minval=10)
 
 // ---------- NEW: Exit/Management
 grpExit = "Exit / Management (Continuation Aware)"
-usePartialATR    = input.bool(true, "Take partial at 3×ATR from entry", group=grpExit)
-partialATRs      = input.float(3.0, "Partial ATR multiple", group=grpExit, step=0.1)
-trailATRs        = input.float(1.5, "ATR trail (from HH/LL since entry)", group=grpExit, step=0.1)
-exitOnMomHook    = input.bool(true, "Exit-soon on momentum hook (MACD hist turns up/down)", group=grpExit)
-exitOnPriorHL    = input.bool(true, "Hard exit on prior bar H/L break", group=grpExit)
-exitOnVWAPFlip   = input.bool(true, "Hard exit on VWAP/AVWAP reclaim", group=grpExit)
-exitOnEMASpread  = input.bool(true, "Exit-soon on EMA spread narrowing", group=grpExit)
-emaSpreadLook    = input.int(3, "EMA spread lookback (bars)", group=grpExit, minval=1)
-showTrails       = input.bool(true, "Plot dynamic ATR trails", group=grpExit)
+usePartialATR = input.bool(true, "Take partial at 3×ATR from entry", group=grpExit)
+partialATRs = input.float(3.0, "Partial ATR multiple", group=grpExit, step=0.1)
+trailATRs = input.float(1.5, "ATR trail (from HH/LL since entry)", group=grpExit, step=0.1)
+exitOnMomHook = input.bool(true, "Exit-soon on momentum hook (MACD hist turns up/down)", group=grpExit)
+exitOnPriorHL = input.bool(true, "Hard exit on prior bar H/L break", group=grpExit)
+exitOnVWAPFlip = input.bool(true, "Hard exit on VWAP/AVWAP reclaim", group=grpExit)
+exitOnEMASpread = input.bool(true, "Exit-soon on EMA spread narrowing", group=grpExit)
+emaSpreadLook = input.int(3, "EMA spread lookback (bars)", group=grpExit, minval=1)
+showTrails = input.bool(true, "Plot dynamic ATR trails", group=grpExit)
 enableExitAlerts = input.bool(true, "Enable exit/partial alerts", group=grpExit)
-exitHookBars     = input.int(2, "MACD hook pivot bars", group=grpExit, minval=1, maxval=5)
-spreadShrinkPct  = input.float(0.03, "EMA spread shrink ≥", group=grpExit, step=0.005)
-needStruct       = input.bool(true,  "Require LH/HL with hook", group=grpExit)
-needVolFade      = input.bool(false, "Require volume < SMA on exit-soon", group=grpExit)
-showExitSoonFlags= input.bool(true,  "Show 'Exit Soon' flags", group=grpExit)
-showHardExitFlags= input.bool(true,  "Show 'Hard Exit' crosses", group=grpExit)
-exitSoonColor    = input.color(color.new(color.yellow, 0), "Exit Soon color", group=grpExit)
-hardExitColor    = input.color(color.new(color.orange, 0), "Hard Exit color", group=grpExit)
+exitHookBars = input.int(2, "MACD hook pivot bars", group=grpExit, minval=1, maxval=5)
+spreadShrinkPct = input.float(0.03, "EMA spread shrink ≥", group=grpExit, step=0.005)
+needStruct = input.bool(true, "Require LH/HL with hook", group=grpExit)
+needVolFade = input.bool(false, "Require volume < SMA on exit-soon", group=grpExit)
+showExitSoonFlags = input.bool(true, "Show 'Exit Soon' flags", group=grpExit)
+showHardExitFlags = input.bool(true, "Show 'Hard Exit' crosses", group=grpExit)
+exitSoonColor = input.color(color.new(color.yellow, 0), "Exit Soon color", group=grpExit)
+hardExitColor = input.color(color.new(color.orange, 0), "Hard Exit color", group=grpExit)
 
 // ---------- Show / Alerts
-showContext   = input.bool(false,  "Plot EMAs + VWAP/AVWAP",  group="Show / Alerts")
-showSetups    = input.bool(true,  "Plot setup arrows",       group="Show / Alerts")
-enableAlerts  = input.bool(true,  "Enable confirmed entry alerts", group="Show / Alerts")
-showCountdown = input.bool(true,  "Show bar-close countdown", group="Show / Alerts")
+showContext = input.bool(false, "Plot EMAs + VWAP/AVWAP", group="Show / Alerts")
+showSetups = input.bool(true, "Plot setup arrows", group="Show / Alerts")
+enableAlerts = input.bool(true, "Enable confirmed entry alerts", group="Show / Alerts")
+showCountdown = input.bool(true, "Show bar-close countdown", group="Show / Alerts")
 
 // ---------- Core series
 atrLen = 14
@@ -207,7 +203,7 @@ atr = ta.atr(atrLen)
 safeMintick = syminfo.mintick == 0.0 ? 0.25 : syminfo.mintick
 atrTicks = math.round(atr / safeMintick)
 bodySize = math.abs(close - open)
-momLongOK  = close > open and bodySize >= atr * bodyAtrMin
+momLongOK = close > open and bodySize >= atr * bodyAtrMin
 momShortOK = close < open and bodySize >= atr * bodyAtrMin
 
 emaF = ta.ema(close, emaFastLen)
@@ -216,26 +212,20 @@ emaS = ta.ema(close, emaSlowLen)
 
 ribbonBull = emaF > emaM and emaM > emaS
 ribbonBear = emaF < emaM and emaM < emaS
-trendOkLong  = useRibbon ? ribbonBull : true
+trendOkLong = useRibbon ? ribbonBull : true
 trendOkShort = useRibbon ? ribbonBear : true
 
 // --------- Internal slope helpers
-f_internal_slope(_close, _fastLen, _midLen, _slowLen, _slopeLen, _smooth) =>
-    _fast = ta.ema(_close, _fastLen), _mid = ta.ema(_close, _midLen), _slow = ta.ema(_close, _slowLen), _spread = (_fast - _mid) + (_mid - _slow), _raw = ta.linreg(_spread, _slopeLen, 0), _sm = _smooth > 1 ? ta.ema(_raw, _smooth) : _raw, nz(_sm) / math.max(math.abs(_mid), 1e-6)
-
-f_slope_ok(tf, magMin, persistBars, _freeze) =>
-    _lk = _freeze ? barmerge.lookahead_on : barmerge.lookahead_off
-    _s = request.security(syminfo.tickerid, tf, f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), lookahead=_lk)
-    _up = _s > magMin, _down = _s < -magMin, _upOK = ta.barssince(_down) > persistBars, _downOK = ta.barssince(_up) > persistBars, [_up, _down, _upOK, _downOK]
-
-f_slope_current() =>
-    _s = f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth)
-    _up = _s > slopeMagLTF, _down = _s < -slopeMagLTF, _upOK = ta.barssince(_down) > persistLTF, _downOK = ta.barssince(_up) > persistLTF, [_up, _down, _upOK, _downOK]
+f_internal_slope(_close, _fastLen, _midLen, _slowLen, _slopeLen, _smooth) => _fast = ta.ema(_close, _fastLen), _mid = ta.ema(_close, _midLen), _slow = ta.ema(_close, _slowLen), _spread = (_fast - _mid) + (_mid - _slow), _raw = ta.linreg(_spread, _slopeLen, 0), _sm = _smooth > 1 ? ta.ema(_raw, _smooth) : _raw, nz(_sm) / math.max(math.abs(_mid), 1e-6)
+f_slope_ok(tf, magMin, persistBars, _freeze) => _lk = _freeze ? barmerge.lookahead_on : barmerge.lookahead_off, _s = request.security(syminfo.tickerid, tf, f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), lookahead=_lk), _up = _s > magMin, _down = _s < -magMin, _upOK = ta.barssince(_down) > persistBars, _downOK = ta.barssince(_up) > persistBars, [_up, _down, _upOK, _downOK]
+f_slope_current() => _s = f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), _up = _s > slopeMagLTF, _down = _s < -slopeMagLTF, _upOK = ta.barssince(_down) > persistLTF, _downOK = ta.barssince(_up) > persistLTF, [_up, _down, _upOK, _downOK]
 
 // ===== New slope consensus
 var string TF2="2", TF3="3", TF5="5", TF15="15", TF30="30", TF60="60", TF240="240", TFD="D"
 [ctf_up, ctf_dn, ctf_upok, ctf_dnok] = f_slope_current()
-mtf_any_selected = false, mtf_all_up = true, mtf_all_dn = true
+mtf_any_selected = false
+mtf_all_up = true
+mtf_all_dn = true
 if slopeMode == "MTF (All selected must agree)"
     if useTF_2m
         mtf_any_selected := true
@@ -279,13 +269,13 @@ if slopeMode == "MTF (All selected must agree)"
         mtf_all_dn := mtf_all_dn and (dd and dokd)
 
 useCurrentFallback = (slopeMode == "MTF (All selected must agree)") and (not mtf_any_selected)
-slopeLongOK_new  = slopeMode == "Current TF only" ? (ctf_up and ctf_upok) : useCurrentFallback ? (ctf_up and ctf_upok) : mtf_all_up
+slopeLongOK_new = slopeMode == "Current TF only" ? (ctf_up and ctf_upok) : useCurrentFallback ? (ctf_up and ctf_upok) : mtf_all_up
 slopeShortOK_new = slopeMode == "Current TF only" ? (ctf_dn and ctf_dnok) : useCurrentFallback ? (ctf_dn and ctf_dnok) : mtf_all_dn
 
 // Session & VWAPs (UPDATED)
 vwap = ta.vwap(close)
-inTradeSess  = not na(time(timeframe.period, sessionTradeStr, tzProfile))
-inAnchor     = not na(time(timeframe.period, anchorStr,      tzProfile))
+inTradeSess = not na(time(timeframe.period, sessionTradeStr, tzProfile))
+inAnchor = not na(time(timeframe.period, anchorStr, tzProfile))
 sessionStart = inAnchor and not inAnchor[1]
 
 // --- NEW: Anchor diagnostics (marker + “Anchor OK” flag for HUD)
@@ -296,29 +286,30 @@ barsSinceAnchor = ta.barssince(sessionStart)
 barsSinceDay = ta.barssince(_newDayFlag)
 anchorOK_today = (not na(barsSinceAnchor)) and (not na(barsSinceDay)) and (barsSinceAnchor <= barsSinceDay)
 
-// Anchored VWAP (profile anchor open)
+// Anchored VWAP (profile anchor open) — persist outside trade session
 var float avwap = na
 var float aPV = 0.0
-var float aV  = 0.0
+var float aV = 0.0
 if barstate.isnew
     if sessionStart
-        aPV := 0.0, aV := 0.0
+        aPV := 0.0
+        aV := 0.0
+        avwap := na
     if inTradeSess
         tp = (high + low + close) / 3.0
-        aPV += tp * volume, aV += volume
+        aPV += tp * volume
+        aV += volume
         avwap := aV > 0 ? aPV / aV : na
-    if not inTradeSess
-        aPV := 0.0, aV := 0.0, avwap := na
 
-plot((showContext and useVWAP)  ? vwap  : na, "VWAP", color=color.new(color.teal, 0), linewidth=2)
+plot((showContext and useVWAP) ? vwap : na, "VWAP", color=color.new(color.teal, 0), linewidth=2)
 plot((showContext and useAVWAP) ? avwap : na, "Anchor VWAP (profile open)", color=avwapColor, linewidth=3)
 plot(showContext ? emaF : na, "EMA Fast", color=color.new(color.white, 0))
-plot(showContext ? emaM : na, "EMA Mid",  color=color.new(color.orange, 0))
+plot(showContext ? emaM : na, "EMA Mid", color=color.new(color.orange, 0))
 plot(showContext ? emaS : na, "EMA Slow", color=color.new(color.maroon, 0))
 
 // HTF EMA ribbon (freeze to last closed HTF bar if freezeHTF)
 htfE1 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaFastLen), lookahead=freezeHTF ? barmerge.lookahead_on : barmerge.lookahead_off)
-htfE2 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaMidLen),  lookahead=freezeHTF ? barmerge.lookahead_on : barmerge.lookahead_off)
+htfE2 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaMidLen), lookahead=freezeHTF ? barmerge.lookahead_on : barmerge.lookahead_off)
 htfE3 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaSlowLen), lookahead=freezeHTF ? barmerge.lookahead_on : barmerge.lookahead_off)
 htfBull = htfE1 > htfE2 and htfE2 > htfE3
 htfBear = htfE1 < htfE2 and htfE2 < htfE3
@@ -328,8 +319,8 @@ htfBull_preview = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaFas
 htfBear_preview = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaFastLen) < ta.ema(close, emaMidLen) and ta.ema(close, emaMidLen) < ta.ema(close, emaSlowLen), lookahead=barmerge.lookahead_off)
 htfBull_locked = htfBull
 htfBear_locked = htfBear
-plotshape(htfBull_preview and not htfBull_locked,  title="HTF Heads-Up (Long)",  style=shape.circle, location=location.top,    size=size.tiny, color=color.new(color.green, 0))
-plotshape(htfBear_preview and not htfBear_locked,  title="HTF Heads-Up (Short)", style=shape.circle, location=location.bottom, size=size.tiny, color=color.new(color.red,   0))
+plotshape(htfBull_preview and not htfBull_locked, title="HTF Heads-Up (Long)", style=shape.circle, location=location.top, size=size.tiny, color=color.new(color.green, 0))
+plotshape(htfBear_preview and not htfBear_locked, title="HTF Heads-Up (Short)", style=shape.circle, location=location.bottom, size=size.tiny, color=color.new(color.red, 0))
 
 // Volume
 volSMA = ta.sma(volume, volLen)
@@ -341,23 +332,23 @@ rng = math.max(high - low, safeMintick)
 body = math.abs(close - open)
 upper = high - math.max(open, close)
 lower = math.min(open, close) - low
-isDoji       = body <= rng * dojiBodyPct
+isDoji = body <= rng * dojiBodyPct
 nearHighBody = (high - math.max(open, close)) <= rng * nearHiPct
-nearLowBody  = (math.min(open, close) - low)  <= rng * nearLoPct
-dragonfly    = isDoji and lower >= body * longWickK and nearHighBody
-gravestone   = isDoji and upper >= body * longWickK and nearLowBody
-hammer       = (lower >= body * longWickK) and nearHighBody and not isDoji
+nearLowBody = (math.min(open, close) - low) <= rng * nearLoPct
+dragonfly = isDoji and lower >= body * longWickK and nearHighBody
+gravestone = isDoji and upper >= body * longWickK and nearLowBody
+hammer = (lower >= body * longWickK) and nearHighBody and not isDoji
 shootingStar = (upper >= body * longWickK) and nearLowBody and not isDoji
 
 // Engulf / inside
 bullEngulf = close > open and open <= close[1] and close >= open[1] and close > close[1]
 bearEngulf = close < open and open >= close[1] and close <= open[1] and close < close[1]
-insideBar  = high < high[1] and low > low[1]
+insideBar = high < high[1] and low > low[1]
 
 // Proximity + chop guard
 withinPctOfATR(src, pct) => na(src) ? false : math.abs(close - src) <= atr * pct
 nearAnyVWAP_raw = (useVWAP and withinPctOfATR(vwap, pullDist)) or (useAVWAP and withinPctOfATR(avwap, pullDist))
-inVWAPChop_raw  = (useVWAP and withinPctOfATR(vwap, minVWAPBand)) or (useAVWAP and withinPctOfATR(avwap, minVWAPBand))
+inVWAPChop_raw = (useVWAP and withinPctOfATR(vwap, minVWAPBand)) or (useAVWAP and withinPctOfATR(avwap, minVWAPBand))
 nearAnyVWAP = nearAnyVWAP_raw
 inVWAPChop = useChopGuard ? inVWAPChop_raw : false
 
@@ -373,33 +364,33 @@ basisKC = ta.ema((high + low + close) / 3.0, kcLen)
 rangeKC = ta.atr(kcLen) * kcMult
 kcUp = basisKC + rangeKC
 kcDn = basisKC - rangeKC
-overLong  = close >= kcUp - atr * kcBuf
+overLong = close >= kcUp - atr * kcBuf
 overShort = close <= kcDn + atr * kcBuf
 rngNow = math.max(high - low, safeMintick)
 clv = rngNow > 0 ? (close - low) / rngNow : 0.5
-clvLongOK  = clv >= clvMinLong
+clvLongOK = clv >= clvMinLong
 clvShortOK = clv <= clvMaxShort
 
 // KC slope guard helpers
-kcSlopeUp   = kcUp > kcUp[1] and kcDn > kcDn[1]
+kcSlopeUp = kcUp > kcUp[1] and kcDn > kcDn[1]
 kcSlopeDown = kcUp < kcUp[1] and kcDn < kcDn[1]
 
 // 200-SMA guard helpers
-sma200  = ta.sma(close, smaLen)
+sma200 = ta.sma(close, smaLen)
 aboveSMA = close > sma200 + atr * smaBuf
 belowSMA = close < sma200 - atr * smaBuf
 
 // Setups
 bullReversalCandle = hammer or dragonfly or (close > open and close > open[1] and low <= low[1])
-pullbackLong       = trendOkLong and nearAnyVWAP and bullReversalCandle and close > ta.highest(high[1], 1)
+pullbackLong = trendOkLong and nearAnyVWAP and bullReversalCandle and close > ta.highest(high[1], 1)
 bearReversalCandle = shootingStar or gravestone or (close < open and close < open[1] and high >= high[1])
-rallyShort         = trendOkShort and nearAnyVWAP and bearReversalCandle and close < ta.lowest(low[1], 1)
+rallyShort = trendOkShort and nearAnyVWAP and bearReversalCandle and close < ta.lowest(low[1], 1)
 
 wasBelowVWAP = useVWAP and close[1] < vwap[1]
 nowAboveVWAP = useVWAP and close > vwap
 wasAboveVWAP = useVWAP and close[1] > vwap[1]
 nowBelowVWAP = useVWAP and close < vwap
-vwapReclaimLong  = trendOkLong and (wasBelowVWAP and nowAboveVWAP) and volOK
+vwapReclaimLong = trendOkLong and (wasBelowVWAP and nowAboveVWAP) and volOK
 vwapReclaimShort = trendOkShort and (wasAboveVWAP and nowBelowVWAP) and volOK
 
 // VWAP retest/flip (after reclaim)
@@ -408,55 +399,51 @@ bullRetest = ta.barssince(wasBelowVWAP and nowAboveVWAP) <= retestBars and math.
 bearRetest = ta.barssince(wasAboveVWAP and nowBelowVWAP) <= retestBars and math.abs(high - vwap) <= tolP and close < vwap
 
 // Flags / Bases / Triangles
-rangeHi  = ta.highest(high, flagLookback)
-rangeLo  = ta.lowest(low,  flagLookback)
+rangeHi = ta.highest(high, flagLookback)
+rangeLo = ta.lowest(low, flagLookback)
 rangeTight = (rangeHi - rangeLo) <= atr * flagTightPct
-bullFlag  = trendOkLong and rangeTight and close > rangeHi[1] + atr * breakBufATR
-bearFlag  = trendOkShort and rangeTight and close < rangeLo[1] - atr * breakBufATR
-tolPx  = ticksTol * safeMintick
+bullFlag = trendOkLong and rangeTight and close > rangeHi[1] + atr * breakBufATR
+bearFlag = trendOkShort and rangeTight and close < rangeLo[1] - atr * breakBufATR
+tolPx = ticksTol * safeMintick
 flatHi = math.abs(rangeHi - rangeHi[1]) <= tolPx
 flatLo = math.abs(rangeLo - rangeLo[1]) <= tolPx
-riseL  = ta.lowest(low, flagLookback)  > ta.lowest(low, flagLookback)[1]
-fallH  = ta.highest(high,flagLookback) < ta.highest(high,flagLookback)[1]
+riseL = ta.lowest(low, flagLookback) > ta.lowest(low, flagLookback)[1]
+fallH = ta.highest(high, flagLookback) < ta.highest(high, flagLookback)[1]
 highBase = trendOkLong and rangeTight and flatHi and riseL
-lowBase  = trendOkShort and rangeTight and flatLo and fallH
-ascTri   = trendOkLong and flatHi and riseL
-descTri  = trendOkShort and flatLo and fallH
+lowBase = trendOkShort and rangeTight and flatLo and fallH
+ascTri = trendOkLong and flatHi and riseL
+descTri = trendOkShort and flatLo and fallH
 
 // Precision
-precisionLong  = trendOkLong and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
+precisionLong = trendOkLong and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
 precisionShort = trendOkShort and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bearReversalCandle
 
 // Scoring
 scoreAdd(c, w, use) => use and c ? w : 0
-reclaimLongPrim  = wasBelowVWAP and nowAboveVWAP
-reclaimShortPrim = wasAboveVWAP and nowBelowVWAP
-bullCandle = hammer or dragonfly
-bearCandle = shootingStar or gravestone
-longScore = scoreAdd(trendOkLong, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(pullbackLong, wPull, useCompPull) + scoreAdd(reclaimLongPrim, wReclaim, useCompReclaim) + scoreAdd(bullFlag, wFlag, useCompFlag) + scoreAdd(precisionLong, wPrec, useCompPrec) + scoreAdd(bullCandle, wCandle, useCompCandle) + scoreAdd(bullEngulf, wEngulf, useCompEngulf) + scoreAdd(bullRetest, wRetest, useCompRetest) + scoreAdd(highBase, wBase, useCompBase) + scoreAdd(ascTri, wTri, useCompTri)
-shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(rallyShort, wPull, useCompPull) + scoreAdd(reclaimShortPrim, wReclaim, useCompReclaim) + scoreAdd(bearFlag, wFlag, useCompFlag) + scoreAdd(precisionShort, wPrec, useCompPrec) + scoreAdd(bearCandle, wCandle, useCompCandle) + scoreAdd(bearEngulf, wEngulf, useCompEngulf) + scoreAdd(bearRetest, wRetest, useCompRetest) + scoreAdd(lowBase, wBase, useCompBase) + scoreAdd(descTri, wTri, useCompTri)
+longScore = scoreAdd(trendOkLong, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(pullbackLong, wPull, useCompPull) + scoreAdd(wasBelowVWAP and nowAboveVWAP, wReclaim, useCompReclaim) + scoreAdd(bullFlag, wFlag, useCompFlag) + scoreAdd(precisionLong, wPrec, useCompPrec) + scoreAdd(hammer or dragonfly, wCandle, useCompCandle) + scoreAdd(bullEngulf, wEngulf, useCompEngulf) + scoreAdd(bullRetest, wRetest, useCompRetest) + scoreAdd(highBase, wBase, useCompBase) + scoreAdd(ascTri, wTri, useCompTri)
+shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(rallyShort, wPull, useCompPull) + scoreAdd(wasAboveVWAP and nowBelowVWAP, wReclaim, useCompReclaim) + scoreAdd(bearFlag, wFlag, useCompFlag) + scoreAdd(precisionShort, wPrec, useCompPrec) + scoreAdd(shootingStar or gravestone, wCandle, useCompCandle) + scoreAdd(bearEngulf, wEngulf, useCompEngulf) + scoreAdd(bearRetest, wRetest, useCompRetest) + scoreAdd(lowBase, wBase, useCompBase) + scoreAdd(descTri, wTri, useCompTri)
 
 // Gating toggles
-gateSessOK  = useSessionFilter ? inTradeSess : true
-gateAtrOK   = useAtrGate ? atrTicks >= minAtrTicks : true
-gateHTFLong = useHTFFilter ? htfBull : true
-gateHTFShort= useHTFFilter ? htfBear : true
-gateSlopeL  = useSlopeFilter ? slopeLongOK_new  : true
-gateSlopeS  = useSlopeFilter ? slopeShortOK_new : true
+gateSessOK = useSessionFilter ? inTradeSess : true
+gateAtrOK = useAtrGate ? atrTicks >= minAtrTicks : true
+gateHTFLong = useHTFFilter ? htfBull_locked : true
+gateHTFShort = useHTFFilter ? htfBear_locked : true
+gateSlopeL = useSlopeFilter ? slopeLongOK_new : true
+gateSlopeS = useSlopeFilter ? slopeShortOK_new : true
 
 // Cooldown + daily cap + one-and-done
-var int  lastSignalBar   = na
-newDay               = ta.change(time("D")) != 0
-var int  signalsToday    = 0
-var bool tookEntryToday  = false
+var int lastSignalBar = na
+newDay = ta.change(time("D")) != 0
+var int signalsToday = 0
+var bool tookEntryToday = false
 if newDay
     signalsToday := 0, lastSignalBar := na, tookEntryToday := false
 readyForNew = na(lastSignalBar) or (bar_index - lastSignalBar > cooldownBars)
-capRaw      = signalsToday < maxSignalsPerDay
+capRaw = signalsToday < maxSignalsPerDay
 gateDailyOK = useDailyCapGate ? capRaw : true
 
 // SIMPLE triggers (bypass score if chosen)
-simpleLong  = trendOkLong and (precisionLong or vwapReclaimLong or bullRetest or bullEngulf or pullbackLong or bullFlag or highBase or ascTri) and (not useChopGuard or not inVWAPChop)
+simpleLong = trendOkLong and (precisionLong or vwapReclaimLong or bullRetest or bullEngulf or pullbackLong or bullFlag or highBase or ascTri) and (not useChopGuard or not inVWAPChop)
 simpleShort = trendOkShort and (precisionShort or vwapReclaimShort or bearRetest or bearEngulf or rallyShort or bearFlag or lowBase or descTri) and (not useChopGuard or not inVWAPChop)
 
 // NEW: 3rd-ATR block + range quality + one-and-done
@@ -475,34 +462,34 @@ strictATRMomOK_L = (not atOrBeyond3rd) and ((close <= up2_gate and slopeLongOK_n
 strictATRMomOK_S = (not atOrBeyond3rd) and ((close >= dn2_gate and slopeShortOK_new and momShortOK) or (close < dn2_gate and slopeShortOK_new and htfBear_locked and momShortOK and (volume >= volSMA * volException)))
 
 // NEW: base gate bundles (core)
-baseLongGates_core  = readyForNew and gateDailyOK and gateSessOK and gateAtrOK and gateHTFLong and gateSlopeL and trendOkLong and cgOK and aboveVW and (not requireEMAMSideBase or aboveEMAM) and (not requireNearVWBase or nearAnyVWAP) and momLongOK and (not overLong) and clvLongOK
+baseLongGates_core = readyForNew and gateDailyOK and gateSessOK and gateAtrOK and gateHTFLong and gateSlopeL and trendOkLong and cgOK and aboveVW and (not requireEMAMSideBase or aboveEMAM) and (not requireNearVWBase or nearAnyVWAP) and momLongOK and (not overLong) and clvLongOK
 baseShortGates_core = readyForNew and gateDailyOK and gateSessOK and gateAtrOK and gateHTFShort and gateSlopeS and trendOkShort and cgOK and belowVW and (not requireEMAMSideBase or belowEMAM) and (not requireNearVWBase or nearAnyVWAP) and momShortOK and (not overShort) and clvShortOK and (not useSMAGuard or belowSMA) and (not useKCSlopeGuard or kcSlopeDown)
 
 // Apply extra guards (+ new ATR2 filters)
-baseLongGates  = baseLongGates_core  and (not use3rdATRBlock or not atOrBeyond3rd) and (not oneAndDone or not tookEntryToday) and (not useATR2MomFilter or strictATRMomOK_L)
+baseLongGates = baseLongGates_core and (not use3rdATRBlock or not atOrBeyond3rd) and (not oneAndDone or not tookEntryToday) and (not useATR2MomFilter or strictATRMomOK_L)
 baseShortGates = baseShortGates_core and (not use3rdATRBlock or not atOrBeyond3rd) and (not oneAndDone or not tookEntryToday) and (not useATR2MomFilter or strictATRMomOK_S)
 
 // Final setups (mode driven)
 useScore = triggerMode == "Score"
-useSimple= triggerMode == "Simple"
+useSimple = triggerMode == "Simple"
 useBreak = triggerMode == "Breakout"
-baseLongSetup_raw  = ((useScore ? (longScore >= threshLong) : (useSimple ? simpleLong : (not requirePatternBreak or (precisionLong or vwapReclaimLong or bullRetest or bullEngulf or pullbackLong or bullFlag or highBase or ascTri)))) and baseLongGates)
+baseLongSetup_raw = ((useScore ? (longScore >= threshLong) : (useSimple ? simpleLong : (not requirePatternBreak or (precisionLong or vwapReclaimLong or bullRetest or bullEngulf or pullbackLong or bullFlag or highBase or ascTri)))) and baseLongGates)
 baseShortSetup_raw = ((useScore ? (shortScore >= threshShort) : (useSimple ? simpleShort : (not requirePatternBreak or (precisionShort or vwapReclaimShort or bearRetest or bearEngulf or rallyShort or bearFlag or lowBase or descTri)))) and baseShortGates)
 
 // Confirmation + asymmetric breakout
-longStopPrice  = high + entryConfirmTicks * safeMintick
-shortStopPrice = low  - entryConfirmTicks * safeMintick
-breakoutLongNow  = (high - low) >= atr * 0.20 and high >= ta.highest(high, breakBarsL)[1] + entryConfirmTicks * safeMintick
-breakoutShortNow = (high - low) >= atr * 0.20 and low  <= ta.lowest(low, breakBarsS)[1]  - entryConfirmTicks * safeMintick
-longConfirm_raw  = (useBreak ? (baseLongSetup_raw and breakoutLongNow) : (baseLongSetup_raw[1] and high >= longStopPrice[1])) and rangeOK
+longStopPrice = high + entryConfirmTicks * safeMintick
+shortStopPrice = low - entryConfirmTicks * safeMintick
+breakoutLongNow = (high - low) >= atr * 0.20 and high >= ta.highest(high, breakBarsL)[1] + entryConfirmTicks * safeMintick
+breakoutShortNow = (high - low) >= atr * 0.20 and low <= ta.lowest(low, breakBarsS)[1] - entryConfirmTicks * safeMintick
+longConfirm_raw = (useBreak ? (baseLongSetup_raw and breakoutLongNow) : (baseLongSetup_raw[1] and high >= longStopPrice[1])) and rangeOK
 shortConfirm_raw = (useBreak ? (baseShortSetup_raw and breakoutShortNow) : (baseShortSetup_raw[1] and low <= shortStopPrice[1])) and rangeOK
 
 // --- Finalization: lock on bar close if enabled
 finalize(b) => calcOnClose ? (barstate.isconfirmed ? b : false) : b
-baseLongSetup  = finalize(baseLongSetup_raw)
+baseLongSetup = finalize(baseLongSetup_raw)
 baseShortSetup = finalize(baseShortSetup_raw)
-longConfirm    = finalize(longConfirm_raw)
-shortConfirm   = finalize(shortConfirm_raw)
+longConfirm = finalize(longConfirm_raw)
+shortConfirm = finalize(shortConfirm_raw)
 
 // ---------- Adaptive TP/SL compute (HUD)
 _tpTicksDyn = tpMode == "FixedTicks" ? tpTicksFixed : math.round(math.max(tpMinTicks, math.min(tpMaxTicks, atrTicks * tpATRmult)))
@@ -512,49 +499,48 @@ slTicksNow = _slTicksDyn
 
 // ---------- NEW: Position state, momentum & exits
 [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
-spreadNow  = math.abs(emaM - emaF)
+spreadNow = math.abs(emaM - emaF)
 spreadPrev = math.abs(emaM[emaSpreadLook] - emaF[emaSpreadLook])
 
 var bool inLong = false, inShort = false
 var float entryPrice = na
-var int   entrySide  = 0
-longEnter  = barstate.isconfirmed and longConfirm
+var int entrySide = 0
+longEnter = barstate.isconfirmed and longConfirm
 shortEnter = barstate.isconfirmed and shortConfirm
 if longEnter
     inLong := true, inShort := false, entryPrice := close, entrySide := 1
 if shortEnter
     inShort := true, inLong := false, entryPrice := close, entrySide := -1
 
-barsSinceLong  = ta.barssince(longEnter)
+barsSinceLong = ta.barssince(longEnter)
 barsSinceShort = ta.barssince(shortEnter)
 histAvail = bar_index + 1
 _safeLen(x) => math.max(1, math.min(histAvail, math.min(500, nz(x) + 1)))
 lenL = _safeLen(barsSinceLong)
 lenS = _safeLen(barsSinceShort)
-llSince   = ta.lowest(low,  lenL)
-hhSince   = ta.highest(high, lenS)
+llSince = ta.lowest(low, lenL)
+hhSince = ta.highest(high, lenS)
 trailLong = llSince - atr * trailATRs
-trailShort= hhSince + atr * trailATRs
+trailShort = hhSince + atr * trailATRs
 
-partialLong  = inLong  and usePartialATR and close >= entryPrice + atr * partialATRs
+partialLong = inLong and usePartialATR and close >= entryPrice + atr * partialATRs
 partialShort = inShort and usePartialATR and close <= entryPrice - atr * partialATRs
 
 // Exit-Soon conditions
-macdHookDn   = ta.change(macdHist) < 0 and ta.change(macdHist, exitHookBars) >= 0
-macdHookUp   = ta.change(macdHist) > 0 and ta.change(macdHist, exitHookBars) <= 0
+macdHookDn = ta.change(macdHist) < 0 and ta.change(macdHist, exitHookBars) >= 0
+macdHookUp = ta.change(macdHist) > 0 and ta.change(macdHist, exitHookBars) <= 0
 spreadNarrow = spreadNow <= spreadPrev * (1 - spreadShrinkPct)
-lowerHigh    = high <= high[1]
-higherLow    = low  >= low[1]
-volFade      = volume < volSMA
-
-momHookLong    = inLong  and exitOnMomHook and macdHookDn
-momHookShort   = inShort and exitOnMomHook and macdHookUp
-emaNarrowLong  = inLong  and exitOnEMASpread and spreadNarrow
+lowerHigh = high <= high[1]
+higherLow = low >= low[1]
+volFade = volume < volSMA
+momHookLong = inLong and exitOnMomHook and macdHookDn
+momHookShort = inShort and exitOnMomHook and macdHookUp
+emaNarrowLong = inLong and exitOnEMASpread and spreadNarrow
 emaNarrowShort = inShort and exitOnEMASpread and spreadNarrow
-hardExitLong   = inLong  and ((close <= trailLong) or (exitOnVWAPFlip and ((useVWAP and close < vwap) or (useAVWAP and (not na(avwap) and close < avwap)))) or (exitOnPriorHL and close < low[1]))
-hardExitShort  = inShort and ((close >= trailShort) or (exitOnVWAPFlip and ((useVWAP and close > vwap) or (useAVWAP and (not na(avwap) and close > avwap)))) or (exitOnPriorHL and close > high[1]))
-exitSoonLong   = inLong  and ((momHookLong  or emaNarrowLong )) and (not needStruct or lowerHigh)  and (not needVolFade or volFade)
-exitSoonShort  = inShort and ((momHookShort or emaNarrowShort)) and (not needStruct or higherLow) and (not needVolFade or volFade)
+hardExitLong = inLong and ((close <= trailLong) or (exitOnVWAPFlip and ((useVWAP and close < vwap) or (useAVWAP and (not na(avwap) and close < avwap)))) or (exitOnPriorHL and close < low[1]))
+hardExitShort = inShort and ((close >= trailShort) or (exitOnVWAPFlip and ((useVWAP and close > vwap) or (useAVWAP and (not na(avwap) and close > avwap)))) or (exitOnPriorHL and close > high[1]))
+exitSoonLong = inLong and ((momHookLong or emaNarrowLong)) and (not needStruct or lowerHigh) and (not needVolFade or volFade)
+exitSoonShort = inShort and ((momHookShort or emaNarrowShort)) and (not needStruct or higherLow) and (not needVolFade or volFade)
 
 // latch cooldown, day flags
 if barstate.isconfirmed and (longConfirm or shortConfirm)
@@ -567,33 +553,33 @@ if barstate.isconfirmed and hardExitShort
     inShort := false, entrySide := 0
 
 // ---------- Trails & Exit markers
-plot(showTrails and inLong ? trailLong : na,  "Long ATR Trail",  color=color.new(color.lime, 0), linewidth=1, style=plot.style_linebr)
-plot(showTrails and inShort ? trailShort : na,"Short ATR Trail", color=color.new(color.red,  0), linewidth=1, style=plot.style_linebr)
-plotshape(partialLong,  title="Partial LONG 3xATR",  style=shape.circle, location=location.abovebar, color=color.new(color.lime, 0), size=size.tiny, text="PARTIAL")
-plotshape(partialShort, title="Partial SHORT 3xATR", style=shape.circle, location=location.belowbar, color=color.new(color.red,  0), size=size.tiny, text="PARTIAL")
-plotshape(showExitSoonFlags and exitSoonLong,  title="Exit Soon LONG",  style=shape.flag,  location=location.abovebar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
-plotshape(showExitSoonFlags and exitSoonShort, title="Exit Soon SHORT", style=shape.flag,  location=location.belowbar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
-plotshape(showHardExitFlags and hardExitLong,  title="HARD EXIT LONG",  style=shape.cross, location=location.abovebar, color=hardExitColor, size=size.tiny, text="EXIT")
+plot(showTrails and inLong ? trailLong : na, "Long ATR Trail", color=color.new(color.lime, 0), linewidth=1, style=plot.style_linebr)
+plot(showTrails and inShort ? trailShort : na, "Short ATR Trail", color=color.new(color.red, 0), linewidth=1, style=plot.style_linebr)
+plotshape(partialLong, title="Partial LONG 3xATR", style=shape.circle, location=location.abovebar, color=color.new(color.lime, 0), size=size.tiny, text="PARTIAL")
+plotshape(partialShort, title="Partial SHORT 3xATR", style=shape.circle, location=location.belowbar, color=color.new(color.red, 0), size=size.tiny, text="PARTIAL")
+plotshape(showExitSoonFlags and exitSoonLong, title="Exit Soon LONG", style=shape.flag, location=location.abovebar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
+plotshape(showExitSoonFlags and exitSoonShort, title="Exit Soon SHORT", style=shape.flag, location=location.belowbar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
+plotshape(showHardExitFlags and hardExitLong, title="HARD EXIT LONG", style=shape.cross, location=location.abovebar, color=hardExitColor, size=size.tiny, text="EXIT")
 plotshape(showHardExitFlags and hardExitShort, title="HARD EXIT SHORT", style=shape.cross, location=location.belowbar, color=hardExitColor, size=size.tiny, text="EXIT")
 
 // Plot arrows (finalized only)
-plotshape(showSetups and baseLongSetup,  title="Setup LONG",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.lime, 40), size=size.tiny, text="setup")
-plotshape(showSetups and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=color.new(color.red,  40), size=size.tiny, text="setup")
-plotshape(longConfirm,  title="A+ LONG (confirmed)",  style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.large, text="A+ LONG")
-plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.large, text="A+ SHORT")
+plotshape(showSetups and baseLongSetup, title="Setup LONG", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 40), size=size.tiny, text="setup")
+plotshape(showSetups and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 40), size=size.tiny, text="setup")
+plotshape(longConfirm, title="A+ LONG (confirmed)", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.large, text="A+ LONG")
+plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.large, text="A+ SHORT")
 bgcolor(longConfirm ? color.new(color.lime, 85) : shortConfirm ? color.new(color.red, 85) : na)
 
 // Alerts (entries) — session-aware
 canAlert = not useSessionFilter or inTradeSess
-alertcondition(enableAlerts and canAlert and longConfirm,  title="A+ LONG ENTRY",  message="A+ LONG entry fired")
+alertcondition(enableAlerts and canAlert and longConfirm, title="A+ LONG ENTRY", message="A+ LONG entry fired")
 alertcondition(enableAlerts and canAlert and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
 
 // Alerts (partials / exits) — session-aware
-alertcondition(enableExitAlerts and canAlert and partialLong,  title="A+ LONG PARTIAL",  message="A+ LONG: take partial at 3x ATR from entry")
+alertcondition(enableExitAlerts and canAlert and partialLong, title="A+ LONG PARTIAL", message="A+ LONG: take partial at 3x ATR from entry")
 alertcondition(enableExitAlerts and canAlert and partialShort, title="A+ SHORT PARTIAL", message="A+ SHORT: take partial at 3x ATR from entry")
-alertcondition(enableExitAlerts and canAlert and exitSoonLong,  title="A+ LONG EXIT SOON",  message="A+ LONG: momentum slowing / EMA spread narrowing")
+alertcondition(enableExitAlerts and canAlert and exitSoonLong, title="A+ LONG EXIT SOON", message="A+ LONG: momentum slowing / EMA spread narrowing")
 alertcondition(enableExitAlerts and canAlert and exitSoonShort, title="A+ SHORT EXIT SOON", message="A+ SHORT: momentum slowing / EMA spread narrowing")
-alertcondition(enableExitAlerts and canAlert and hardExitLong,  title="A+ LONG HARD EXIT",  message="A+ LONG: trail/VWAP/structure break — exit")
+alertcondition(enableExitAlerts and canAlert and hardExitLong, title="A+ LONG HARD EXIT", message="A+ LONG: trail/VWAP/structure break — exit")
 alertcondition(enableExitAlerts and canAlert and hardExitShort, title="A+ SHORT HARD EXIT", message="A+ SHORT: trail/VWAP/structure break — exit")
 
 // --- Bar-close countdown label
@@ -607,10 +593,10 @@ if showCountdown and barstate.islast
     _cd := label.new(bar_index, high, str.tostring(secLeft) + "s", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, textcolor=color.white, color=color.new(color.black, 0), size=size.tiny)
 
 // ---------- Top-right HUD: TP/SL, R:R, Breakeven win% + Anchor OK
-rr        = slTicksNow > 0 ? (tpTicksNow * 1.0) / slTicksNow : na
+rr = slTicksNow > 0 ? (tpTicksNow * 1.0) / slTicksNow : na
 breakeven = slTicksNow + tpTicksNow > 0 ? slTicksNow * 100.0 / (slTicksNow + tpTicksNow) : na
-txtRR     = na(rr) ? "—" : str.tostring(rr, format.mintick)
-txtBE     = na(breakeven) ? "—" : str.tostring(breakeven, format.mintick) + "%"
+txtRR = na(rr) ? "—" : str.tostring(rr, format.mintick)
+txtBE = na(breakeven) ? "—" : str.tostring(breakeven, format.mintick) + "%"
 txtAnchor = anchorOK_today ? "YES" : "NO"
 
 var table hud = na
@@ -619,6 +605,6 @@ if barstate.isfirst
 if barstate.islast
     table.cell(hud, 0, 0, "TP: " + str.tostring(tpTicksNow) + " ticks", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 1, "SL: " + str.tostring(slTicksNow) + " ticks", text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 2, "R:R ≈ " + txtRR,                 text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 3, "BE Win% ≈ " + txtBE,             text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 4, "Anchor OK: " + txtAnchor,        text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
+    table.cell(hud, 0, 2, "R:R ≈ " + txtRR, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 3, "BE Win% ≈ " + txtBE, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 4, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))

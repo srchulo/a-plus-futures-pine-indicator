@@ -171,23 +171,21 @@ barsSinceAnchor = ta.barssince(sessionStart)
 barsSinceDay = ta.barssince(_newDayFlag)
 anchorOK_today = (not na(barsSinceAnchor)) and (not na(barsSinceDay)) and (barsSinceAnchor <= barsSinceDay)
 
-// Anchored VWAP (resets at profile anchor open)
+// Anchored VWAP (resets at profile anchor open) — persist outside trade session
 var float avwap = na
 var float aPV = 0.0
 var float aV = 0.0
 if barstate.isnew
     if sessionStart
         aPV := 0.0
-        aV := 0.0
+        aV  := 0.0
+        avwap := na
     if inTradeSess
         tp = (high + low + close) / 3.0
         aPV += tp * volume
-        aV += volume
+        aV  += volume
         avwap := aV > 0 ? aPV / aV : na
-    if not inTradeSess
-        aPV := 0.0
-        aV := 0.0
-        avwap := na
+// IMPORTANT: no reset when not inTradeSess — AVWAP line persists
 
 plot((showContext and useVWAP) ? vwap : na, "VWAP", color=color.new(color.teal, 0), linewidth=2)
 plot((showContext and useAVWAP) ? avwap : na, "Anchor VWAP (profile open)", color=color.new(color.purple, 0), linewidth=2)
@@ -319,18 +317,18 @@ bearRetest = ta.barssince(wasAboveVWAP and nowBelowVWAP) <= retestBars and math.
 rangeHi = ta.highest(high, flagLookback)
 rangeLo = ta.lowest(low, flagLookback)
 rangeTight = (rangeHi - rangeLo) <= atr * flagTightPct
-bullFlag = trendOkLong and rangeTight and close > rangeHi[1] + atr * breakBufATR
-bearFlag = trendOkShort and rangeTight and close < rangeLo[1] - atr * breakBufATR
-tolPx = ticksTol * safeMintick
+bullFlag  = trendOkLong and rangeTight and close > rangeHi[1] + atr * breakBufATR
+bearFlag  = trendOkShort and rangeTight and close < rangeLo[1] - atr * breakBufATR
+tolPx  = ticksTol * safeMintick
 flatHi = math.abs(rangeHi - rangeHi[1]) <= tolPx
 flatLo = math.abs(rangeLo - rangeLo[1]) <= tolPx
-riseL = ta.lowest(low, flagLookback) > ta.lowest(low, flagLookback)[1]
-fallH = ta.highest(high, flagLookback) < ta.highest(high, flagLookback)[1]
+riseL  = ta.lowest(low, flagLookback)  > ta.lowest(low, flagLookback)[1]
+fallH  = ta.highest(high,flagLookback) < ta.highest(high,flagLookback)[1]
 highBase = trendOkLong and rangeTight and flatHi and riseL
-lowBase = trendOkShort and rangeTight and flatLo and fallH
-ascTri = trendOkLong and flatHi and riseL
-descTri = trendOkShort and flatLo and fallH
-precisionLong = trendOkLong and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
+lowBase  = trendOkShort and rangeTight and flatLo and fallH
+ascTri   = trendOkLong and flatHi and riseL
+descTri  = trendOkShort and flatLo and fallH
+precisionLong  = trendOkLong and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
 precisionShort = trendOkShort and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bearReversalCandle
 
 // Scoring
@@ -516,38 +514,40 @@ if barstate.isconfirmed and hardExitLong
 if barstate.isconfirmed and hardExitShort
     inShort := false, entrySide := 0
 
+// ---------- Trails & Exit markers
 plot(showTrails and inLong ? trailLong : na, "Long ATR Trail", color=cLong, linewidth=1, style=plot.style_linebr)
 plot(showTrails and inShort ? trailShort : na, "Short ATR Trail", color=cShort, linewidth=1, style=plot.style_linebr)
-plotshape(partialLong, title="Partial LONG 3xATR", style=shape.circle, location=location.abovebar, color=cLong, size=size.tiny, text="PARTIAL")
+plotshape(partialLong,  title="Partial LONG 3xATR",  style=shape.circle, location=location.abovebar, color=cLong,  size=size.tiny, text="PARTIAL")
 plotshape(partialShort, title="Partial SHORT 3xATR", style=shape.circle, location=location.belowbar, color=cShort, size=size.tiny, text="PARTIAL")
-plotshape(showExitSoonFlags and exitSoonLong, title="Exit Soon LONG", style=shape.flag, location=location.abovebar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
-plotshape(showExitSoonFlags and exitSoonShort, title="Exit Soon SHORT", style=shape.flag, location=location.belowbar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
-plotshape(showHardExitFlags and hardExitLong, title="HARD EXIT LONG", style=shape.cross, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="EXIT")
+plotshape(showExitSoonFlags and exitSoonLong,  title="Exit Soon LONG",  style=shape.flag,  location=location.abovebar, color=color.rgb(167,139,250), size=size.tiny, text="EXIT SOON")
+plotshape(showExitSoonFlags and exitSoonShort, title="Exit Soon SHORT", style=shape.flag,  location=location.belowbar, color=color.rgb(167,139,250), size=size.tiny, text="EXIT SOON")
+plotshape(showHardExitFlags and hardExitLong,  title="HARD EXIT LONG",  style=shape.cross, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="EXIT")
 plotshape(showHardExitFlags and hardExitShort, title="HARD EXIT SHORT", style=shape.cross, location=location.belowbar, color=color.new(color.red, 0), size=size.tiny, text="EXIT")
 
-plotshape(showSetups and baseLongSetup, title="Setup LONG", style=shape.triangleup, location=location.belowbar, color=cSetupLong, size=size.tiny, text="setup")
+// Plot arrows (finalized only)
+plotshape(showSetups and baseLongSetup,  title="Setup LONG",  style=shape.triangleup,   location=location.belowbar, color=cSetupLong,  size=size.tiny, text="setup")
 plotshape(showSetups and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=cSetupShort, size=size.tiny, text="setup")
-plotshape(longConfirm, title="A+ LONG (confirmed)", style=shape.triangleup, location=location.belowbar, color=cLong, size=size.large, text="A+ LONG")
+plotshape(longConfirm,  title="A+ LONG (confirmed)",  style=shape.triangleup,   location=location.belowbar, color=cLong,  size=size.large, text="A+ LONG")
 plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=cShort, size=size.large, text="A+ SHORT")
 bgcolor(longConfirm ? color.new(cLong, 85) : shortConfirm ? color.new(cShort, 85) : na)
 
 // Alerts — session-aware
 canAlert = not useSessionFilter or inTradeSess
-alertcondition(enableAlerts and canAlert and longConfirm, title="A+ LONG ENTRY", message="A+ LONG entry fired")
+alertcondition(enableAlerts and canAlert and longConfirm,  title="A+ LONG ENTRY",  message="A+ LONG entry fired")
 alertcondition(enableAlerts and canAlert and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
-alertcondition(enableExitAlerts and canAlert and partialLong, title="A+ LONG PARTIAL", message="A+ LONG: take partial at 3x ATR from entry")
+alertcondition(enableExitAlerts and canAlert and partialLong,  title="A+ LONG PARTIAL",  message="A+ LONG: take partial at 3x ATR from entry")
 alertcondition(enableExitAlerts and canAlert and partialShort, title="A+ SHORT PARTIAL", message="A+ SHORT: take partial at 3x ATR from entry")
-alertcondition(enableExitAlerts and canAlert and exitSoonLong, title="A+ LONG EXIT SOON", message="A+ LONG: momentum slowing / EMA spread narrowing")
+alertcondition(enableExitAlerts and canAlert and exitSoonLong,  title="A+ LONG EXIT SOON",  message="A+ LONG: momentum slowing / EMA spread narrowing")
 alertcondition(enableExitAlerts and canAlert and exitSoonShort, title="A+ SHORT EXIT SOON", message="A+ SHORT: momentum slowing / EMA spread narrowing")
-alertcondition(enableExitAlerts and canAlert and hardExitLong, title="A+ LONG HARD EXIT", message="A+ LONG: trail/VWAP/structure break — exit")
+alertcondition(enableExitAlerts and canAlert and hardExitLong,  title="A+ LONG HARD EXIT",  message="A+ LONG: trail/VWAP/structure break — exit")
 alertcondition(enableExitAlerts and canAlert and hardExitShort, title="A+ SHORT HARD EXIT", message="A+ SHORT: trail/VWAP/structure break — exit")
 
 // --- Bar-close countdown label
 var label _cd = na
 if showCountdown and barstate.islast
-    barMs = timeframe.in_seconds(timeframe.period) * 1000
+    barMs  = timeframe.in_seconds(timeframe.period) * 1000
     msToEnd = (time + barMs) - timenow
     secLeft = math.max(0, math.floor(msToEnd / 1000))
-    if not na(_cd) 
+    if not na(_cd)
         label.delete(_cd)
     _cd := label.new(bar_index, high, str.tostring(secLeft) + "s", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, textcolor=color.white, color=color.new(color.black, 0), size=size.tiny)
