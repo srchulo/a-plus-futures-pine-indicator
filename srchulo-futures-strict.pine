@@ -156,21 +156,7 @@ maxSignalsPerDay = input.int(12, "Max signals per day", group=grpDec)
 ticksTol = input.int(4, "Structure tolerance (ticks)", group=grpDec)
 retestBars = input.int(5, "VWAP retest within N bars", group=grpDec)
 
-// ---------- Targets / Stops (HUD)
-grpTP = "Targets / Stops (HUD)"
-tpMode = input.string("ATRx", "TP Mode", options=["FixedTicks","ATRx"], group=grpTP)
-tpTicksFixed = input.int(90, "TP (ticks) when Fixed", group=grpTP, minval=1)
-tpATRmult = input.float(2.2, "TP = ATR × k (MNQ ≈ 2.0–2.6)", group=grpTP, step=0.1, minval=0.5)
-tpMinTicks = input.int(60, "Min TP (ticks) floor", group=grpTP, minval=1)
-tpMaxTicks = input.int(160, "Max TP (ticks) cap", group=grpTP, minval=10)
-
-slMode = input.string("ATRx", "SL Mode", options=["FixedTicks","ATRx"], group=grpTP)
-slTicksFixed = input.int(120, "SL (ticks) when Fixed", group=grpTP, minval=1)
-slATRmult = input.float(2.8, "SL = ATR × k (MNQ ≈ 2.4–3.2)", group=grpTP, step=0.1, minval=0.5)
-slMinTicks = input.int(80, "Min SL (ticks) floor", group=grpTP, minval=1)
-slMaxTicks = input.int(200, "Max SL (ticks) cap", group=grpTP, minval=10)
-
-// ---------- NEW: Exit/Management
+// ---------- Exit / Management
 grpExit = "Exit / Management (Continuation Aware)"
 usePartialATR = input.bool(true, "Take partial at 3×ATR from entry", group=grpExit)
 partialATRs = input.float(3.0, "Partial ATR multiple", group=grpExit, step=0.1)
@@ -197,7 +183,7 @@ showSetups = input.bool(true, "Plot setup arrows", group="Show / Alerts")
 enableAlerts = input.bool(true, "Enable confirmed entry alerts", group="Show / Alerts")
 showCountdown = input.bool(true, "Show bar-close countdown", group="Show / Alerts")
 
-// ---------- Core series
+// ---------- Core series (moved up so atrTicks is defined before TP/SL)
 atrLen = 14
 atr = ta.atr(atrLen)
 safeMintick = syminfo.mintick == 0.0 ? 0.25 : syminfo.mintick
@@ -491,7 +477,18 @@ baseShortSetup = finalize(baseShortSetup_raw)
 longConfirm = finalize(longConfirm_raw)
 shortConfirm = finalize(shortConfirm_raw)
 
-// ---------- Adaptive TP/SL compute (HUD)
+// ---------- Targets / Stops (HUD)  — UPDATED (2025-11-01)
+grpTP = "Targets / Stops (HUD)"
+tpMode = input.string("FixedTicks", "TP Mode", options=["FixedTicks","ATRx"], group=grpTP)
+tpTicksFixed = input.int(80, "TP (ticks) when Fixed", group=grpTP, minval=1)
+tpATRmult = input.float(1.7, "TP = ATR × k (≈1.6–1.9 typical)", group=grpTP, step=0.05, minval=0.5)
+tpMinTicks = input.int(64, "Min TP (ticks) floor (≈16 pts)", group=grpTP, minval=1)
+tpMaxTicks = input.int(100, "Max TP (ticks) cap (≈25 pts)", group=grpTP, minval=10)
+slMode = input.string("FixedTicks", "SL Mode", options=["FixedTicks","ATRx"], group=grpTP)
+slTicksFixed = input.int(60, "SL (ticks) when Fixed", group=grpTP, minval=1)
+slATRmult = input.float(1.3, "SL = ATR × k (≈1.2–1.5 typical)", group=grpTP, step=0.05, minval=0.5)
+slMinTicks = input.int(48, "Min SL (ticks) floor (≈12 pts)", group=grpTP, minval=1)
+slMaxTicks = input.int(80, "Max SL (ticks) cap (≈20 pts)", group=grpTP, minval=10)
 _tpTicksDyn = tpMode == "FixedTicks" ? tpTicksFixed : math.round(math.max(tpMinTicks, math.min(tpMaxTicks, atrTicks * tpATRmult)))
 _slTicksDyn = slMode == "FixedTicks" ? slTicksFixed : math.round(math.max(slMinTicks, math.min(slMaxTicks, atrTicks * slATRmult)))
 tpTicksNow = _tpTicksDyn
