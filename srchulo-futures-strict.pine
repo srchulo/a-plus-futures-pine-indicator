@@ -489,10 +489,11 @@ slTicksFixed = input.int(60, "SL (ticks) when Fixed", group=grpTP, minval=1)
 slATRmult = input.float(1.3, "SL = ATR × k (≈1.2–1.5 typical)", group=grpTP, step=0.05, minval=0.5)
 slMinTicks = input.int(48, "Min SL (ticks) floor (≈12 pts)", group=grpTP, minval=1)
 slMaxTicks = input.int(80, "Max SL (ticks) cap (≈20 pts)", group=grpTP, minval=10)
-_tpTicksDyn = tpMode == "FixedTicks" ? tpTicksFixed : math.round(math.max(tpMinTicks, math.min(tpMaxTicks, atrTicks * tpATRmult)))
-_slTicksDyn = slMode == "FixedTicks" ? slTicksFixed : math.round(math.max(slMinTicks, math.min(slMaxTicks, atrTicks * slATRmult)))
-tpTicksNow = _tpTicksDyn
-slTicksNow = _slTicksDyn
+atr2m_reg = request.security(syminfo.tickerid, "2", ta.atr(14), lookahead=barmerge.lookahead_off)
+useWideSL = atr2m_reg >= 9.0
+tpTicksNow = 80
+slTicksNow = useWideSL ? 60 : 40
+
 
 // ---------- NEW: Position state, momentum & exits
 [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
