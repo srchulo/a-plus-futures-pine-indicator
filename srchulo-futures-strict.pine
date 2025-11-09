@@ -541,9 +541,9 @@ aplus_tp_atrK = input.float(2.20, "A+ TP = ATR×", step=0.05, group=grpAdaptive)
 aplus_sl_atrK = input.float(1.80, "A+ SL = ATR×", step=0.05, group=grpAdaptive)
 
 flush_tp_min = input.int(64, "Flush TP floor (ticks)", group=grpAdaptive)
-flush_tp_max = input.int(120, "Flush TP cap (ticks)", group=grpAdaptive)
+flush_tp_max = input.int(200, "Flush TP cap (ticks)", group=grpAdaptive)
 flush_sl_min = input.int(48, "Flush SL floor (ticks)", group=grpAdaptive)
-flush_sl_max = input.int(100, "Flush SL cap (ticks)", group=grpAdaptive)
+flush_sl_max = input.int(180, "Flush SL cap (ticks)", group=grpAdaptive)
 aplus_tp_min = input.int(140, "A+ TP floor (ticks)", group=grpAdaptive)
 aplus_tp_max = input.int(320, "A+ TP cap (ticks)", group=grpAdaptive)
 aplus_sl_min = input.int(120, "A+ SL floor (ticks)", group=grpAdaptive)
@@ -561,6 +561,12 @@ regimeLabel = regime == 2 ? "HIGH-VOL" : regime == 1 ? "TREND" : "CALM"
 f_clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
 sf = regime == 0 ? 0.80 : regime == 1 ? 1.00 : 0.90
 
+// Optional: extra widening for HIGH-VOL on FLUSH
+hvBoostFlush = input.float(1.15, "HIGH-VOL boost (Flush)", step=0.05, group=grpAdaptive)
+// Keep original sf for A+; for Flush, apply hv boost only in regime==2
+_sfFlush = regime == 2 ? (sf * hvBoostFlush) : sf
+
+
 var float flushBaseTP = na
 var float flushBaseSL = na
 flushBaseTP := tpMode == "FixedTicks" ? flush_tp_ticks : f_clamp(math.round(atrTicks * flush_tp_atrK), flush_tp_min, flush_tp_max)
@@ -571,8 +577,8 @@ var float aplusBaseSL = na
 aplusBaseTP := tpMode == "FixedTicks" ? aplus_tp_ticks : f_clamp(math.round(atrTicks * aplus_tp_atrK), aplus_tp_min, aplus_tp_max)
 aplusBaseSL := slMode == "FixedTicks" ? aplus_sl_ticks : f_clamp(math.round(atrTicks * aplus_sl_atrK), aplus_sl_min, aplus_sl_max)
 
-tpTicksFlush = math.round(f_clamp(flushBaseTP * sf, flush_tp_min, flush_tp_max))
-slTicksFlush = math.round(f_clamp(flushBaseSL * sf, flush_sl_min, flush_sl_max))
+tpTicksFlush = math.round(f_clamp(flushBaseTP * _sfFlush, flush_tp_min, flush_tp_max))
+slTicksFlush = math.round(f_clamp(flushBaseSL * _sfFlush, flush_sl_min, flush_sl_max))
 tpTicksAplus = math.round(f_clamp(aplusBaseTP * sf, aplus_tp_min, aplus_tp_max))
 slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
 
@@ -637,17 +643,45 @@ if extTrigger
     tpTicksAplus := _tpA
     extActive := true
 
+// --- EXTREME (FLUSH) — optional widener on crazy tape
+grpExtremeF = "Extreme Regime (FLUSH)"
+extFEnable = input.bool(true, "Enable Extreme FLUSH widening", group=grpExtremeF)
+extFVolMult = input.float(1.20, "Trigger when ATR_ticks ≥ highVol ×", step=0.05, group=grpExtremeF)
+extFImpulse  = input.float(2.0,  "Trigger when bar range ≥ ATR ×",  step=0.1,  group=grpExtremeF)
+extFPadTicks = input.int(8, "Extra SL pad (ticks)", minval=0, group=grpExtremeF)
+extFForceOneToOne = input.bool(false, "Force TP=SL when extreme (Flush)", group=grpExtremeF)
+// NOTE: Pine inputs need constant defaults — use literals here and clamp at runtime
+flush_sl_max_ext = input.int(200, "Flush SL cap (extreme)", minval=0, group=grpExtremeF)
+flush_tp_max_ext = input.int(220, "Flush TP cap (extreme)", minval=0, group=grpExtremeF)
+// Runtime caps that honor normal caps
+flSlCapExt = math.max(flush_sl_max_ext, flush_sl_max)
+flTpCapExt = math.max(flush_tp_max_ext, flush_tp_max)
+
+extFTrigger = extFEnable and ((atrTicks >= math.round(highVolTicks * extFVolMult)) or (rngNow >= atr * extFImpulse))
+if extFTrigger
+    // widen using same ATR× ladders but higher caps + pad
+    _slF = math.round(math.max(flush_sl_min, math.min(flSlCapExt, atrTicks * flush_sl_atrK)))
+    _tpF = math.round(math.max(flush_tp_min, math.min(flTpCapExt, atrTicks * flush_tp_atrK)))
+    // apply high-vol boost and pad
+    _slF := math.round(_slF * hvBoostFlush) + extFPadTicks
+    _slF := math.max(flush_sl_min, math.min(flSlCapExt, _slF))
+    if extFForceOneToOne
+        _tpF := _slF
+    else
+        _tpF := math.round(_tpF * hvBoostFlush)
+        _tpF := math.max(flush_tp_min, math.min(flTpCapExt, _tpF))
+    slTicksFlush := _slF
+    tpTicksFlush := _tpF
+
 // --- Snap ATRx outputs to your ATM presets (optional)
 grpSnap = "ATM Preset Snap"
 snapToPresets = input.bool(false, "Snap ATRx TP/SL to preset ladders", group=grpSnap)
 
-// Define allowed preset ladders (MNQ)
 var tpSetFlush = array.from(64, 72, 80, 96, 112, 120)
 var slSetFlush = array.from(48, 56, 64, 80, 96, 100)
 var tpSetAplus = array.from(140, 160, 180, 200, 220, 240, 260)
 var slSetAplus = array.from(120, 140, 160, 180, 200, 220)
 
-// Nearest helper
 f_nearest(val, arr) =>
     var int best = array.get(arr, 0)
     for i = 0 to array.size(arr) - 1
@@ -787,6 +821,7 @@ txtBEF = na(beFlush) ? "—" : str.tostring(beFlush, format.mintick) + "%"
 txtBEA = na(beAplus) ? "—" : str.tostring(beAplus, format.mintick) + "%"
 txtAnchor = anchorOK_today ? "YES" : "NO"
 extBadge = extActive ? "EXTREME A+" : ""
+extBadgeFlush = extFTrigger ? "EXTREME FLUSH" : ""
 
 // HUD role/text gates (filter which rows render)
 _showFlushHUD = isFlushChart and showFlushHUD
@@ -804,7 +839,8 @@ if barstate.islast
     // compute needed rows
     hudFlushRows = _showFlushHUD ? 3 : 0
     hudAplusRows = _showAPlusHUD ? 3 : 0
-    hudAlwaysRows = 3 + (extBadge != "" ? 1 : 0)  // TP/SL now, Regime, Anchor (+ optional EXTREME)
+    // Always show: TP now, Regime, Anchor. Optional: EXTREME FLUSH, EXTREME A+
+    hudAlwaysRows = 3 + (extBadgeFlush != "" ? 1 : 0) + (extBadge != "" ? 1 : 0)
     hudNeed = hudFlushRows + hudAplusRows + hudAlwaysRows
     hudNeed := math.max(1, hudNeed)
 
@@ -838,10 +874,14 @@ if barstate.islast
     hr += 1
     table.cell(hud, 0, hr, "Regime: " + displayRegimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
     hr += 1
+    if extBadgeFlush != ""
+        table.cell(hud, 0, hr, extBadgeFlush, text_color=color.white, bgcolor=color.new(color.teal, 30))
+        hr += 1
     if extBadge != ""
         table.cell(hud, 0, hr, extBadge, text_color=color.white, bgcolor=color.new(color.purple, 30))
         hr += 1
     table.cell(hud, 0, hr, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
+
 
 // ========= Context Checklist (GO/NO-GO)
 grpCtx = "Context Checklist (GO/NO-GO)"
