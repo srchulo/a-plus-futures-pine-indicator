@@ -562,6 +562,35 @@ slTicksFlush = math.round(f_clamp(flushBaseSL * sf, flush_sl_min, flush_sl_max))
 tpTicksAplus = math.round(f_clamp(aplusBaseTP * sf, aplus_tp_min, aplus_tp_max))
 slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
 
+// --- Extreme regime (A+ only): widen smartly on truly wild tape
+grpExtreme = "Extreme Regime (A+ only)"
+extEnable = input.bool(true, "Enable Extreme A+ widening", group=grpExtreme)
+extVolMult = input.float(1.25, "Trigger when ATR_ticks ≥ highVol ×", step=0.05, group=grpExtreme)
+extImpulseMult = input.float(2.2, "Trigger when bar range ≥ ATR ×", step=0.1, group=grpExtreme)
+extPadTicks = input.int(8, "Extra SL pad (ticks)", minval=0, group=grpExtreme)
+extForceOneToOne = input.bool(true, "Force TP=SL when extreme", group=grpExtreme)
+aplus_sl_max_ext = input.int(300, "A+ SL cap (extreme)", minval=0, group=grpExtreme)
+aplus_tp_max_ext = input.int(340, "A+ TP cap (extreme)", minval=0, group=grpExtreme)
+aplus_sl_cap_ext = math.max(aplus_sl_max_ext, aplus_sl_max)
+aplus_tp_cap_ext = math.max(aplus_tp_max_ext, aplus_tp_max)
+
+extTrigger = extEnable and ((atrTicks >= math.round(highVolTicks * extVolMult)) or (rngNow >= atr * extImpulseMult))
+var bool extActive = false
+if extTrigger
+    sf_ext = math.max(sf, 1.0)
+    _slA = math.round(math.max(aplus_sl_min, math.min(aplus_sl_cap_ext, atrTicks * aplus_sl_atrK)))
+    _tpA = math.round(math.max(aplus_tp_min, math.min(aplus_tp_cap_ext, atrTicks * aplus_tp_atrK)))
+    _slA := math.round(_slA * sf_ext) + extPadTicks
+    _slA := math.max(aplus_sl_min, math.min(aplus_sl_cap_ext, _slA))
+    if extForceOneToOne
+        _tpA := _slA
+    else
+        _tpA := math.round(_tpA * sf_ext)
+        _tpA := math.max(aplus_tp_min, math.min(aplus_tp_cap_ext, _tpA))
+    slTicksAplus := _slA
+    tpTicksAplus := _tpA
+    extActive := true
+
 // --- Snap ATRx outputs to your ATM presets (optional)
 grpSnap = "ATM Preset Snap"
 snapToPresets = input.bool(false, "Snap ATRx TP/SL to preset ladders", group=grpSnap)
@@ -666,13 +695,13 @@ plotshape(partialShort, title="Partial SHORT 3xATR", style=shape.circle, locatio
 plotshape(showExitSoonFlags and exitSoonLong, title="Exit Soon LONG", style=shape.flag, location=location.abovebar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
 plotshape(showExitSoonFlags and exitSoonShort, title="Exit Soon SHORT", style=shape.flag, location=location.belowbar, color=exitSoonColor, size=size.tiny, text="EXIT SOON")
 plotshape(showHardExitFlags and hardExitLong, title="HARD EXIT LONG", style=shape.cross, location=location.abovebar, color=hardExitColor, size=size.tiny, text="EXIT")
-plotshape(showHardExitFlags and hardExitShort, title="HARD EXIT SHORT", style=shape.cross, location=location.belowbar, color=hardExitColor, size=size.tiny, text="EXIT")
+plotshape(showHardExitFlags and hardExitShort, title="HARD EXIT SHORT", style=shape.cross, location=location.belowbar, color=color.new(color.orange, 0), size=size.tiny, text="EXIT")
 
 // Plot arrows (finalized only)
 plotshape(showSetups and baseLongSetup, title="Setup LONG", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 40), size=size.tiny, text="setup")
-plotshape(showSetups and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 40), size=size.tiny, text="setup")
+plotshape(showSetups and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="setup")
 plotshape(longConfirm, title="A+ LONG (confirmed)", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.large, text="A+ LONG")
-plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.large, text="A+ SHORT")
+plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.large, text="A+ SHORT")
 bgcolor(longConfirm ? color.new(color.lime, 85) : shortConfirm ? color.new(color.red, 85) : na)
 
 // Alerts (entries) — session-aware
@@ -708,9 +737,10 @@ txtRRA = na(rrAplus) ? "—" : str.tostring(rrAplus, format.mintick)
 txtBEF = na(beFlush) ? "—" : str.tostring(beFlush, format.mintick) + "%"
 txtBEA = na(beAplus) ? "—" : str.tostring(beAplus, format.mintick) + "%"
 txtAnchor = anchorOK_today ? "YES" : "NO"
+extBadge = extActive ? "EXTREME A+" : ""
 var table hud = na
 if barstate.isfirst
-    hud := table.new(position.top_right, 1, 9, border_width=1)
+    hud := table.new(position.top_right, 1, 10, border_width=1)
 if barstate.islast
     table.cell(hud, 0, 0, "FLUSH TP/SL: " + str.tostring(tpTicksFlush) + "/" + str.tostring(slTicksFlush) + " (" + regimeLabel + ")", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 1, "A+ TP/SL: " + str.tostring(tpTicksAplus) + "/" + str.tostring(slTicksAplus) + " (" + regimeLabel + ")", text_color=color.white, bgcolor=color.new(color.black, 0))
@@ -720,4 +750,5 @@ if barstate.islast
     table.cell(hud, 0, 5, "A+ size: " + (na(sizeAplus) ? "—" : str.tostring(sizeAplus)) + " | Risk≈$" + (na(slUSD_Aplus) ? "—" : str.tostring(slUSD_Aplus, format.mintick)) + " | TP≈$" + (na(tpUSD_Aplus) ? "—" : str.tostring(tpUSD_Aplus, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 6, "TP now: " + str.tostring(tpTicksNow) + " | SL now: " + str.tostring(slTicksNow), text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 7, "Regime: " + regimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 8, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
+    table.cell(hud, 0, 8, extBadge, text_color=color.white, bgcolor=extActive ? color.new(color.purple, 30) : color.new(color.black, 0))
+    table.cell(hud, 0, 9, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
