@@ -501,12 +501,12 @@ shortConfirm = finalize(shortConfirm_raw)
 
 // ---------- Targets / Stops (HUD) — inputs only; logic below computes both
 grpTP = "Targets / Stops (HUD)"
-tpMode = input.string("FixedTicks", "TP Mode", options=["FixedTicks","ATRx"], group=grpTP)
+tpMode = input.string("ATRx", "TP Mode", options=["FixedTicks","ATRx"], group=grpTP)
 tpTicksFixed = input.int(80, "TP (ticks) when Fixed", group=grpTP, minval=1)
 tpATRmult = input.float(1.7, "TP = ATR × k (≈1.6–1.9 typical)", group=grpTP, step=0.05, minval=0.5)
 tpMinTicks = input.int(64, "Min TP (ticks) floor (≈16 pts)", group=grpTP, minval=1)
 tpMaxTicks = input.int(100, "Max TP (ticks) cap (≈25 pts)", group=grpTP, minval=10)
-slMode = input.string("FixedTicks", "SL Mode", options=["FixedTicks","ATRx"], group=grpTP)
+slMode = input.string("ATRx", "SL Mode", options=["FixedTicks","ATRx"], group=grpTP)
 slTicksFixed = input.int(60, "SL (ticks) when Fixed", group=grpTP, minval=1)
 slATRmult = input.float(1.3, "SL = ATR × k (≈1.2–1.5 typical)", group=grpTP, step=0.05, minval=0.5)
 slMinTicks = input.int(48, "Min SL (ticks) floor (≈12 pts)", group=grpTP, minval=1)
