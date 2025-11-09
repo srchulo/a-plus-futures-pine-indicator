@@ -435,8 +435,8 @@ precisionShort = trendOkShort and (math.abs(close - emaM) <= atr * 0.15 or math.
 
 // Scoring
 scoreAdd(c, w, use) => use and c ? w : 0
-longScore = scoreAdd(trendOkLong, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(pullbackLong, wPull, useCompPull) + scoreAdd(wasBelowVWAP and nowAboveVWAP, wReclaim, useCompReclaim) + scoreAdd(bullFlag, wFlag, useCompFlag) + scoreAdd(precisionLong, wPrec, useCompPrec) + scoreAdd(hammer or dragonfly, wCandle, useCompCandle) + scoreAdd(bullEngulf, wEngulf, useCompEngulf) + scoreAdd(bullRetest, wRetest, useCompRetest) + scoreAdd(highBase, wBase, useCompBase) + scoreAdd(ascTri, wTri, useCompTri)
-shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(rallyShort, wPull, useCompPull) + scoreAdd(wasAboveVWAP and nowBelowVWAP, wReclaim, useCompReclaim) + scoreAdd(bearFlag, wFlag, useCompFlag) + scoreAdd(precisionShort, wPrec, useCompPrec) + scoreAdd(shootingStar or gravestone, wCandle, useCompCandle) + scoreAdd(bearEngulf, wEngulf, useCompEngulf) + scoreAdd(bearRetest, wRetest, useCompRetest) + scoreAdd(lowBase, wBase, useCompBase) + scoreAdd(descTri, wTri, useCompTri)
+longScore = scoreAdd(trendOkLong, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(pullbackLong, wPull, useCompPull) + scoreAdd(wasBelowVWAP and nowAboveVWAP, wReclaim, useCompReclaim) + scoreAdd(bullFlag, useCompFlag ? wFlag : 0, useCompFlag) + scoreAdd(precisionLong, wPrec, useCompPrec) + scoreAdd(hammer or dragonfly, wCandle, useCompCandle) + scoreAdd(bullEngulf, wEngulf, useCompEngulf) + scoreAdd(bullRetest, wRetest, useCompRetest) + scoreAdd(highBase, wBase, useCompBase) + scoreAdd(ascTri, wTri, useCompTri)
+shortScore = scoreAdd(trendOkShort, wTrend, useCompTrend) + scoreAdd(not inVWAPChop and nearAnyVWAP, wVWAPPb, useCompNearVW) + scoreAdd(volOK, wVolume, useCompVolume) + scoreAdd(rallyShort, wPull, useCompPull) + scoreAdd(wasAboveVWAP and nowBelowVWAP, wReclaim, useCompReclaim) + scoreAdd(bearFlag, useCompFlag ? wFlag : 0, useCompFlag) + scoreAdd(precisionShort, wPrec, useCompPrec) + scoreAdd(shootingStar or gravestone, wCandle, useCompCandle) + scoreAdd(bearEngulf, wEngulf, useCompEngulf) + scoreAdd(bearRetest, wRetest, useCompRetest) + scoreAdd(lowBase, wBase, useCompBase) + scoreAdd(descTri, wTri, useCompTri)
 
 // Gating toggles
 gateSessOK = useSessionFilter ? inTradeSess : true
@@ -568,6 +568,36 @@ tpTicksFlush = math.round(f_clamp(flushBaseTP * sf, flush_tp_min, flush_tp_max))
 slTicksFlush = math.round(f_clamp(flushBaseSL * sf, flush_sl_min, flush_sl_max))
 tpTicksAplus = math.round(f_clamp(aplusBaseTP * sf, aplus_tp_min, aplus_tp_max))
 slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
+
+// ======== NEW: Cross-timeframe regime sync to auto-choose 1m Flush presets ========
+// Compute 2m ATR ticks and regime (independent of current chart TF)
+atrTicks_2m = request.security(syminfo.tickerid, "2", math.round(ta.atr(atrLen) / (syminfo.mintick == 0.0 ? 0.25 : syminfo.mintick)), lookahead=barmerge.lookahead_off)
+basisKC_2 = request.security(syminfo.tickerid, "2", ta.ema((high + low + close) / 3.0, kcLen), lookahead=barmerge.lookahead_off)
+rangeKC_2 = request.security(syminfo.tickerid, "2", ta.atr(kcLen) * kcMult, lookahead=barmerge.lookahead_off)
+kcUp_2 = basisKC_2 + rangeKC_2
+kcDn_2 = basisKC_2 - rangeKC_2
+kcSlopeUp_2 = kcUp_2 > kcUp_2[1] and kcDn_2 > kcDn_2[1]
+kcSlopeDown_2 = kcUp_2 < kcUp_2[1] and kcDn_2 < kcDn_2[1]
+emaF_2 = request.security(syminfo.tickerid, "2", ta.ema(close, emaFastLen), lookahead=barmerge.lookahead_off)
+emaM_2 = request.security(syminfo.tickerid, "2", ta.ema(close, emaMidLen), lookahead=barmerge.lookahead_off)
+emaS_2 = request.security(syminfo.tickerid, "2", ta.ema(close, emaSlowLen), lookahead=barmerge.lookahead_off)
+ribbonBull_2 = emaF_2 > emaM_2 and emaM_2 > emaS_2
+ribbonBear_2 = emaF_2 < emaM_2 and emaM_2 < emaS_2
+trendQ_2 = (ribbonBull_2 and kcSlopeUp_2) or (ribbonBear_2 and kcSlopeDown_2) ? 1 : 0
+regime_2 = atrTicks_2m >= highVolTicks ? 2 : (trendQ_2 == 1 ? 1 : 0)
+sf_2 = regime_2 == 0 ? 0.80 : regime_2 == 1 ? 1.00 : 0.90
+
+// Build 2m-based Flush TP/SL presets (same ladders, different ATR+regime)
+flushBaseTP_2 = tpMode == "FixedTicks" ? flush_tp_ticks : f_clamp(math.round(atrTicks_2m * flush_tp_atrK), flush_tp_min, flush_tp_max)
+flushBaseSL_2 = slMode == "FixedTicks" ? flush_sl_ticks : f_clamp(math.round(atrTicks_2m * flush_sl_atrK), flush_sl_min, flush_sl_max)
+tpTicksFlush_2 = math.round(f_clamp(flushBaseTP_2 * sf_2, flush_tp_min, flush_tp_max))
+slTicksFlush_2 = math.round(f_clamp(flushBaseSL_2 * sf_2, flush_sl_min, flush_sl_max))
+
+// Decision: if we're on 1m AND 2m regime is TREND/HIGH-VOL, prefer 2m presets; else keep 1m
+use2mForFlush = is1m and (regime_2 >= 1)
+tpTicksFlush := use2mForFlush ? tpTicksFlush_2 : tpTicksFlush
+slTicksFlush := use2mForFlush ? slTicksFlush_2 : slTicksFlush
+// ======== END cross-timeframe regime sync ========
 
 // --- Extreme regime (A+ only): widen smartly on truly wild tape
 grpExtreme = "Extreme Regime (A+ only)"
@@ -762,7 +792,7 @@ if barstate.islast
     table.cell(hud, 0, 8, extBadge, text_color=color.white, bgcolor=extActive ? color.new(color.purple, 30) : color.new(color.black, 0))
     table.cell(hud, 0, 9, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
 
-// ========= Context Checklist (merged from overlay) =========
+// ========= Context Checklist (GO/NO-GO)
 grpCtx = "Context Checklist (GO/NO-GO)"
 showChecklist   = input.bool(true, "Show GO/NO-GO table", group=grpCtx)
 tableCorner     = input.string("bottom_right", "Table anchor", options=["top_left","top_right","bottom_left","bottom_right"], group=grpCtx)
