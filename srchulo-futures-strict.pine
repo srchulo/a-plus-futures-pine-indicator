@@ -188,6 +188,7 @@ atrLen = 14
 atr = ta.atr(atrLen)
 safeMintick = syminfo.mintick == 0.0 ? 0.25 : syminfo.mintick
 atrTicks = math.round(atr / safeMintick)
+ohlc4 = (open + high + low + close) / 4.0
 bodySize = math.abs(close - open)
 momLongOK = close > open and bodySize >= atr * bodyAtrMin
 momShortOK = close < open and bodySize >= atr * bodyAtrMin
@@ -281,7 +282,7 @@ slopeLongOK_new = slopeMode == "Current TF only" ? (ctf_up and ctf_upok) : useCu
 slopeShortOK_new = slopeMode == "Current TF only" ? (ctf_dn and ctf_dnok) : useCurrentFallback ? (ctf_dn and ctf_dnok) : mtf_all_dn
 
 // Session & VWAPs (UPDATED)
-vwap = ta.vwap(close)
+vwap = ta.vwap(ohlc4)
 inTradeSess = not na(time(timeframe.period, sessionTradeStr, tzProfile))
 inAnchor = not na(time(timeframe.period, anchorStr, tzProfile))
 sessionStart = inAnchor and not inAnchor[1]
@@ -304,7 +305,7 @@ if barstate.isnew
         aV := 0.0
         avwap := na
     if inTradeSess
-        tp = (high + low + close) / 3.0
+        tp = ohlc4
         aPV += tp * volume
         aV += volume
         avwap := aV > 0 ? aPV / aV : na
@@ -417,10 +418,10 @@ flatHi = math.abs(rangeHi - rangeHi[1]) <= tolPx
 flatLo = math.abs(rangeLo - rangeLo[1]) <= tolPx
 riseL = ta.lowest(low, flagLookback) > ta.lowest(low, flagLookback)[1]
 fallH = ta.highest(high, flagLookback) < ta.highest(high, flagLookback)[1]
-highBase = trendOkLong and rangeTight and flatHi and riseL
-lowBase = trendOkShort and rangeTight and flatLo and fallH
-ascTri = trendOkLong and flatHi and riseL
-descTri = trendOkShort and flatLo and fallH
+highBase = trendOkLong and rangeTight and flatHi
+lowBase = trendOkShort and rangeTight and flatLo
+ascTri = trendOkLong and flatHi
+descTri = trendOkShort and flatLo
 
 // Precision
 precisionLong = trendOkLong and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
