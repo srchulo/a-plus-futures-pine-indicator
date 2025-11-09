@@ -752,3 +752,94 @@ if barstate.islast
     table.cell(hud, 0, 7, "Regime: " + regimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 8, extBadge, text_color=color.white, bgcolor=extActive ? color.new(color.purple, 30) : color.new(color.black, 0))
     table.cell(hud, 0, 9, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
+
+// ========= Context Checklist (merged from overlay) =========
+grpCtx = "Context Checklist (GO/NO-GO)"
+showChecklist   = input.bool(true, "Show GO/NO-GO table", group=grpCtx)
+tableCorner     = input.string("bottom_right", "Table anchor", options=["top_left","top_right","bottom_left","bottom_right"], group=grpCtx)
+avoidOpenMin    = input.int(10, "Avoid first N minutes after session open", minval=0, group=grpCtx)
+nearVWAPTicksUI = input.int(10, "NEAR VWAP if |Δ| < ticks", minval=0, group=grpCtx)
+farVWAPxATR_UI  = input.float(2.0, "EXTENDED if |Δ| > x*ATR", minval=0, step=0.25, group=grpCtx)
+
+grpCtx2 = "Cooldown Options"
+cooldownMode = input.string("Keltner ±3xATR", "Cooldown reference", options=["Keltner ±3xATR","EMA34 ± ATR×","Both (AND)","Either (OR)","Auto (by regime)"], group=grpCtx2)
+
+// ---- Session open timer (uses your trade session) ----
+var int sessOpenTs = na
+if inTradeSess and not inTradeSess[1]
+    sessOpenTs := time
+minsSinceOpen = inTradeSess and not na(sessOpenTs) ? (timenow - sessOpenTs) / 60000.0 : na
+avoidNow      = inTradeSess and not na(minsSinceOpen) and minsSinceOpen < avoidOpenMin
+
+// ---- 3rd ATR cooldown (dual references) ----
+kcUp3 = basisKC + ta.atr(kcLen) * 3.0
+kcDn3 = basisKC - ta.atr(kcLen) * 3.0
+touchedKC3 = high >= kcUp3 or low <= kcDn3
+barsKC3 = ta.barssince(touchedKC3)
+
+touchedEMA3 = close >= up3_gate or close <= dn3_gate
+barsEMA3 = ta.barssince(touchedEMA3)
+
+cool_mode = cooldownMode == "Auto (by regime)" ? (regime == 2 ? "Both (AND)" : "Keltner ±3xATR") : cooldownMode
+cooldownOK = cool_mode == "Keltner ±3xATR" ? (barsKC3 >= cooldownBars) : cool_mode == "EMA34 ± ATR×" ? (barsEMA3 >= cooldownBars) : cool_mode == "Both (AND)" ? (barsKC3 >= cooldownBars and barsEMA3 >= cooldownBars) : (barsKC3 >= cooldownBars or barsEMA3 >= cooldownBars)
+coolTxt = "KC:" + (na(barsKC3) ? "n/a" : str.tostring(barsKC3)) + " | EMA:" + (na(barsEMA3) ? "n/a" : str.tostring(barsEMA3)) + " (" + cool_mode + ")"
+
+// ---- VWAP distance diagnostics ----
+distVWAP     = (close - vwap)
+distVWAPTicks = distVWAP / safeMintick
+extendedFar   = math.abs(distVWAP) > (farVWAPxATR_UI * atr)
+nearVWAPflag  = math.abs(distVWAPTicks) <= nearVWAPTicksUI
+
+// ---- Volume quality (reuse volSMA/volSurge) ----
+volSpike = volume > volSMA * 1.5
+volDry   = volume < volSMA * 0.6
+
+// ---- MTF alignment status (reuse your slope consensus) ----
+mtfAligned = (slopeMode == "MTF (All selected must agree)") ? ( (mtf_all_up or mtf_all_dn) or useCurrentFallback ) : true
+mtfDirTxt  = (mtf_all_up or (slopeMode != "MTF (All selected must agree)" and ctf_up))  ? "UP" : (mtf_all_dn or (slopeMode != "MTF (All selected must agree)" and ctf_dn))  ? "DOWN" : "MIXED"
+
+// ---- Table build ----
+var table chk = na
+anchor =
+     tableCorner == "top_left"     ? position.top_left
+   : tableCorner == "top_right"    ? position.top_right
+   : tableCorner == "bottom_left"  ? position.bottom_left
+   : position.bottom_right
+
+if showChecklist and na(chk)
+    // 3 columns (Check / Value / Go), 8 rows (header + 7 checks)
+    chk := table.new(anchor, 3, 8, border_width=1)
+
+// helper (COL first, ROW second)
+fRow(r, k, v, pass) =>
+    table.cell(chk, 0, r, k, text_color=color.white,  bgcolor=color.new(color.black, 0))
+    table.cell(chk, 1, r, v, text_color=color.silver, bgcolor=color.new(color.black, 0))
+    table.cell(chk, 2, r, pass ? "✓" : "✗", text_color = pass ? color.new(color.green, 0) : color.new(color.red, 0), bgcolor    = color.new(pass ? color.green : color.red, 85))
+
+if showChecklist and barstate.isnew
+    // header row
+    table.cell(chk, 0, 0, "Check", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(chk, 1, 0, "Value", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(chk, 2, 0, "Go",    text_color=color.white, bgcolor=color.new(color.black, 0))
+
+    // 1) ATR cooldown (dual reference with mode)
+    fRow(1, "ATR cooldown", coolTxt, cooldownOK)
+
+    // 2) MTF slope alignment
+    fRow(2, "MTF slope", mtfDirTxt, mtfAligned)
+
+    // 3) VWAP distance
+    fRow(3, "VWAP Δ", str.tostring(distVWAPTicks, format.mintick) + " ticks", not nearVWAPflag and not extendedFar)
+
+    // 4) Volume quality
+    volStr = volSpike ? "Spike" : volDry ? "Dry" : "Normal"
+    fRow(4, "Volume", volStr, not volDry)
+
+    // 5) In trade session
+    fRow(5, "Session", inTradeSess ? "In session" : "Out of session", inTradeSess)
+
+    // 6) Avoid-open window
+    fRow(6, "Avoid-open", str.tostring(avoidOpenMin) + "m", not avoidNow)
+
+    // 7) ATR info
+    fRow(7, "ATR (ticks)", str.tostring(atrTicks), true)
