@@ -564,7 +564,7 @@ slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
 
 // --- Snap ATRx outputs to your ATM presets (optional)
 grpSnap = "ATM Preset Snap"
-snapToPresets = input.bool(true, "Snap ATRx TP/SL to preset ladders", group=grpSnap)
+snapToPresets = input.bool(false, "Snap ATRx TP/SL to preset ladders", group=grpSnap)
 
 // Define allowed preset ladders (MNQ)
 var tpSetFlush = array.from(64, 72, 80, 96, 112, 120)
