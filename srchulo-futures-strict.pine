@@ -28,8 +28,8 @@ htfTF = input.string("15", "HTF EMA ribbon (minutes)", group=grpTrend)
 grpSlope = "Moxie-like Slope Filter"
 slopeMode = input.string("MTF (All selected must agree)", "Slope Mode", options=["Current TF only","MTF (All selected must agree)"], group=grpSlope)
 useTF_2m = input.bool(true, "Use 2m", group=grpSlope)
-useTF_3m = input.bool(true, "Use 3m", group=grpSlope)
-useTF_5m = input.bool(false, "Use 5m", group=grpSlope)
+useTF_3m = input.bool(false, "Use 3m", group=grpSlope)
+useTF_5m = input.bool(true, "Use 5m", group=grpSlope)
 useTF_15m = input.bool(false, "Use 15m", group=grpSlope)
 useTF_30m = input.bool(false, "Use 30m", group=grpSlope)
 useTF_1h = input.bool(false, "Use 1h", group=grpSlope)
@@ -185,9 +185,16 @@ showCountdown = input.bool(true, "Show bar-close countdown", group="Show / Alert
 showAPlusArrows = input.bool(true, "Show A+ entry arrows", group="Show / Alerts")
 autoHideAPlusOn1m = input.bool(false, "Auto-hide A+ arrows on 1m", group="Show / Alerts")
 suppressAlertsOn1m = input.bool(false, "Suppress A+ entry alerts on 1m", group="Show / Alerts")
-is1m = timeframe.isminutes and timeframe.multiplier == 1
-showAPlusNow = showAPlusArrows and not (autoHideAPlusOn1m and is1m)
-showSetupsNow = showSetups and not is1m
+
+// === NEW: Chart Role (per-chart)
+grpRole = "Chart Role (per-chart)"
+isFlushChart = input.bool(true, "This chart is FLUSH (LTF)", group=grpRole)
+isAPlusChart = input.bool(false, "This chart is A+ (MTF)", group=grpRole)
+showFlushHUD = input.bool(true, "Show FLUSH rows in HUD", group=grpRole)
+showAPlusHUD = input.bool(true, "Show A+ rows in HUD", group=grpRole)
+
+showAPlusNow = showAPlusArrows and not (autoHideAPlusOn1m and isFlushChart)
+showSetupsNow = showSetups and not isFlushChart
 
 // ---------- Core series (moved up so atrTicks is defined before TP/SL)
 atrLen = 14
@@ -570,7 +577,6 @@ tpTicksAplus = math.round(f_clamp(aplusBaseTP * sf, aplus_tp_min, aplus_tp_max))
 slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
 
 // ======== NEW: Cross-timeframe regime sync to auto-choose 1m Flush presets + HUD override note ========
-// Compute 2m ATR ticks and regime (independent of current chart TF)
 atrTicks_2m = request.security(syminfo.tickerid, "2", math.round(ta.atr(atrLen) / (syminfo.mintick == 0.0 ? 0.25 : syminfo.mintick)), lookahead=barmerge.lookahead_off)
 basisKC_2 = request.security(syminfo.tickerid, "2", ta.ema((high + low + close) / 3.0, kcLen), lookahead=barmerge.lookahead_off)
 rangeKC_2 = request.security(syminfo.tickerid, "2", ta.atr(kcLen) * kcMult, lookahead=barmerge.lookahead_off)
@@ -588,18 +594,16 @@ regime_2 = atrTicks_2m >= highVolTicks ? 2 : (trendQ_2 == 1 ? 1 : 0)
 regimeLabel_2 = regime_2 == 2 ? "HIGH-VOL" : regime_2 == 1 ? "TREND" : "CALM"
 sf_2 = regime_2 == 0 ? 0.80 : regime_2 == 1 ? 1.00 : 0.90
 
-// Build 2m-based Flush TP/SL presets (same ladders, different ATR+regime)
 flushBaseTP_2 = tpMode == "FixedTicks" ? flush_tp_ticks : f_clamp(math.round(atrTicks_2m * flush_tp_atrK), flush_tp_min, flush_tp_max)
 flushBaseSL_2 = slMode == "FixedTicks" ? flush_sl_ticks : f_clamp(math.round(atrTicks_2m * flush_sl_atrK), flush_sl_min, flush_sl_max)
 tpTicksFlush_2 = math.round(f_clamp(flushBaseTP_2 * sf_2, flush_tp_min, flush_tp_max))
 slTicksFlush_2 = math.round(f_clamp(flushBaseSL_2 * sf_2, flush_sl_min, flush_sl_max))
 
-// Decision: if we're on 1m AND 2m regime is TREND/HIGH-VOL, prefer 2m presets; else keep 1m
-use2mForFlush = is1m and (regime_2 >= 1)
+isTF2 = timeframe.isminutes and timeframe.multiplier == 2
+use2mForFlush = isFlushChart and (regime_2 >= 1) and not isTF2
 tpTicksFlush := use2mForFlush ? tpTicksFlush_2 : tpTicksFlush
 slTicksFlush := use2mForFlush ? slTicksFlush_2 : slTicksFlush
 
-// Human-readable regime display (shows override context when active)
 displayRegimeLabel = use2mForFlush ? (regimeLabel + " OVR→2m " + regimeLabel_2) : regimeLabel
 ovrSuffix = use2mForFlush ? " [OVR]" : ""
 // ======== END cross-timeframe regime sync ========
@@ -671,8 +675,10 @@ slUSD_Aplus = na(sizeAplus) ? na : slTicksAplus * usdPerTick * sizeAplus
 tpUSD_Aplus = na(sizeAplus) ? na : tpTicksAplus * usdPerTick * sizeAplus
 
 useFlush = presetSource == "Manual: Flush"
-tpTicksNow = useFlush ? tpTicksFlush : tpTicksAplus
-slTicksNow = useFlush ? slTicksFlush : slTicksAplus
+roleFlush = isFlushChart
+roleAplus = isAPlusChart
+tpTicksNow = roleAplus ? tpTicksAplus : roleFlush ? tpTicksFlush : useFlush ? tpTicksFlush : tpTicksAplus
+slTicksNow = roleAplus ? slTicksAplus : roleFlush ? slTicksFlush : useFlush ? slTicksFlush : slTicksAplus
 
 // ---------- NEW: Position state, momentum & exits
 [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
@@ -748,7 +754,7 @@ bgcolor(showAPlusNow and longConfirm ? color.new(color.lime, 85) : showAPlusNow 
 
 // Alerts (entries) — session-aware
 canAlert = not useSessionFilter or inTradeSess
-canAlertAPlus = canAlert and not (suppressAlertsOn1m and is1m)
+canAlertAPlus = canAlert and not (suppressAlertsOn1m and isFlushChart)
 alertcondition(enableAlerts and canAlertAPlus and longConfirm, title="A+ LONG ENTRY", message="A+ LONG entry fired")
 alertcondition(enableAlerts and canAlertAPlus and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
 
@@ -782,20 +788,60 @@ txtBEA = na(beAplus) ? "—" : str.tostring(beAplus, format.mintick) + "%"
 txtAnchor = anchorOK_today ? "YES" : "NO"
 extBadge = extActive ? "EXTREME A+" : ""
 
+// HUD role/text gates (filter which rows render)
+_showFlushHUD = isFlushChart and showFlushHUD
+_showAPlusHUD = isAPlusChart and showAPlusHUD
+txtFlushTPSL = _showFlushHUD ? ("FLUSH TP/SL" + ovrSuffix + ": " + str.tostring(tpTicksFlush) + "/" + str.tostring(slTicksFlush)) : ""
+txtAPlusTPSL = _showAPlusHUD ? ("A+ TP/SL: " + str.tostring(tpTicksAplus) + "/" + str.tostring(slTicksAplus)) : ""
+txtFlushRRBE = _showFlushHUD ? ("FLUSH R:R ≈ " + txtRRF + " | BE ≈ " + txtBEF) : ""
+txtAPlusRRBE = _showAPlusHUD ? ("A+ R:R ≈ " + txtRRA + " | BE ≈ " + txtBEA) : ""
+txtFlushSize = _showFlushHUD ? ("FLUSH size: " + (na(sizeFlush) ? "—" : str.tostring(sizeFlush)) + " | Risk≈$" + (na(slUSD_Flush) ? "—" : str.tostring(slUSD_Flush, format.mintick)) + " | TP≈$" + (na(tpUSD_Flush) ? "—" : str.tostring(tpUSD_Flush, format.mintick))) : ""
+txtAPlusSize = _showAPlusHUD ? ("A+ size: " + (na(sizeAplus) ? "—" : str.tostring(sizeAplus)) + " | Risk≈$" + (na(slUSD_Aplus) ? "—" : str.tostring(slUSD_Aplus, format.mintick)) + " | TP≈$" + (na(tpUSD_Aplus) ? "—" : str.tostring(tpUSD_Aplus, format.mintick))) : ""
+
 var table hud = na
-if barstate.isfirst
-    hud := table.new(position.top_right, 1, 10, border_width=1)
+var int _hudRows = 0
 if barstate.islast
-    table.cell(hud, 0, 0, "FLUSH TP/SL" + ovrSuffix + ": " + str.tostring(tpTicksFlush) + "/" + str.tostring(slTicksFlush), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 1, "A+ TP/SL: " + str.tostring(tpTicksAplus) + "/" + str.tostring(slTicksAplus), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 2, "FLUSH R:R ≈ " + txtRRF + " | BE ≈ " + txtBEF, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 3, "A+ R:R ≈ " + txtRRA + " | BE ≈ " + txtBEA, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 4, "FLUSH size: " + (na(sizeFlush) ? "—" : str.tostring(sizeFlush)) + " | Risk≈$" + (na(slUSD_Flush) ? "—" : str.tostring(slUSD_Flush, format.mintick)) + " | TP≈$" + (na(tpUSD_Flush) ? "—" : str.tostring(tpUSD_Flush, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 5, "A+ size: " + (na(sizeAplus) ? "—" : str.tostring(sizeAplus)) + " | Risk≈$" + (na(slUSD_Aplus) ? "—" : str.tostring(slUSD_Aplus, format.mintick)) + " | TP≈$" + (na(tpUSD_Aplus) ? "—" : str.tostring(tpUSD_Aplus, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 6, "TP now: " + str.tostring(tpTicksNow) + " | SL now: " + str.tostring(slTicksNow), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 7, "Regime: " + displayRegimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 8, extBadge, text_color=color.white, bgcolor=extActive ? color.new(color.purple, 30) : color.new(color.black, 0))
-    table.cell(hud, 0, 9, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
+    // compute needed rows
+    hudFlushRows = _showFlushHUD ? 3 : 0
+    hudAplusRows = _showAPlusHUD ? 3 : 0
+    hudAlwaysRows = 3 + (extBadge != "" ? 1 : 0)  // TP/SL now, Regime, Anchor (+ optional EXTREME)
+    hudNeed = hudFlushRows + hudAplusRows + hudAlwaysRows
+    hudNeed := math.max(1, hudNeed)
+
+    // rebuild table if size changed or not created yet
+    if na(hud) or (_hudRows != hudNeed)
+        if not na(hud)
+            table.delete(hud)
+        hud := table.new(position.top_right, 1, hudNeed, border_width=1)
+        _hudRows := hudNeed
+
+    // write packed rows
+    int hr = 0
+
+    if _showFlushHUD
+        table.cell(hud, 0, hr, "FLUSH TP/SL" + ovrSuffix + ": " + str.tostring(tpTicksFlush) + "/" + str.tostring(slTicksFlush), text_color=color.white, bgcolor=color.new(color.black, 0))
+        hr += 1
+        table.cell(hud, 0, hr, "FLUSH R:R ≈ " + txtRRF + " | BE ≈ " + txtBEF, text_color=color.white, bgcolor=color.new(color.black, 0))
+        hr += 1
+        table.cell(hud, 0, hr, "FLUSH size: " + (na(sizeFlush) ? "—" : str.tostring(sizeFlush)) + " | Risk≈$" + (na(slUSD_Flush) ? "—" : str.tostring(slUSD_Flush, format.mintick)) + " | TP≈$" + (na(tpUSD_Flush) ? "—" : str.tostring(tpUSD_Flush, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
+        hr += 1
+
+    if _showAPlusHUD
+        table.cell(hud, 0, hr, "A+ TP/SL: " + str.tostring(tpTicksAplus) + "/" + str.tostring(slTicksAplus), text_color=color.white, bgcolor=color.new(color.black, 0))
+        hr += 1
+        table.cell(hud, 0, hr, "A+ R:R ≈ " + txtRRA + " | BE ≈ " + txtBEA, text_color=color.white, bgcolor=color.new(color.black, 0))
+        hr += 1
+        table.cell(hud, 0, hr, "A+ size: " + (na(sizeAplus) ? "—" : str.tostring(sizeAplus)) + " | Risk≈$" + (na(slUSD_Aplus) ? "—" : str.tostring(slUSD_Aplus, format.mintick)) + " | TP≈$" + (na(tpUSD_Aplus) ? "—" : str.tostring(tpUSD_Aplus, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
+        hr += 1
+
+    table.cell(hud, 0, hr, "TP now: " + str.tostring(tpTicksNow) + " | SL now: " + str.tostring(slTicksNow), text_color=color.white, bgcolor=color.new(color.black, 0))
+    hr += 1
+    table.cell(hud, 0, hr, "Regime: " + displayRegimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
+    hr += 1
+    if extBadge != ""
+        table.cell(hud, 0, hr, extBadge, text_color=color.white, bgcolor=color.new(color.purple, 30))
+        hr += 1
+    table.cell(hud, 0, hr, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
 
 // ========= Context Checklist (GO/NO-GO)
 grpCtx = "Context Checklist (GO/NO-GO)"
@@ -805,6 +851,10 @@ avoidOpenMin    = input.int(10, "Avoid first N minutes after session open", minv
 nearVWAPTicksUI = input.int(10, "NEAR VWAP if |Δ| < ticks", minval=0, group=grpCtx)
 farVWAPxATR_UI  = input.float(2.0, "EXTENDED if |Δ| > x*ATR", minval=0, step=0.25, group=grpCtx)
 
+// NEW: Checklist visibility toggles per system
+showFlushRows = input.bool(true, "Show Flush rows (1m only)", group=grpCtx)
+showAPlusRows = input.bool(true, "Show A+ rows (2m only)", group=grpCtx)
+
 grpCtx2 = "Cooldown Options"
 cooldownMode = input.string("Keltner ±3xATR", "Cooldown reference", options=["Keltner ±3xATR","EMA34 ± ATR×","Both (AND)","Either (OR)","Auto (by regime)"], group=grpCtx2)
 
@@ -813,7 +863,7 @@ var int sessOpenTs = na
 if inTradeSess and not inTradeSess[1]
     sessOpenTs := time
 minsSinceOpen = inTradeSess and not na(sessOpenTs) ? (timenow - sessOpenTs) / 60000.0 : na
-avoidNow      = inTradeSess and not na(minsSinceOpen) and minsSinceOpen < avoidOpenMin
+avoidNow      = inTradeSess and not na(sessOpenTs) and minsSinceOpen < avoidOpenMin
 
 // ---- 3rd ATR cooldown (dual references) ----
 kcUp3 = basisKC + ta.atr(kcLen) * 3.0
@@ -850,40 +900,62 @@ anchor =
    : tableCorner == "bottom_left"  ? position.bottom_left
    : position.bottom_right
 
-if showChecklist and na(chk)
-    // 3 columns (Check / Value / Go), 8 rows (header + 7 checks)
-    chk := table.new(anchor, 3, 8, border_width=1)
-
 // helper (COL first, ROW second)
 fRow(r, k, v, pass) =>
     table.cell(chk, 0, r, k, text_color=color.white,  bgcolor=color.new(color.black, 0))
     table.cell(chk, 1, r, v, text_color=color.silver, bgcolor=color.new(color.black, 0))
-    table.cell(chk, 2, r, pass ? "✓" : "✗", text_color = pass ? color.new(color.green, 0) : color.new(color.red, 0), bgcolor    = color.new(pass ? color.green : color.red, 85))
+    table.cell(chk, 2, r, pass ? "✓" : "✗", text_color = pass ? color.new(color.green, 0) : color.new(color.red, 0), bgcolor = color.new(pass ? color.green : color.red, 85))
+
+// -------- Fixed-capacity, packed checklist (no OOB) --------
+if showChecklist and na(chk)
+    // plenty of headroom (max we render is 8)
+    chk := table.new(anchor, 3, 12, border_width=1)
 
 if showChecklist and barstate.isnew
+    // clear all rows we might use (keep it simple)
+    table.clear(chk, 0, 0, 2, 11)
+
     // header row
     table.cell(chk, 0, 0, "Check", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(chk, 1, 0, "Value", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(chk, 2, 0, "Go",    text_color=color.white, bgcolor=color.new(color.black, 0))
 
-    // 1) ATR cooldown (dual reference with mode)
-    fRow(1, "ATR cooldown", coolTxt, cooldownOK)
-    
-    // 2) MTF slope alignment
-    fRow(2, "MTF slope", mtfDirTxt, mtfAligned)
+    // decide which role rows to include
+    aRowOk = isAPlusChart and showAPlusRows
+    fRowOk = isFlushChart and showFlushRows
 
-    // 3) VWAP distance
-    fRow(3, "VWAP Δ", str.tostring(distVWAPTicks, format.mintick) + " ticks" + (nearVWAPflag ? " (NEAR)" : extendedFar ? " (EXTENDED)" : " (OK)"), not nearVWAPflag and not extendedFar)
+    // writer
+    int r = 1
+    // 1) ATR cooldown
+    fRow(r, "ATR cooldown", coolTxt, cooldownOK)
+    r += 1
+
+    // 2) MTF slope alignment (A+ role only)
+    if aRowOk
+        mtfVal = mtfDirTxt
+        mtfPass = mtfAligned
+        fRow(r, "MTF slope", mtfVal, mtfPass)
+        r += 1
+
+    // 3) VWAP distance (Flush role only)
+    if fRowOk
+        vwapVal = str.tostring(distVWAPTicks, format.mintick) + " ticks" + (nearVWAPflag ? " (NEAR)" : extendedFar ? " (EXTENDED)" : " (OK)")
+        vwapPass = (not nearVWAPflag and not extendedFar)
+        fRow(r, "VWAP Δ", vwapVal, vwapPass)
+        r += 1
 
     // 4) Volume quality
     volStr = volSpike ? "Spike" : volDry ? "Dry" : "Normal"
-    fRow(4, "Volume", volStr, not volDry)
+    fRow(r, "Volume", volStr, not volDry)
+    r += 1
 
     // 5) In trade session
-    fRow(5, "Session", inTradeSess ? "In session" : "Out of session", inTradeSess)
+    fRow(r, "Session", inTradeSess ? "In session" : "Out of session", inTradeSess)
+    r += 1
 
     // 6) Avoid-open window
-    fRow(6, "Avoid-open", str.tostring(avoidOpenMin) + "m", not avoidNow)
-    
+    fRow(r, "Avoid-open", str.tostring(avoidOpenMin) + "m", not avoidNow)
+    r += 1
+
     // 7) ATR info
-    fRow(7, "ATR (ticks)", str.tostring(atrTicks) + (use2mForFlush ? " (OVR→2m " + regimeLabel_2 + ")" : ""), true)
+    fRow(r, "ATR (ticks)", str.tostring(atrTicks) + (use2mForFlush ? " (OVR→2m " + regimeLabel_2 + ")" : ""), true)
