@@ -182,6 +182,12 @@ showContext = input.bool(false, "Plot EMAs + VWAP/AVWAP", group="Show / Alerts")
 showSetups = input.bool(true, "Plot setup arrows", group="Show / Alerts")
 enableAlerts = input.bool(true, "Enable confirmed entry alerts", group="Show / Alerts")
 showCountdown = input.bool(true, "Show bar-close countdown", group="Show / Alerts")
+showAPlusArrows = input.bool(true, "Show A+ entry arrows", group="Show / Alerts")
+autoHideAPlusOn1m = input.bool(false, "Auto-hide A+ arrows on 1m", group="Show / Alerts")
+suppressAlertsOn1m = input.bool(false, "Suppress A+ entry alerts on 1m", group="Show / Alerts")
+is1m = timeframe.isminutes and timeframe.multiplier == 1
+showAPlusNow = showAPlusArrows and not (autoHideAPlusOn1m and is1m)
+showSetupsNow = showSetups and not is1m
 
 // ---------- Core series (moved up so atrTicks is defined before TP/SL)
 atrLen = 14
@@ -699,16 +705,17 @@ plotshape(showHardExitFlags and hardExitLong, title="HARD EXIT LONG", style=shap
 plotshape(showHardExitFlags and hardExitShort, title="HARD EXIT SHORT", style=shape.cross, location=location.belowbar, color=color.new(color.orange, 0), size=size.tiny, text="EXIT")
 
 // Plot arrows (finalized only)
-plotshape(showSetups and baseLongSetup, title="Setup LONG", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 40), size=size.tiny, text="setup")
-plotshape(showSetups and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="setup")
-plotshape(longConfirm, title="A+ LONG (confirmed)", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.large, text="A+ LONG")
-plotshape(shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.large, text="A+ SHORT")
-bgcolor(longConfirm ? color.new(color.lime, 85) : shortConfirm ? color.new(color.red, 85) : na)
+plotshape(showSetupsNow and baseLongSetup, title="Setup LONG", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 40), size=size.tiny, text="setup")
+plotshape(showSetupsNow and baseShortSetup, title="Setup SHORT", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="setup")
+plotshape(showAPlusNow and longConfirm, title="A+ LONG (confirmed)", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.large, text="A+ LONG")
+plotshape(showAPlusNow and shortConfirm, title="A+ SHORT (confirmed)", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.large, text="A+ SHORT")
+bgcolor(showAPlusNow and longConfirm ? color.new(color.lime, 85) : showAPlusNow and shortConfirm ? color.new(color.red, 85) : na)
 
 // Alerts (entries) — session-aware
 canAlert = not useSessionFilter or inTradeSess
-alertcondition(enableAlerts and canAlert and longConfirm, title="A+ LONG ENTRY", message="A+ LONG entry fired")
-alertcondition(enableAlerts and canAlert and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
+canAlertAPlus = canAlert and not (suppressAlertsOn1m and is1m)
+alertcondition(enableAlerts and canAlertAPlus and longConfirm, title="A+ LONG ENTRY", message="A+ LONG entry fired")
+alertcondition(enableAlerts and canAlertAPlus and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
 
 // Alerts (partials / exits) — session-aware
 alertcondition(enableExitAlerts and canAlert and partialLong, title="A+ LONG PARTIAL", message="A+ LONG: take partial at 3x ATR from entry")
@@ -739,6 +746,7 @@ txtBEF = na(beFlush) ? "—" : str.tostring(beFlush, format.mintick) + "%"
 txtBEA = na(beAplus) ? "—" : str.tostring(beAplus, format.mintick) + "%"
 txtAnchor = anchorOK_today ? "YES" : "NO"
 extBadge = extActive ? "EXTREME A+" : ""
+
 var table hud = na
 if barstate.isfirst
     hud := table.new(position.top_right, 1, 10, border_width=1)
