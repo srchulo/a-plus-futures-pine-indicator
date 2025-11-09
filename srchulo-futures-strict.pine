@@ -430,8 +430,8 @@ ascTri = trendOkLong and flatHi
 descTri = trendOkShort and flatLo
 
 // Precision
-precisionLong = trendOkLong and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
-precisionShort = trendOkShort and (math.abs(close - emaM) <= atr * 0.15 or math.abs(close - emaS) <= atr * 0.15) and bearReversalCandle
+precisionLong = trendOkLong and (math.abs(close - emaM) <= atr * 0.15) or (trendOkLong and math.abs(close - emaS) <= atr * 0.15) and bullReversalCandle
+precisionShort = trendOkShort and (math.abs(close - emaM) <= atr * 0.15) or (trendOkShort and math.abs(close - emaS) <= atr * 0.15) and bearReversalCandle
 
 // Scoring
 scoreAdd(c, w, use) => use and c ? w : 0
@@ -569,7 +569,7 @@ slTicksFlush = math.round(f_clamp(flushBaseSL * sf, flush_sl_min, flush_sl_max))
 tpTicksAplus = math.round(f_clamp(aplusBaseTP * sf, aplus_tp_min, aplus_tp_max))
 slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
 
-// ======== NEW: Cross-timeframe regime sync to auto-choose 1m Flush presets ========
+// ======== NEW: Cross-timeframe regime sync to auto-choose 1m Flush presets + HUD override note ========
 // Compute 2m ATR ticks and regime (independent of current chart TF)
 atrTicks_2m = request.security(syminfo.tickerid, "2", math.round(ta.atr(atrLen) / (syminfo.mintick == 0.0 ? 0.25 : syminfo.mintick)), lookahead=barmerge.lookahead_off)
 basisKC_2 = request.security(syminfo.tickerid, "2", ta.ema((high + low + close) / 3.0, kcLen), lookahead=barmerge.lookahead_off)
@@ -585,6 +585,7 @@ ribbonBull_2 = emaF_2 > emaM_2 and emaM_2 > emaS_2
 ribbonBear_2 = emaF_2 < emaM_2 and emaM_2 < emaS_2
 trendQ_2 = (ribbonBull_2 and kcSlopeUp_2) or (ribbonBear_2 and kcSlopeDown_2) ? 1 : 0
 regime_2 = atrTicks_2m >= highVolTicks ? 2 : (trendQ_2 == 1 ? 1 : 0)
+regimeLabel_2 = regime_2 == 2 ? "HIGH-VOL" : regime_2 == 1 ? "TREND" : "CALM"
 sf_2 = regime_2 == 0 ? 0.80 : regime_2 == 1 ? 1.00 : 0.90
 
 // Build 2m-based Flush TP/SL presets (same ladders, different ATR+regime)
@@ -597,6 +598,10 @@ slTicksFlush_2 = math.round(f_clamp(flushBaseSL_2 * sf_2, flush_sl_min, flush_sl
 use2mForFlush = is1m and (regime_2 >= 1)
 tpTicksFlush := use2mForFlush ? tpTicksFlush_2 : tpTicksFlush
 slTicksFlush := use2mForFlush ? slTicksFlush_2 : slTicksFlush
+
+// Human-readable regime display (shows override context when active)
+displayRegimeLabel = use2mForFlush ? (regimeLabel + " OVR→2m " + regimeLabel_2) : regimeLabel
+ovrSuffix = use2mForFlush ? " [OVR]" : ""
 // ======== END cross-timeframe regime sync ========
 
 // --- Extreme regime (A+ only): widen smartly on truly wild tape
@@ -781,14 +786,14 @@ var table hud = na
 if barstate.isfirst
     hud := table.new(position.top_right, 1, 10, border_width=1)
 if barstate.islast
-    table.cell(hud, 0, 0, "FLUSH TP/SL: " + str.tostring(tpTicksFlush) + "/" + str.tostring(slTicksFlush) + " (" + regimeLabel + ")", text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 1, "A+ TP/SL: " + str.tostring(tpTicksAplus) + "/" + str.tostring(slTicksAplus) + " (" + regimeLabel + ")", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 0, "FLUSH TP/SL" + ovrSuffix + ": " + str.tostring(tpTicksFlush) + "/" + str.tostring(slTicksFlush), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 1, "A+ TP/SL: " + str.tostring(tpTicksAplus) + "/" + str.tostring(slTicksAplus), text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 2, "FLUSH R:R ≈ " + txtRRF + " | BE ≈ " + txtBEF, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 3, "A+ R:R ≈ " + txtRRA + " | BE ≈ " + txtBEA, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 4, "FLUSH size: " + (na(sizeFlush) ? "—" : str.tostring(sizeFlush)) + " | Risk≈$" + (na(slUSD_Flush) ? "—" : str.tostring(slUSD_Flush, format.mintick)) + " | TP≈$" + (na(tpUSD_Flush) ? "—" : str.tostring(tpUSD_Flush, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 5, "A+ size: " + (na(sizeAplus) ? "—" : str.tostring(sizeAplus)) + " | Risk≈$" + (na(slUSD_Aplus) ? "—" : str.tostring(slUSD_Aplus, format.mintick)) + " | TP≈$" + (na(tpUSD_Aplus) ? "—" : str.tostring(tpUSD_Aplus, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 6, "TP now: " + str.tostring(tpTicksNow) + " | SL now: " + str.tostring(slTicksNow), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 7, "Regime: " + regimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 7, "Regime: " + displayRegimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 8, extBadge, text_color=color.white, bgcolor=extActive ? color.new(color.purple, 30) : color.new(color.black, 0))
     table.cell(hud, 0, 9, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
 
@@ -863,7 +868,7 @@ if showChecklist and barstate.isnew
 
     // 1) ATR cooldown (dual reference with mode)
     fRow(1, "ATR cooldown", coolTxt, cooldownOK)
-
+    
     // 2) MTF slope alignment
     fRow(2, "MTF slope", mtfDirTxt, mtfAligned)
 
@@ -879,6 +884,6 @@ if showChecklist and barstate.isnew
 
     // 6) Avoid-open window
     fRow(6, "Avoid-open", str.tostring(avoidOpenMin) + "m", not avoidNow)
-
+    
     // 7) ATR info
-    fRow(7, "ATR (ticks)", str.tostring(atrTicks), true)
+    fRow(7, "ATR (ticks)", str.tostring(atrTicks) + (use2mForFlush ? " (OVR→2m " + regimeLabel_2 + ")" : ""), true)
