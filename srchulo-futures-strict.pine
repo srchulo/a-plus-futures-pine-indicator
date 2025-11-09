@@ -202,9 +202,31 @@ trendOkLong = useRibbon ? ribbonBull : true
 trendOkShort = useRibbon ? ribbonBear : true
 
 // --------- Internal slope helpers
-f_internal_slope(_close, _fastLen, _midLen, _slowLen, _slopeLen, _smooth) => _fast = ta.ema(_close, _fastLen), _mid = ta.ema(_close, _midLen), _slow = ta.ema(_close, _slowLen), _spread = (_fast - _mid) + (_mid - _slow), _raw = ta.linreg(_spread, _slopeLen, 0), _sm = _smooth > 1 ? ta.ema(_raw, _smooth) : _raw, nz(_sm) / math.max(math.abs(_mid), 1e-6)
-f_slope_ok(tf, magMin, persistBars, _freeze) => _lk = _freeze ? barmerge.lookahead_on : barmerge.lookahead_off, _s = request.security(syminfo.tickerid, tf, f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), lookahead=_lk), _up = _s > magMin, _down = _s < -magMin, _upOK = ta.barssince(_down) > persistBars, _downOK = ta.barssince(_up) > persistBars, [_up, _down, _upOK, _downOK]
-f_slope_current() => _s = f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), _up = _s > slopeMagLTF, _down = _s < -slopeMagLTF, _upOK = ta.barssince(_down) > persistLTF, _downOK = ta.barssince(_up) > persistLTF, [_up, _down, _upOK, _downOK]
+f_internal_slope(_close, _fastLen, _midLen, _slowLen, _slopeLen, _smooth) =>
+    _fast = ta.ema(_close, _fastLen)
+    _mid = ta.ema(_close, _midLen)
+    _slow = ta.ema(_close, _slowLen)
+    _spread = (_fast - _mid) + (_mid - _slow)
+    _raw = ta.linreg(_spread, _slopeLen, 0)
+    _sm = _smooth > 1 ? ta.ema(_raw, _smooth) : _raw
+    nz(_sm) / math.max(math.abs(_mid), 1e-6)
+
+f_slope_ok(tf, magMin, persistBars, _freeze) =>
+    _lk = _freeze ? barmerge.lookahead_on : barmerge.lookahead_off
+    _s = request.security(syminfo.tickerid, tf, f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth), lookahead=_lk)
+    _up = _s > magMin
+    _down = _s < -magMin
+    _upOK = ta.barssince(_down) > persistBars
+    _downOK = ta.barssince(_up) > persistBars
+    [_up, _down, _upOK, _downOK]
+
+f_slope_current() =>
+    _s = f_internal_slope(close, emaFastLen, emaMidLen, emaSlowLen, slopeLen, slopeSmooth)
+    _up = _s > slopeMagLTF
+    _down = _s < -slopeMagLTF
+    _upOK = ta.barssince(_down) > persistLTF
+    _downOK = ta.barssince(_up) > persistLTF
+    [_up, _down, _upOK, _downOK]
 
 // ===== New slope consensus
 var string TF2="2", TF3="3", TF5="5", TF15="15", TF30="30", TF60="60", TF240="240", TFD="D"
@@ -477,7 +499,7 @@ baseShortSetup = finalize(baseShortSetup_raw)
 longConfirm = finalize(longConfirm_raw)
 shortConfirm = finalize(shortConfirm_raw)
 
-// ---------- Targets / Stops (HUD)  — UPDATED (2025-11-01)
+// ---------- Targets / Stops (HUD) — inputs only; logic below computes both
 grpTP = "Targets / Stops (HUD)"
 tpMode = input.string("FixedTicks", "TP Mode", options=["FixedTicks","ATRx"], group=grpTP)
 tpTicksFixed = input.int(80, "TP (ticks) when Fixed", group=grpTP, minval=1)
@@ -489,11 +511,60 @@ slTicksFixed = input.int(60, "SL (ticks) when Fixed", group=grpTP, minval=1)
 slATRmult = input.float(1.3, "SL = ATR × k (≈1.2–1.5 typical)", group=grpTP, step=0.05, minval=0.5)
 slMinTicks = input.int(48, "Min SL (ticks) floor (≈12 pts)", group=grpTP, minval=1)
 slMaxTicks = input.int(80, "Max SL (ticks) cap (≈20 pts)", group=grpTP, minval=10)
-atr2m_reg = request.security(syminfo.tickerid, "2", ta.atr(14), lookahead=barmerge.lookahead_off)
-useWideSL = atr2m_reg >= 9.0
-tpTicksNow = 80
-slTicksNow = useWideSL ? 60 : 40
 
+// === Adaptive Presets by Setup + Regime (compute BOTH) ==================
+grpAdaptive = "Adaptive SL/TP (Setup + Regime)"
+presetSource = input.string("Manual: Flush", "Preset source", options=["Manual: Flush","Manual: A+"], group=grpAdaptive)
+
+flush_tp_ticks = input.int(80, "Flush TP (ticks)", group=grpAdaptive, minval=8)
+flush_sl_ticks = input.int(80, "Flush SL (ticks)", group=grpAdaptive, minval=8)
+aplus_tp_ticks = input.int(200, "A+ TP (ticks)", group=grpAdaptive, minval=20)
+aplus_sl_ticks = input.int(200, "A+ SL (ticks)", group=grpAdaptive, minval=20)
+
+flush_tp_atrK = input.float(1.60, "Flush TP = ATR×", step=0.05, group=grpAdaptive)
+flush_sl_atrK = input.float(1.30, "Flush SL = ATR×", step=0.05, group=grpAdaptive)
+aplus_tp_atrK = input.float(2.20, "A+ TP = ATR×", step=0.05, group=grpAdaptive)
+aplus_sl_atrK = input.float(1.80, "A+ SL = ATR×", step=0.05, group=grpAdaptive)
+
+flush_tp_min = input.int(64, "Flush TP floor (ticks)", group=grpAdaptive)
+flush_tp_max = input.int(120, "Flush TP cap (ticks)", group=grpAdaptive)
+flush_sl_min = input.int(48, "Flush SL floor (ticks)", group=grpAdaptive)
+flush_sl_max = input.int(100, "Flush SL cap (ticks)", group=grpAdaptive)
+aplus_tp_min = input.int(140, "A+ TP floor (ticks)", group=grpAdaptive)
+aplus_tp_max = input.int(260, "A+ TP cap (ticks)", group=grpAdaptive)
+aplus_sl_min = input.int(120, "A+ SL floor (ticks)", group=grpAdaptive)
+aplus_sl_max = input.int(220, "A+ SL cap (ticks)", group=grpAdaptive)
+
+highVolTicks = input.int(100, "High-vol threshold (ATR ticks)", group=grpAdaptive)
+calmVolTicks = input.int(70, "Calm threshold (ATR ticks)", group=grpAdaptive)
+trendUp = ribbonBull and kcSlopeUp
+trendDn = ribbonBear and kcSlopeDown
+trendQ = (trendUp or trendDn) ? 1 : 0
+volNow = atrTicks
+regime = 0
+regime := volNow >= highVolTicks ? 2 : (trendQ == 1 ? 1 : 0)
+regimeLabel = regime == 2 ? "HIGH-VOL" : regime == 1 ? "TREND" : "CALM"
+f_clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
+sf = regime == 0 ? 0.80 : regime == 1 ? 1.00 : 0.90
+
+var float flushBaseTP = na
+var float flushBaseSL = na
+flushBaseTP := tpMode == "FixedTicks" ? flush_tp_ticks : f_clamp(math.round(atrTicks * flush_tp_atrK), flush_tp_min, flush_tp_max)
+flushBaseSL := slMode == "FixedTicks" ? flush_sl_ticks : f_clamp(math.round(atrTicks * flush_sl_atrK), flush_sl_min, flush_sl_max)
+
+var float aplusBaseTP = na
+var float aplusBaseSL = na
+aplusBaseTP := tpMode == "FixedTicks" ? aplus_tp_ticks : f_clamp(math.round(atrTicks * aplus_tp_atrK), aplus_tp_min, aplus_tp_max)
+aplusBaseSL := slMode == "FixedTicks" ? aplus_sl_ticks : f_clamp(math.round(atrTicks * aplus_sl_atrK), aplus_sl_min, aplus_sl_max)
+
+tpTicksFlush = math.round(f_clamp(flushBaseTP * sf, flush_tp_min, flush_tp_max))
+slTicksFlush = math.round(f_clamp(flushBaseSL * sf, flush_sl_min, flush_sl_max))
+tpTicksAplus = math.round(f_clamp(aplusBaseTP * sf, aplus_tp_min, aplus_tp_max))
+slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
+
+useFlush = presetSource == "Manual: Flush"
+tpTicksNow = useFlush ? tpTicksFlush : tpTicksAplus
+slTicksNow = useFlush ? slTicksFlush : slTicksAplus
 
 // ---------- NEW: Position state, momentum & exits
 [macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
@@ -590,19 +661,24 @@ if showCountdown and barstate.islast
         label.delete(_cd)
     _cd := label.new(bar_index, high, str.tostring(secLeft) + "s", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, textcolor=color.white, color=color.new(color.black, 0), size=size.tiny)
 
-// ---------- Top-right HUD: TP/SL, R:R, Breakeven win% + Anchor OK
-rr = slTicksNow > 0 ? (tpTicksNow * 1.0) / slTicksNow : na
-breakeven = slTicksNow + tpTicksNow > 0 ? slTicksNow * 100.0 / (slTicksNow + tpTicksNow) : na
-txtRR = na(rr) ? "—" : str.tostring(rr, format.mintick)
-txtBE = na(breakeven) ? "—" : str.tostring(breakeven, format.mintick) + "%"
+// ---------- Top-right HUD: show BOTH pairs (TP/SL + R:R + BE) + Anchor OK
+rrFlush = slTicksFlush > 0 ? (tpTicksFlush * 1.0) / slTicksFlush : na
+rrAplus = slTicksAplus > 0 ? (tpTicksAplus * 1.0) / slTicksAplus : na
+beFlush = slTicksFlush + tpTicksFlush > 0 ? slTicksFlush * 100.0 / (slTicksFlush + tpTicksFlush) : na
+beAplus = slTicksAplus + tpTicksAplus > 0 ? slTicksAplus * 100.0 / (slTicksAplus + tpTicksAplus) : na
+txtRRF = na(rrFlush) ? "—" : str.tostring(rrFlush, format.mintick)
+txtRRA = na(rrAplus) ? "—" : str.tostring(rrAplus, format.mintick)
+txtBEF = na(beFlush) ? "—" : str.tostring(beFlush, format.mintick) + "%"
+txtBEA = na(beAplus) ? "—" : str.tostring(beAplus, format.mintick) + "%"
 txtAnchor = anchorOK_today ? "YES" : "NO"
-
 var table hud = na
 if barstate.isfirst
-    hud := table.new(position.top_right, 1, 5, border_width=1)
+    hud := table.new(position.top_right, 1, 7, border_width=1)
 if barstate.islast
-    table.cell(hud, 0, 0, "TP: " + str.tostring(tpTicksNow) + " ticks", text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 1, "SL: " + str.tostring(slTicksNow) + " ticks", text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 2, "R:R ≈ " + txtRR, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 3, "BE Win% ≈ " + txtBE, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 4, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
+    table.cell(hud, 0, 0, "FLUSH TP/SL: " + str.tostring(tpTicksFlush) + "/" + str.tostring(slTicksFlush) + " (" + regimeLabel + ")", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 1, "A+ TP/SL: " + str.tostring(tpTicksAplus) + "/" + str.tostring(slTicksAplus) + " (" + regimeLabel + ")", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 2, "FLUSH R:R ≈ " + txtRRF + " | BE ≈ " + txtBEF, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 3, "A+ R:R ≈ " + txtRRA + " | BE ≈ " + txtBEA, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 4, "TP now: " + str.tostring(tpTicksNow) + " | SL now: " + str.tostring(slTicksNow), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 5, "Regime: " + regimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 6, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
