@@ -829,7 +829,7 @@ if showChecklist and barstate.isnew
     fRow(2, "MTF slope", mtfDirTxt, mtfAligned)
 
     // 3) VWAP distance
-    fRow(3, "VWAP Δ", str.tostring(distVWAPTicks, format.mintick) + " ticks", not nearVWAPflag and not extendedFar)
+    fRow(3, "VWAP Δ", str.tostring(distVWAPTicks, format.mintick) + " ticks" + (nearVWAPflag ? " (NEAR)" : extendedFar ? " (EXTENDED)" : " (OK)"), not nearVWAPflag and not extendedFar)
 
     // 4) Volume quality
     volStr = volSpike ? "Spike" : volDry ? "Dry" : "Normal"
