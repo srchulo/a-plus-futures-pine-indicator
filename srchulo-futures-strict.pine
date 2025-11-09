@@ -562,6 +562,20 @@ slTicksFlush = math.round(f_clamp(flushBaseSL * sf, flush_sl_min, flush_sl_max))
 tpTicksAplus = math.round(f_clamp(aplusBaseTP * sf, aplus_tp_min, aplus_tp_max))
 slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
 
+// --- Position Sizing (auto contracts from $ risk target)
+grpPos = "Position Sizing"
+riskTargetUSD = input.float(750.0, "Target risk $ per trade", step=25.0, group=grpPos)
+usdPerTick = input.float(0.50, "USD per tick (MNQ=0.50)", step=0.01, group=grpPos)
+maxContracts = input.int(50, "Max contracts cap", minval=1, group=grpPos)
+riskPerCtrFlush = slTicksFlush > 0 ? slTicksFlush * usdPerTick : na
+riskPerCtrAplus = slTicksAplus > 0 ? slTicksAplus * usdPerTick : na
+sizeFlush = na(riskPerCtrFlush) or riskPerCtrFlush <= 0 ? na : math.max(1, math.min(maxContracts, math.floor(riskTargetUSD / riskPerCtrFlush)))
+sizeAplus = na(riskPerCtrAplus) or riskPerCtrAplus <= 0 ? na : math.max(1, math.min(maxContracts, math.floor(riskTargetUSD / riskPerCtrAplus)))
+slUSD_Flush = na(sizeFlush) ? na : slTicksFlush * usdPerTick * sizeFlush
+tpUSD_Flush = na(sizeFlush) ? na : tpTicksFlush * usdPerTick * sizeFlush
+slUSD_Aplus = na(sizeAplus) ? na : slTicksAplus * usdPerTick * sizeAplus
+tpUSD_Aplus = na(sizeAplus) ? na : tpTicksAplus * usdPerTick * sizeAplus
+
 useFlush = presetSource == "Manual: Flush"
 tpTicksNow = useFlush ? tpTicksFlush : tpTicksAplus
 slTicksNow = useFlush ? slTicksFlush : slTicksAplus
@@ -661,7 +675,7 @@ if showCountdown and barstate.islast
         label.delete(_cd)
     _cd := label.new(bar_index, high, str.tostring(secLeft) + "s", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, textcolor=color.white, color=color.new(color.black, 0), size=size.tiny)
 
-// ---------- Top-right HUD: show BOTH pairs (TP/SL + R:R + BE) + Anchor OK
+// ---------- Top-right HUD: show BOTH pairs + sizes (TP/SL, R:R, BE, $risk/$TP) + Regime/Anchor
 rrFlush = slTicksFlush > 0 ? (tpTicksFlush * 1.0) / slTicksFlush : na
 rrAplus = slTicksAplus > 0 ? (tpTicksAplus * 1.0) / slTicksAplus : na
 beFlush = slTicksFlush + tpTicksFlush > 0 ? slTicksFlush * 100.0 / (slTicksFlush + tpTicksFlush) : na
@@ -673,12 +687,14 @@ txtBEA = na(beAplus) ? "—" : str.tostring(beAplus, format.mintick) + "%"
 txtAnchor = anchorOK_today ? "YES" : "NO"
 var table hud = na
 if barstate.isfirst
-    hud := table.new(position.top_right, 1, 7, border_width=1)
+    hud := table.new(position.top_right, 1, 9, border_width=1)
 if barstate.islast
     table.cell(hud, 0, 0, "FLUSH TP/SL: " + str.tostring(tpTicksFlush) + "/" + str.tostring(slTicksFlush) + " (" + regimeLabel + ")", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 1, "A+ TP/SL: " + str.tostring(tpTicksAplus) + "/" + str.tostring(slTicksAplus) + " (" + regimeLabel + ")", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 2, "FLUSH R:R ≈ " + txtRRF + " | BE ≈ " + txtBEF, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(hud, 0, 3, "A+ R:R ≈ " + txtRRA + " | BE ≈ " + txtBEA, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 4, "TP now: " + str.tostring(tpTicksNow) + " | SL now: " + str.tostring(slTicksNow), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 5, "Regime: " + regimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(hud, 0, 6, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
+    table.cell(hud, 0, 4, "FLUSH size: " + (na(sizeFlush) ? "—" : str.tostring(sizeFlush)) + " | Risk≈$" + (na(slUSD_Flush) ? "—" : str.tostring(slUSD_Flush, format.mintick)) + " | TP≈$" + (na(tpUSD_Flush) ? "—" : str.tostring(tpUSD_Flush, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 5, "A+ size: " + (na(sizeAplus) ? "—" : str.tostring(sizeAplus)) + " | Risk≈$" + (na(slUSD_Aplus) ? "—" : str.tostring(slUSD_Aplus, format.mintick)) + " | TP≈$" + (na(tpUSD_Aplus) ? "—" : str.tostring(tpUSD_Aplus, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 6, "TP now: " + str.tostring(tpTicksNow) + " | SL now: " + str.tostring(slTicksNow), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 7, "Regime: " + regimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 8, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
