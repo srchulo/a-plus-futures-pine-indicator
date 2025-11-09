@@ -481,7 +481,7 @@ dn2_gate = ema34 - atr * 2.0
 momRise2 = close > close[1] and close[1] > close[2]
 momFall2 = close < close[1] and close[1] < close[2]
 strictATRMomOK_L = (not atOrBeyond3rd) and ((close <= up2_gate and slopeLongOK_new and momLongOK) or (close > up2_gate and slopeLongOK_new and htfBull_locked and momLongOK and (volume >= volSMA * volException)))
-strictATRMomOK_S = (not atOrBeyond3rd) and ((close >= dn2_gate and slopeShortOK_new and momShortOK) or (close < dn2_gate and slopeShortOK_new and htfBear_locked and momShortOK and (volume >= volSMA * volException)))
+strictATRMomOK_S = (not atOrBeyond3rd) and ((close >= dn2_gate and slopeShortOK_new and momShortOK) or (close < dn2_gate and slopeShortOK_new and htfBear_locked and momShortOK) and (volume >= volSMA * volException))
 
 // NEW: base gate bundles (core)
 baseLongGates_core = readyForNew and gateDailyOK and gateSessOK and gateAtrOK and gateHTFLong and gateSlopeL and trendOkLong and cgOK and aboveVW and (not requireEMAMSideBase or aboveEMAM) and (not requireNearVWBase or nearAnyVWAP) and momLongOK and (not overLong) and clvLongOK
@@ -566,7 +566,6 @@ hvBoostFlush = input.float(1.15, "HIGH-VOL boost (Flush)", step=0.05, group=grpA
 // Keep original sf for A+; for Flush, apply hv boost only in regime==2
 _sfFlush = regime == 2 ? (sf * hvBoostFlush) : sf
 
-
 var float flushBaseTP = na
 var float flushBaseSL = na
 flushBaseTP := tpMode == "FixedTicks" ? flush_tp_ticks : f_clamp(math.round(atrTicks * flush_tp_atrK), flush_tp_min, flush_tp_max)
@@ -581,6 +580,19 @@ tpTicksFlush = math.round(f_clamp(flushBaseTP * _sfFlush, flush_tp_min, flush_tp
 slTicksFlush = math.round(f_clamp(flushBaseSL * _sfFlush, flush_sl_min, flush_sl_max))
 tpTicksAplus = math.round(f_clamp(aplusBaseTP * sf, aplus_tp_min, aplus_tp_max))
 slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
+
+// Preserve 1m baseline before any cross-TF overrides/wideners
+var float tpTicksFlush_1m = na
+var float slTicksFlush_1m = na
+tpTicksFlush_1m := tpTicksFlush
+slTicksFlush_1m := slTicksFlush
+
+// ======== Flush Override Policy (inputs only; declared early so cross-TF sync can read them) ========
+grpOv = "Flush Override Policy"
+ovMode = input.string("TP=min(1m,2m), SL:2m (gated)", "Flush override",
+     options=["None (pure 1m)","SL:2m, TP:1m (gated)","Both:2m (gated)","TP=min(1m,2m), SL:2m (gated)"],
+     group=grpOv)
+ovPersistBars = input.int(3, "Override needs N bars of stable regime", group=grpOv, minval=0)
 
 // ======== NEW: Cross-timeframe regime sync to auto-choose 1m Flush presets + HUD override note ========
 atrTicks_2m = request.security(syminfo.tickerid, "2", math.round(ta.atr(atrLen) / (syminfo.mintick == 0.0 ? 0.25 : syminfo.mintick)), lookahead=barmerge.lookahead_off)
@@ -607,11 +619,18 @@ slTicksFlush_2 = math.round(f_clamp(flushBaseSL_2 * sf_2, flush_sl_min, flush_sl
 
 isTF2 = timeframe.isminutes and timeframe.multiplier == 2
 use2mForFlush = isFlushChart and (regime_2 >= 1) and not isTF2
-tpTicksFlush := use2mForFlush ? tpTicksFlush_2 : tpTicksFlush
-slTicksFlush := use2mForFlush ? slTicksFlush_2 : slTicksFlush
 
-displayRegimeLabel = use2mForFlush ? (regimeLabel + " OVR→2m " + regimeLabel_2) : regimeLabel
-ovrSuffix = use2mForFlush ? " [OVR]" : ""
+// Apply legacy auto-sync only when policy is NOT "None (pure 1m)"
+// Only auto-sync early when user explicitly chose the full 2m policy.
+// All other policies are handled later by the gated override block.
+applyLegacy2m = use2mForFlush and (ovMode == "Both:2m (gated)")
+
+
+tpTicksFlush := applyLegacy2m ? tpTicksFlush_2 : tpTicksFlush
+slTicksFlush := applyLegacy2m ? slTicksFlush_2 : slTicksFlush
+
+displayRegimeLabel = applyLegacy2m ? (regimeLabel + " OVR→2m " + regimeLabel_2) : regimeLabel
+ovrSuffix = applyLegacy2m ? " [OVR]" : ""
 // ======== END cross-timeframe regime sync ========
 
 // --- Extreme regime (A+ only): widen smartly on truly wild tape
@@ -672,6 +691,64 @@ if extFTrigger
         _tpF := math.max(flush_tp_min, math.min(flTpCapExt, _tpF))
     slTicksFlush := _slF
     tpTicksFlush := _tpF
+
+// ======== Flush TP/SL override policy (after extreme wideners so we select finals) ========
+// (Inputs declared earlier; do not redeclare here)
+
+// stability of 2m regime
+regime2Stable = ta.barssince(regime_2 != regime_2[1]) > ovPersistBars
+// MTF slope agreement if enabled
+mtfStrong = (slopeMode == "MTF (All selected must agree)") ? (mtf_all_up or mtf_all_dn or useCurrentFallback) : true
+// Stretch detection (local calc to avoid ordering issues)
+ema34_now = ta.ema(close, 34)
+flushStretch_now = (close > ema34_now + atr * 2.0) or (close < ema34_now - atr * 2.0)
+// Allow override only on Flush role, trending/high-vol 2m regime, stable, and stretched
+allowOverride = isFlushChart and (regime_2 >= 1) and regime2Stable and mtfStrong and flushStretch_now
+
+// Build 1m & 2m candidates (1m baseline saved earlier; apply extreme flush widening if it triggered)
+tp1 = tpTicksFlush_1m
+sl1 = slTicksFlush_1m
+if extFTrigger
+    _sl1 = math.round(math.max(flush_sl_min, math.min(flSlCapExt, atrTicks * flush_sl_atrK)))
+    _tp1 = math.round(math.max(flush_tp_min, math.min(flTpCapExt, atrTicks * flush_tp_atrK)))
+    _sl1 := math.round(_sl1 * hvBoostFlush) + extFPadTicks
+    _sl1 := math.max(flush_sl_min, math.min(flSlCapExt, _sl1))
+    if extFForceOneToOne
+        _tp1 := _sl1
+    else
+        _tp1 := math.round(_tp1 * hvBoostFlush)
+        _tp1 := math.max(flush_tp_min, math.min(flTpCapExt, _tp1))
+    tp1 := _tp1
+    sl1 := _sl1
+
+tp2 = tpTicksFlush_2
+sl2 = slTicksFlush_2
+
+// Start from whatever is currently selected (after earlier logic)
+float tpF = tpTicksFlush
+float slF = slTicksFlush
+bool overrideApplied = false
+
+if ovMode == "SL:2m, TP:1m (gated)"
+    if allowOverride
+        slF := sl2
+        tpF := tp1
+        overrideApplied := true
+if ovMode == "Both:2m (gated)"
+    if allowOverride
+        slF := sl2
+        tpF := tp2
+        overrideApplied := true
+if ovMode == "TP=min(1m,2m), SL:2m (gated)"
+    if allowOverride
+        slF := sl2
+        tpF := math.min(tp1, tp2)
+        overrideApplied := true
+
+tpTicksFlush := math.round(tpF)
+slTicksFlush := math.round(slF)
+// Reflect actual override in HUD suffix (keeps prior [OVR] if cross-TF sync already flagged)
+ovrSuffix := (overrideApplied or (ovrSuffix == " [OVR]")) ? " [OVR]" : ""
 
 // --- Snap ATRx outputs to your ATM presets (optional)
 grpSnap = "ATM Preset Snap"
@@ -998,4 +1075,4 @@ if showChecklist and barstate.isnew
     r += 1
 
     // 7) ATR info
-    fRow(r, "ATR (ticks)", str.tostring(atrTicks) + (use2mForFlush ? " (OVR→2m " + regimeLabel_2 + ")" : ""), true)
+    fRow(r, "ATR (ticks)", str.tostring(atrTicks) + (applyLegacy2m ? " (OVR→2m " + regimeLabel_2 + ")" : ""), true)
