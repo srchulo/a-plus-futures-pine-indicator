@@ -562,6 +562,29 @@ slTicksFlush = math.round(f_clamp(flushBaseSL * sf, flush_sl_min, flush_sl_max))
 tpTicksAplus = math.round(f_clamp(aplusBaseTP * sf, aplus_tp_min, aplus_tp_max))
 slTicksAplus = math.round(f_clamp(aplusBaseSL * sf, aplus_sl_min, aplus_sl_max))
 
+// --- Snap ATRx outputs to your ATM presets (optional)
+grpSnap = "ATM Preset Snap"
+snapToPresets = input.bool(true, "Snap ATRx TP/SL to preset ladders", group=grpSnap)
+
+// Define allowed preset ladders (MNQ)
+var tpSetFlush = array.from(64, 72, 80, 96, 112, 120)
+var slSetFlush = array.from(48, 56, 64, 80, 96, 100)
+var tpSetAplus = array.from(140, 160, 180, 200, 220, 240, 260)
+var slSetAplus = array.from(120, 140, 160, 180, 200, 220)
+
+// Nearest helper
+f_nearest(val, arr) =>
+    var int best = array.get(arr, 0)
+    for i = 0 to array.size(arr) - 1
+        best := math.abs(val - array.get(arr, i)) < math.abs(best - val) ? array.get(arr, i) : best
+    best
+
+if snapToPresets
+    tpTicksFlush := f_nearest(tpTicksFlush, tpSetFlush)
+    slTicksFlush := f_nearest(slTicksFlush, slSetFlush)
+    tpTicksAplus := f_nearest(tpTicksAplus, tpSetAplus)
+    slTicksAplus := f_nearest(slTicksAplus, slSetAplus)
+
 // --- Position Sizing (auto contracts from $ risk target)
 grpPos = "Position Sizing"
 riskTargetUSD = input.float(750.0, "Target risk $ per trade", step=25.0, group=grpPos)
