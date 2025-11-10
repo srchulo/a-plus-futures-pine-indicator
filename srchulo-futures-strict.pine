@@ -16,6 +16,12 @@ tzCME = "America/Chicago"
 tzEurope = "Europe/London"
 tzProfile = profile == "RTH" ? tzRTH : profile == "ETH (Europe)" ? tzEurope : tzCME
 
+// --- A+ time cutoff (ET) ---
+aplusDisableET = input.session("1400-1600", "A+ disable window (ET)", group=grpProfile)
+// True when we're inside the cutoff window (i.e., after 2pm ET)
+aPlusBlocked = not na(time(timeframe.period, aplusDisableET, tzRTH))
+aPlusAllowed = not aPlusBlocked
+
 // ---------- Inputs
 grpTrend = "Trend / Filters"
 emaFastLen = input.int(8, "EMA Fast", group=grpTrend, minval=1)
@@ -183,7 +189,7 @@ showSetups = input.bool(true, "Plot setup arrows", group="Show / Alerts")
 enableAlerts = input.bool(true, "Enable confirmed entry alerts", group="Show / Alerts")
 showCountdown = input.bool(true, "Show bar-close countdown", group="Show / Alerts")
 showAPlusArrows = input.bool(true, "Show A+ entry arrows", group="Show / Alerts")
-autoHideAPlusOn1m = input.bool(false, "Auto-hide A+ arrows on 1m", group="Show / Alerts")
+autoHideAPlusOn1m = input.bool(false, "Auto-hide A+ entry alerts on 1m", group="Show / Alerts")
 suppressAlertsOn1m = input.bool(false, "Suppress A+ entry alerts on 1m", group="Show / Alerts")
 
 // === NEW: Chart Role (per-chart)
@@ -193,7 +199,8 @@ isAPlusChart = input.bool(false, "This chart is A+ (MTF)", group=grpRole)
 showFlushHUD = input.bool(true, "Show FLUSH rows in HUD", group=grpRole)
 showAPlusHUD = input.bool(true, "Show A+ rows in HUD", group=grpRole)
 
-showAPlusNow = showAPlusArrows and not (autoHideAPlusOn1m and isFlushChart)
+// (UPDATED) respect aPlusAllowed
+showAPlusNow = (showAPlusArrows and not (autoHideAPlusOn1m and isFlushChart)) and aPlusAllowed
 showSetupsNow = showSetups and not isFlushChart
 
 // ---------- Core series (moved up so atrTicks is defined before TP/SL)
@@ -513,6 +520,10 @@ baseShortSetup = finalize(baseShortSetup_raw)
 longConfirm = finalize(longConfirm_raw)
 shortConfirm = finalize(shortConfirm_raw)
 
+// (UPDATED) Hard-block A+ confirms after cutoff
+longConfirm := longConfirm and aPlusAllowed
+shortConfirm := shortConfirm and aPlusAllowed
+
 // ---------- Targets / Stops (HUD) — inputs only; logic below computes both
 grpTP = "Targets / Stops (HUD)"
 tpMode = input.string("ATRx", "TP Mode", options=["FixedTicks","ATRx"], group=grpTP)
@@ -624,7 +635,6 @@ use2mForFlush = isFlushChart and (regime_2 >= 1) and not isTF2
 // Only auto-sync early when user explicitly chose the full 2m policy.
 // All other policies are handled later by the gated override block.
 applyLegacy2m = use2mForFlush and (ovMode == "Both:2m (gated)")
-
 
 tpTicksFlush := applyLegacy2m ? tpTicksFlush_2 : tpTicksFlush
 slTicksFlush := applyLegacy2m ? slTicksFlush_2 : slTicksFlush
@@ -865,7 +875,8 @@ bgcolor(showAPlusNow and longConfirm ? color.new(color.lime, 85) : showAPlusNow 
 
 // Alerts (entries) — session-aware
 canAlert = not useSessionFilter or inTradeSess
-canAlertAPlus = canAlert and not (suppressAlertsOn1m and isFlushChart)
+// (UPDATED) respect aPlusAllowed
+canAlertAPlus = canAlert and not (suppressAlertsOn1m and isFlushChart) and aPlusAllowed
 alertcondition(enableAlerts and canAlertAPlus and longConfirm, title="A+ LONG ENTRY", message="A+ LONG entry fired")
 alertcondition(enableAlerts and canAlertAPlus and shortConfirm, title="A+ SHORT ENTRY", message="A+ SHORT entry fired")
 
@@ -958,7 +969,6 @@ if barstate.islast
         table.cell(hud, 0, hr, extBadge, text_color=color.white, bgcolor=color.new(color.purple, 30))
         hr += 1
     table.cell(hud, 0, hr, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
-
 
 // ========= Context Checklist (GO/NO-GO)
 grpCtx = "Context Checklist (GO/NO-GO)"

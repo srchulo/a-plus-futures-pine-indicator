@@ -28,6 +28,12 @@ tzCME    = "America/Chicago"
 tzEurope = "Europe/London"
 tzProfile = profile == "RTH" ? tzRTH : profile == "ETH (Europe)" ? tzEurope : tzCME
 
+// --- A+ time cutoff (ET) ---
+aplusDisableET = input.session("1400-1600", "A+ disable window (ET)", group=grpProfile)
+// True when we're inside the cutoff window (i.e., after 2pm ET)
+aPlusBlocked = not na(time(timeframe.period, aplusDisableET, tzRTH))
+aPlusAllowed = not aPlusBlocked
+
 // ---------- Inputs
 grpTrend = "Trend / Filters"
 emaFastLen = input.int(8, "EMA Fast", group=grpTrend, minval=1)
@@ -399,6 +405,10 @@ shortConfirm_raw = (useBreak ? (baseShortSetup and breakoutShortNow) : (baseShor
 finalize(b) => calcOnClose ? (barstate.isconfirmed ? b : false) : b
 longConfirm = finalize(longConfirm_raw)
 shortConfirm = finalize(shortConfirm_raw)
+
+// --- Hard-block A+ confirms after cutoff ---
+longConfirm := longConfirm and aPlusAllowed
+shortConfirm := shortConfirm and aPlusAllowed
 
 // Near-trigger heads-up
 pxBuf = nearTicks * safeMintick
