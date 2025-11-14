@@ -7,10 +7,10 @@ len1  = input.int(40,  "Fast EMA length")
 len2  = input.int(105, "Mid EMA length")      
 len3  = input.int(170, "Slow EMA length")      
 
-// Coefficients from regression on your exported Moxie
+// Coefficients from regression on your exported data
 coef_ce1  = input.float(0.274053,  "Coef: close - EMA1")
 coef_e1e2 = input.float(1.086218,  "Coef: EMA1 - EMA2")
-coef_e2e3 = input.float(-1.390540, "Coef: EMA2 - EMA3")
+coef_e2e3 = input.float(-1.390540, "Coef: EMA1 - EMA2")
 offset    = input.float(-0.125119, "Offset (intercept)")
 
 // Thresholds
@@ -27,27 +27,40 @@ c_e1  = src  - ema1
 e1_e2 = ema1 - ema2
 e2_e3 = ema2 - ema3
 
-// === Recreated Moxie ===
-moxie_raw = coef_ce1 * c_e1 + coef_e1e2 * e1_e2 + coef_e2e3 * e2_e3 + offset
+// === Oscillator reconstruction ===
+osc = coef_ce1 * c_e1 + coef_e1e2 * e1_e2 + coef_e2e3 * e2_e3 + offset
 
 // === State logic ===
-isStrongPos = moxie_raw >  strongThresh
-isStrongNeg = moxie_raw < -strongThresh
-isNeutral   = math.abs(moxie_raw) <= weakThresh
+isStrongPos = osc >  strongThresh
+isStrongNeg = osc < -strongThresh
+isNeutral   = math.abs(osc) <= weakThresh
 
-slopeUp   = moxie_raw > moxie_raw[1]
-slopeDown = moxie_raw < moxie_raw[1]
+slopeUp     = osc > osc[1]
+slopeDown   = osc < osc[1]
 
-// === Coloring ===
-col = isNeutral ? color.new(color.gray,40) :
-      isStrongPos ? (slopeUp?color.new(color.lime,0):color.new(color.green,0)) :
-      isStrongNeg ? (slopeDown?color.new(color.red,0):color.new(color.maroon,0)) :
-      (moxie_raw>0?color.new(color.green,40):color.new(color.red,40))
+// === Coloring (green up, red down, gray neutral) ===
+col = isNeutral ? color.new(color.gray, 40) :
+      slopeUp   ? color.new(color.lime, 0) :
+      slopeDown ? color.new(color.red, 0) :
+                  color.new(color.gray, 40)
 
-// === Plots (thicker lines added) ===
-plot(moxie_raw, color=col, linewidth=3, title="FlushMomentum")        // thicker line
-plot(0, color=color.new(color.white, 70), linewidth=2, title="Zero")  // thicker zero line
+// === Background fill for strong momentum ===
+bgCol = isStrongPos ? color.new(color.green, 85) : isStrongNeg ? color.new(color.red,   85) : na
+bgcolor(bgCol)
 
-// Optional strong-signal markers
-plotchar(isStrongPos and slopeUp,   "Strong Bullish Flush",  "▲", location=location.bottom, color=color.lime,  size=size.tiny)
-plotchar(isStrongNeg and slopeDown, "Strong Bearish Flush", "▼", location=location.top,    color=color.red,   size=size.tiny)
+// === Plots (thicker lines) ===
+plot(osc, color=col, linewidth=3, title="FlushMomentum")
+plot(0,   color=color.new(color.white, 70), linewidth=2, title="Zero")
+
+// === Strong-momentum shift signals ===
+// Trigger when we newly enter strong positive/negative territory.
+bullShift = isStrongPos and not isStrongPos[1] and slopeUp
+bearShift = isStrongNeg and not isStrongNeg[1] and slopeDown
+
+// Markers on the oscillator pane
+plotchar(bullShift, "Strong Bullish Momentum", "▲", location=location.bottom, color=color.lime, size=size.tiny)
+plotchar(bearShift, "Strong Bearish Momentum", "▼", location=location.top,    color=color.red,  size=size.tiny)
+
+// === Alerts ===
+alertcondition(bullShift, "Strong bullish momentum", "FlushMomentum: strong bullish momentum")
+alertcondition(bearShift, "Strong bearish momentum", "FlushMomentum: strong bearish momentum")
