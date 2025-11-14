@@ -1,36 +1,52 @@
 //@version=5
-indicator("Flush Momentum", shorttitle="MoxieR", overlay=false, max_bars_back=5000)
+indicator("Flush Momentum", shorttitle="Flush Momentum", overlay=false, max_bars_back=5000)
 
-// --- Inputs ---
+// === Inputs ===
 src   = input.source(close, "Source")
-len1  = input.int(40, "Fast EMA length")     // from your data
-len2  = input.int(105, "Mid EMA length")     // from your data
-len3  = input.int(171, "Slow EMA length")    // from your data
+len1  = input.int(40,  "Fast EMA length")      // recovered from your EMA1
+len2  = input.int(105, "Mid EMA length")       // EMA2
+len3  = input.int(170, "Slow EMA length")      // EMA3
 
-coef_ce1  = input.float(0.2741,  "Coef: close - EMA1")
-coef_e1e2 = input.float(1.0862,  "Coef: EMA1 - EMA2")
-coef_e2e3 = input.float(-1.3905, "Coef: EMA2 - EMA3")
-offset    = input.float(-0.1251, "Offset")
+// Coefficients from regression on your exported Moxie
+coef_ce1  = input.float(0.274053,  "Coef: close - EMA1")
+coef_e1e2 = input.float(1.086218,  "Coef: EMA1 - EMA2")
+coef_e2e3 = input.float(-1.390540, "Coef: EMA2 - EMA3")
+offset    = input.float(-0.125119, "Offset (intercept)")
 
-// --- Core EMAs ---
+// Thresholds for “strong” momentum vs noise
+strongThresh = input.float(8.0,  "Strong magnitude threshold", tooltip="|Flush| above this ≈ 98% sign match to real Flush")
+weakThresh   = input.float(3.0,  "Neutral zone half-width",   tooltip="Inside (-weak, +weak) treated as neutral")
+
+// === Core EMAs ===
 ema1  = ta.ema(src, len1)
 ema2  = ta.ema(src, len2)
 ema3  = ta.ema(src, len3)
 
-// --- Derived spreads ---
+// === Derived spreads ===
 c_e1  = src  - ema1
 e1_e2 = ema1 - ema2
 e2_e3 = ema2 - ema3
 
-// --- Recreated Moxie ---
-moxie = coef_ce1 * c_e1 + coef_e1e2 * e1_e2 + coef_e2e3 * e2_e3 + offset
+// === Recreated Moxie ===
+moxie_raw = coef_ce1 * c_e1 + coef_e1e2 * e1_e2 + coef_e2e3 * e2_e3 + offset
 
-// --- Coloring + zero line (Moxie-style feel) ---
-zero   = 0.0
-rising = moxie > moxie[1]
-above  = moxie >= zero
+// === State logic ===
+isStrongPos = moxie_raw >  strongThresh
+isStrongNeg = moxie_raw < -strongThresh
+isNeutral   = math.abs(moxie_raw) <= weakThresh
 
-col = above ? (rising ? color.new(color.lime, 0)  : color.new(color.green, 0)) : (rising ? color.new(color.orange, 0): color.new(color.red,   0))
+slopeUp   = moxie_raw > moxie_raw[1]
+slopeDown = moxie_raw < moxie_raw[1]
 
-plot(moxie, color=col, linewidth=2, title="MoxieR")
-plot(zero,  color=color.new(color.gray, 70), linewidth=1, title="Zero line")
+// === Coloring ===
+col = isNeutral ? color.new(color.gray,40) :
+      isStrongPos ? (slopeUp?color.new(color.lime,0):color.new(color.green,0)) :
+      isStrongNeg ? (slopeDown?color.new(color.red,0):color.new(color.maroon,0)) :
+      (moxie_raw>0?color.new(color.green,40):color.new(color.red,40))
+
+plot(moxie_raw, color=col, linewidth=2, title="MoxieClone v2")
+plot(0, color=color.new(color.white, 70), linewidth=1, title="Zero line")
+
+// Optional strong-signal markers
+plotchar(isStrongPos and slopeUp,   "Strong Bullish Flush",  "▲", location=location.bottom, color=color.lime,  size=size.tiny)
+plotchar(isStrongNeg and slopeDown, "Strong Bearish Flush", "▼", location=location.top,    color=color.red,   size=size.tiny)
