@@ -1,0 +1,36 @@
+//@version=5
+indicator("Flush Momentum", shorttitle="MoxieR", overlay=false, max_bars_back=5000)
+
+// --- Inputs ---
+src   = input.source(close, "Source")
+len1  = input.int(40, "Fast EMA length")     // from your data
+len2  = input.int(105, "Mid EMA length")     // from your data
+len3  = input.int(171, "Slow EMA length")    // from your data
+
+coef_ce1  = input.float(0.2741,  "Coef: close - EMA1")
+coef_e1e2 = input.float(1.0862,  "Coef: EMA1 - EMA2")
+coef_e2e3 = input.float(-1.3905, "Coef: EMA2 - EMA3")
+offset    = input.float(-0.1251, "Offset")
+
+// --- Core EMAs ---
+ema1  = ta.ema(src, len1)
+ema2  = ta.ema(src, len2)
+ema3  = ta.ema(src, len3)
+
+// --- Derived spreads ---
+c_e1  = src  - ema1
+e1_e2 = ema1 - ema2
+e2_e3 = ema2 - ema3
+
+// --- Recreated Moxie ---
+moxie = coef_ce1 * c_e1 + coef_e1e2 * e1_e2 + coef_e2e3 * e2_e3 + offset
+
+// --- Coloring + zero line (Moxie-style feel) ---
+zero   = 0.0
+rising = moxie > moxie[1]
+above  = moxie >= zero
+
+col = above ? (rising ? color.new(color.lime, 0)  : color.new(color.green, 0)) : (rising ? color.new(color.orange, 0): color.new(color.red,   0))
+
+plot(moxie, color=col, linewidth=2, title="MoxieR")
+plot(zero,  color=color.new(color.gray, 70), linewidth=1, title="Zero line")
