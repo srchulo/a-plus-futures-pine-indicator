@@ -1,11 +1,11 @@
 //@version=5
-indicator("Flush Momentum", shorttitle="Flush Momentum", overlay=false, max_bars_back=5000)
+indicator("Flush Momentum", shorttitle="FlushMomentum", overlay=false, max_bars_back=5000)
 
 // === Inputs ===
 src   = input.source(close, "Source")
-len1  = input.int(40,  "Fast EMA length")      // recovered from your EMA1
-len2  = input.int(105, "Mid EMA length")       // EMA2
-len3  = input.int(170, "Slow EMA length")      // EMA3
+len1  = input.int(40,  "Fast EMA length")     
+len2  = input.int(105, "Mid EMA length")      
+len3  = input.int(170, "Slow EMA length")      
 
 // Coefficients from regression on your exported Moxie
 coef_ce1  = input.float(0.274053,  "Coef: close - EMA1")
@@ -13,9 +13,9 @@ coef_e1e2 = input.float(1.086218,  "Coef: EMA1 - EMA2")
 coef_e2e3 = input.float(-1.390540, "Coef: EMA2 - EMA3")
 offset    = input.float(-0.125119, "Offset (intercept)")
 
-// Thresholds for “strong” momentum vs noise
-strongThresh = input.float(8.0,  "Strong magnitude threshold", tooltip="|Flush| above this ≈ 98% sign match to real Flush")
-weakThresh   = input.float(3.0,  "Neutral zone half-width",   tooltip="Inside (-weak, +weak) treated as neutral")
+// Thresholds
+strongThresh = input.float(8.0,  "Strong magnitude threshold")
+weakThresh   = input.float(3.0,  "Neutral zone half-width")
 
 // === Core EMAs ===
 ema1  = ta.ema(src, len1)
@@ -44,8 +44,9 @@ col = isNeutral ? color.new(color.gray,40) :
       isStrongNeg ? (slopeDown?color.new(color.red,0):color.new(color.maroon,0)) :
       (moxie_raw>0?color.new(color.green,40):color.new(color.red,40))
 
-plot(moxie_raw, color=col, linewidth=2, title="MoxieClone v2")
-plot(0, color=color.new(color.white, 70), linewidth=1, title="Zero line")
+// === Plots (thicker lines added) ===
+plot(moxie_raw, color=col, linewidth=3, title="FlushMomentum")        // thicker line
+plot(0, color=color.new(color.white, 70), linewidth=2, title="Zero")  // thicker zero line
 
 // Optional strong-signal markers
 plotchar(isStrongPos and slopeUp,   "Strong Bullish Flush",  "▲", location=location.bottom, color=color.lime,  size=size.tiny)
