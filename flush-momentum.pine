@@ -1,6 +1,11 @@
 //@version=5
 indicator("Flush Momentum", shorttitle="FlushMomentum", overlay=false, max_bars_back=5000)
 
+// FlushMomentum model params (KEEP IN SYNC IN BOTH SCRIPTS)
+// len1=40, len2=105, len3=170
+// a0=-0.016711, a1=0.050736, a2=0.049021, a3=-0.092770, k=0.913499
+// neutralBand / weakThresh = 3.0
+
 // === Inputs ===
 src   = input.source(close, "Source")
 len1  = input.int(40,  "Fast EMA length")
@@ -58,9 +63,7 @@ col = isNeutral ? color.new(color.gray, 40) :
 
 // === Background fill for sustained momentum trend ===
 // (uses trendUp/trendDown, not just single-bar strength)
-bgCol = trendUp   ? color.new(color.green, 85) :
-        trendDown ? color.new(color.red,   85) :
-        na
+bgCol = trendUp   ? color.new(color.green, 85) : trendDown ? color.new(color.red,   85) : na
 bgcolor(bgCol)
 
 // === Plots ===

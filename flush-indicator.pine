@@ -1,6 +1,11 @@
 //@version=5
 indicator("Flush Continuation", overlay=true, max_labels_count=500, max_lines_count=500)
 
+// FlushMomentum model params (KEEP IN SYNC IN BOTH SCRIPTS)
+// len1=40, len2=105, len3=170
+// a0=-0.016711, a1=0.050736, a2=0.049021, a3=-0.092770, k=0.913499
+// neutralBand / weakThresh = 3.0
+
 // ========== Helpers ==========
 slope(src, len) => (src - nz(src[len])) / len
 
