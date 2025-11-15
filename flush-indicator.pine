@@ -1,5 +1,5 @@
 //@version=5
-indicator("Flush",
+indicator("Flush Continuation",
      overlay=true, max_labels_count=500, max_lines_count=500)
 
 // ========== Helpers ==========
@@ -95,6 +95,16 @@ _showMOX   = showMOX or minimalMode
 _showEARLY = showEARLY or minimalMode
 _showEXIT  = showEXIT or minimalMode
 
+// --- Flush Momentum Filter (using recurrent oscillator)
+groupFM       = "Flush Momentum Filter"
+useFMFilter   = input.bool(true,  "Use FlushMomentum filter",                 group=groupFM)
+fmLookback    = input.int(5,      "Bars of dominant momentum required",       minval=1, group=groupFM)
+fmStrongThr   = input.float(8.0,  "Strong momentum threshold (|osc| ≥)",      group=groupFM)
+fmNeutralBand = input.float(3.0,  "Neutral band (|osc| ≤, treated as flat)",  group=groupFM)
+fmSharpMult   = input.float(1.0,  "Sharp turn multiplier on strong threshold", group=groupFM, tooltip="e.g. 1.0 → |osc| >= strongThr; 1.5 → require 1.5x strongThr for 'sharp' turns.")
+showFMPlots   = input.bool(false, "Debug: plot FlushMomentum & Moxie proxy",  group=groupFM)
+showFMDots    = input.bool(false,  "Show FM gate markers on chart",            group=groupFM)
+
 // ===== Logger — declare first; pure function returns next index
 var table t = na
 var int logIdx = 0
@@ -122,8 +132,52 @@ allowLabels = showAllHistory ? true : (na(_lastIdx) ? true : bar_index >= (_last
 tfMult = scaleEnabled and timeframe.isminutes ? (timeframe.multiplier * 1.0) / baselineTFmin : 1.0
 barsLateScaled  = math.max(1, math.round(barsLate * tfMult))
 pxBarsWinScaled = math.max(1, math.round(pxBarsWin * tfMult))
-// modest scaling for confirmation-like concepts (none in this version)
-// (if you later add crossConfirmBars / crossWindowBars, scale similarly)
+
+// ===== Recurrent FlushMomentum oscillator (local, no plots) =====
+srcFM  = close
+len1FM = 40
+len2FM = 105
+len3FM = 170
+
+// Coeffs from export (recurrent model)
+a0FM = -0.016711
+a1FM =  0.050736
+a2FM =  0.049021
+a3FM = -0.092770
+kFM  =  0.913499
+
+ema1FM = ta.ema(srcFM, len1FM)
+ema2FM = ta.ema(srcFM, len2FM)
+ema3FM = ta.ema(srcFM, len3FM)
+
+c_e1_FM  = srcFM  - ema1FM
+e1_e2_FM = ema1FM - ema2FM
+e2_e3_FM = ema2FM - ema3FM
+
+base_step_FM = a0FM + a1FM * c_e1_FM + a2FM * e1_e2_FM + a3FM * e2_e3_FM
+
+var float oscFM = na
+oscFM := na(oscFM[1]) ? base_step_FM : base_step_FM + kFM * oscFM[1]
+
+// Direction & strength states
+fmIsStrongPos = oscFM >  fmStrongThr
+fmIsStrongNeg = oscFM < -fmStrongThr
+fmIsNeutral   = math.abs(oscFM) <= fmNeutralBand
+fmSlopeUp     = oscFM > oscFM[1]
+fmSlopeDown   = oscFM < oscFM[1]
+
+// Trend quality over last N bars
+// Trend quality over last N bars (using SMA of 0/1 flags)
+fmTrendUp   = ta.sma(oscFM >  fmNeutralBand ? 1.0 : 0.0, fmLookback) >= 1.0
+fmTrendDown = ta.sma(oscFM < -fmNeutralBand ? 1.0 : 0.0, fmLookback) >= 1.0
+
+// Sharp turns
+fmSharpDown = fmSlopeDown and math.abs(oscFM) >= fmStrongThr * fmSharpMult
+fmSharpUp   = fmSlopeUp   and math.abs(oscFM) >= fmStrongThr * fmSharpMult
+
+// Final gates (if filter disabled, always true)
+fmGateShort = not useFMFilter or (not fmIsNeutral and (fmTrendDown or fmSharpDown))
+fmGateLong  = not useFMFilter or (not fmIsNeutral and (fmTrendUp   or fmSharpUp))
 
 // ========== Core series ==========
 ema8  = ta.ema(close, 8)
@@ -212,14 +266,22 @@ fcsUp -= (tooLateUp ? wTooLate : 0)
 fcsUp -= ((close >= bandP3up) and (high > bandP3up) and topWickPct > 0.60) ? wTouchWick : 0
 fcsUp -= bearDiv ? wDiv : 0
 
-// ===== Entry labels (respect toggles + allowLabels)
-if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDn >= entryThresh
+// ===== Entry labels (now gated by FlushMomentum)
+if allowLabels
+  and _showFCS
+  and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1))
+  and fcsDn >= entryThresh
+  and fmGateShort
     label.new(bar_index, high, "FCS↓: " + str.tostring(fcsDn), style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
-if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUp >= entryThresh
+
+if allowLabels
+  and _showFCS
+  and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1))
+  and fcsUp >= entryThresh
+  and fmGateLong
     label.new(bar_index, low,  "FCS↑: " + str.tostring(fcsUp), style=label.style_label_up,   textcolor=color.white, color=color.new(color.green, 0))
 
 // ===== Extreme detectors (PCX bottom for shorts, PCT top for longs)
-// scaled px window (with scaled ±offsets)
 offMinus = math.max(1, math.round(3 * tfMult))
 offPlus  = math.max(1, math.round(2 * tfMult))
 dynWin   = pxAdaptive
@@ -255,7 +317,7 @@ var bool inLong  = false
 var int  barsLong = 0
 var int  longMOX  = 0
 
-// MOX helpers — scale min-hold by timeframe (NEW)
+// MOX helpers — scale min-hold by timeframe (unchanged)
 getMinHoldShort() =>
     base = minHoldShortBase
     baseScaled = scaleEnabled ? math.round(base * tfMult) : base
@@ -266,8 +328,8 @@ getMinHoldLong() =>
     baseScaled = scaleEnabled ? math.round(base * tfMult) : base
     math.max(1, baseScaled)
 
-// Enter states
-if (barsSinceDown <= 2) and (fcsDn >= entryThresh)
+// Enter states (now also gated by FlushMomentum)
+if (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
     inShort  := true
     barsShort:= 0
     shortMOX := getMinHoldShort()
@@ -275,7 +337,7 @@ if (barsSinceDown <= 2) and (fcsDn >= entryThresh)
         label.new(bar_index, high, "MOX↓ set: " + str.tostring(shortMOX), style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
     logIdx := logDo("SHORT", "ENTRY", close, fcsDn, NAf, NAf, logIdx)
 
-if (barsSinceUp <= 2) and (fcsUp >= entryThresh)
+if (barsSinceUp <= 2) and (fcsUp >= entryThresh) and fmGateLong
     inLong  := true
     barsLong:= 0
     longMOX := getMinHoldLong()
@@ -318,7 +380,7 @@ if allowLabels and _showMOX and inShort and barsShort == shortMOX
 if allowLabels and _showMOX and inLong and barsLong == longMOX
     label.new(bar_index, high, "MOX↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.yellow, 0))
 
-// ===== EARLY EXIT (hardened) — unchanged
+// ===== EARLY EXIT (unchanged logic)
 tcsStrongDn   = tcsDown >= 3
 moxieStillDn  = slope(moxieProxy, 3) < 0 and moxieProxy < 0
 deepBelow2ATR = (ema21 - 2.0*atr) - close > 0.4*atr
@@ -385,7 +447,7 @@ if allowLabels and _showEARLY and inLong and earlyExitOkLong and not suppressEar
         inLong   := false
         barsLong := 0
 
-// ===== Final EXIT (confirmed) — unchanged thresholds
+// ===== Final EXIT (unchanged thresholds)
 exitShortAllowed = inShort and (barsShort >= shortMOX or tcsDown <= 1)
 exitShortCond =
       (close > ema8) or (close > vwapSess) or bullDiv
@@ -414,7 +476,7 @@ if inShort
 if inLong
     barsLong  += 1
 
-// ===== Simple on-chart logger (table) — ring buffer (no shifting) =====
+// ===== Simple on-chart logger (table) — ring buffer (no shifting)
 if logEnabled and na(t)
     t := table.new(position.top_right, 7, logRows + 1)
     table.cell(t, 0, 0, "Bar",   text_color=color.white, bgcolor=color.new(color.silver, 25))
@@ -435,4 +497,12 @@ plotshape(showHistoryShapes and (withinPostDn and pcx >= pxThresh), title="PCX m
           style=shape.circle, location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
 plotshape(showHistoryShapes and (withinPostUp and pct >= pxThresh), title="PCT mark",
           style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.orange, 0))
-          
+
+// ===== FlushMomentum debug: plots & FM gate dots =====
+plot(showFMPlots ? oscFM      : na, title="FlushMomentum osc",    color=color.new(color.orange, 0), linewidth=2)
+plot(showFMPlots ? moxieProxy : na, title="Moxie proxy (EMA close−34)", color=color.new(color.aqua, 0), linewidth=1)
+
+plotshape(showFMDots and fmGateShort, title="FM Gate Short", style=shape.circle,
+          location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
+plotshape(showFMDots and fmGateLong,  title="FM Gate Long",  style=shape.circle,
+          location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
