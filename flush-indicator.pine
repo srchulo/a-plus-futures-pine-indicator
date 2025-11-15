@@ -203,6 +203,49 @@ longCond  = longCondBase  and goodSlopeLong
 fmGateShort = not useFMFilter or shortCond
 fmGateLong  = not useFMFilter or longCond
 
+// --- FM Trade Readiness Markers ---
+showFMState = input.bool(true, "Show FM trade readiness markers", group=groupFM)
+
+// Current regime:  1 = long allowed, -1 = short allowed, 0 = neither
+currFmState =
+     fmGateLong  and not fmGateShort ?  1 :
+     fmGateShort and not fmGateLong  ? -1 :
+     0
+
+// Track state changes so we only mark transitions
+var int fmState = 0
+stateChanged = currFmState != fmState
+fmState := currFmState
+
+fmLongReady  = stateChanged and currFmState ==  1
+fmShortReady = stateChanged and currFmState == -1
+fmNoTrade    = stateChanged and currFmState ==  0
+
+// Markers on chart
+plotshape(showFMState and fmLongReady,
+          title="FM Long Ready",
+          style=shape.circle,
+          location=location.belowbar,
+          size=size.tiny,
+          color=color.new(color.lime, 0),
+          text="FM→L")
+
+plotshape(showFMState and fmShortReady,
+          title="FM Short Ready",
+          style=shape.circle,
+          location=location.abovebar,
+          size=size.tiny,
+          color=color.new(color.red, 0),
+          text="FM→S")
+
+plotshape(showFMState and fmNoTrade,
+          title="FM No-Trade",
+          style=shape.xcross,
+          location=location.bottom,
+          size=size.tiny,
+          color=color.new(color.gray, 50),
+          text="FM×")
+
 // ========== Core series ==========
 ema8  = ta.ema(close, 8)
 ema21 = ta.ema(close, 21)
