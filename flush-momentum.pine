@@ -1,0 +1,75 @@
+//@version=5
+indicator("Flush Momentum", shorttitle="FlushMomentum", overlay=false, max_bars_back=5000)
+
+// === Inputs ===
+src   = input.source(close, "Source")
+len1  = input.int(40,  "Fast EMA length")
+len2  = input.int(105, "Mid EMA length")
+len3  = input.int(170, "Slow EMA length")
+
+// Recurrent model coefficients (fit from your export)
+// osc_t ≈ a0 + a1*(close-EMA1)_t + a2*(EMA1-EMA2)_t + a3*(EMA2-EMA3)_t + k*osc_{t-1}
+a0 = input.float(-0.016711, "Bias")
+a1 = input.float( 0.050736, "Coef: close - EMA1")
+a2 = input.float( 0.049021, "Coef: EMA1 - EMA2")
+a3 = input.float(-0.092770, "Coef: EMA2 - EMA3")
+k  = input.float( 0.913499, "Recurrent weight")
+
+// Thresholds
+strongThresh = input.float(8.0,  "Strong magnitude threshold")
+weakThresh   = input.float(3.0,  "Neutral zone half-width")
+
+// === Core EMAs ===
+ema1 = ta.ema(src, len1)
+ema2 = ta.ema(src, len2)
+ema3 = ta.ema(src, len3)
+
+// === Derived spreads ===
+c_e1  = src  - ema1
+e1_e2 = ema1 - ema2
+e2_e3 = ema2 - ema3
+
+// === Recurrent oscillator ===
+// base (new info this bar)
+base_step = a0 + a1 * c_e1 + a2 * e1_e2 + a3 * e2_e3
+
+// osc_t = base_step + k * osc_{t-1}
+var float osc = na
+osc := na(osc[1]) ? base_step : base_step + k * osc[1]
+
+// === State logic ===
+isStrongPos = osc >  strongThresh
+isStrongNeg = osc < -strongThresh
+isNeutral   = math.abs(osc) <= weakThresh
+
+slopeUp     = osc > osc[1]
+slopeDown   = osc < osc[1]
+
+// === Coloring (green when rising, red when falling, gray neutral) ===
+col = isNeutral ? color.new(color.gray, 40) :
+      slopeUp   ? color.new(color.lime, 0)  :
+      slopeDown ? color.new(color.red, 0)   :
+                  color.new(color.gray, 40)
+
+// === Background fill for strong momentum ===
+bgCol = isStrongPos ? color.new(color.green, 85) : isStrongNeg ? color.new(color.red,   85) : na
+bgcolor(bgCol)
+
+// === Plots ===
+plot(osc, color=col, linewidth=3, title="FlushMomentum")
+plot(0,   color=color.new(color.white, 70), linewidth=2, title="Zero")
+
+// === Strong-momentum shift signals ===
+bullShift = isStrongPos and not isStrongPos[1] and slopeUp
+bearShift = isStrongNeg and not isStrongNeg[1] and slopeDown
+
+plotchar(bullShift, "Strong Bullish Momentum", "▲",
+         location=location.bottom, color=color.lime, size=size.tiny)
+plotchar(bearShift, "Strong Bearish Momentum", "▼",
+         location=location.top,    color=color.red,  size=size.tiny)
+
+// === Alerts ===
+alertcondition(bullShift, "Strong bullish momentum",
+               "FlushMomentum: strong bullish momentum")
+alertcondition(bearShift, "Strong bearish momentum",
+               "FlushMomentum: strong bearish momentum")
