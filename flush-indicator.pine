@@ -1,6 +1,5 @@
 //@version=5
-indicator("Flush Continuation",
-     overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("Flush Continuation", overlay=true, max_labels_count=500, max_lines_count=500)
 
 // ========== Helpers ==========
 slope(src, len) => (src - nz(src[len])) / len
@@ -98,12 +97,13 @@ _showEXIT  = showEXIT or minimalMode
 // --- Flush Momentum Filter (using recurrent oscillator)
 groupFM       = "Flush Momentum Filter"
 useFMFilter   = input.bool(true,  "Use FlushMomentum filter",                 group=groupFM)
-fmLookback    = input.int(5,      "Bars of dominant momentum required",       minval=1, group=groupFM)
-fmStrongThr   = input.float(8.0,  "Strong momentum threshold (|osc| ≥)",      group=groupFM)
-fmNeutralBand = input.float(3.0,  "Neutral band (|osc| ≤, treated as flat)",  group=groupFM)
-fmSharpMult   = input.float(1.0,  "Sharp turn multiplier on strong threshold", group=groupFM, tooltip="e.g. 1.0 → |osc| >= strongThr; 1.5 → require 1.5x strongThr for 'sharp' turns.")
+fmLookback    = input.int(10,      "Bars for FlushMomentum trend baseline",    minval=1, group=groupFM)
+fmNeutralBand = input.float(2.0,  "Neutral band (|osc| ≤, treated as flat)",  group=groupFM)
+fmTrendStrength = input.float(0.6, "Slope trend consistency (0–1)",           minval=0.34, maxval=1.0, step=0.01, group=groupFM)
+fmUseSignGate = input.bool(false, "Require FlushMomentum to be above/below zero", group=groupFM, tooltip="If ON: shorts require osc<0 and longs osc>0. If OFF: only slope trend + neutral band are used.")
+fmSharpMult   = input.float(1.0,  "Sharp turn multiplier on strong threshold", group=groupFM, tooltip="Currently not used; reserved for future tweaks.")
 showFMPlots   = input.bool(false, "Debug: plot FlushMomentum & Moxie proxy",  group=groupFM)
-showFMDots    = input.bool(false,  "Show FM gate markers on chart",            group=groupFM)
+showFMDots    = input.bool(false, "Show FM gate markers on chart",            group=groupFM)
 
 // ===== Logger — declare first; pure function returns next index
 var table t = na
@@ -159,25 +159,29 @@ base_step_FM = a0FM + a1FM * c_e1_FM + a2FM * e1_e2_FM + a3FM * e2_e3_FM
 var float oscFM = na
 oscFM := na(oscFM[1]) ? base_step_FM : base_step_FM + kFM * oscFM[1]
 
-// Direction & strength states
-fmIsStrongPos = oscFM >  fmStrongThr
-fmIsStrongNeg = oscFM < -fmStrongThr
-fmIsNeutral   = math.abs(oscFM) <= fmNeutralBand
-fmSlopeUp     = oscFM > oscFM[1]
-fmSlopeDown   = oscFM < oscFM[1]
+// Direction & neutral
+fmIsNeutral = math.abs(oscFM) <= fmNeutralBand
+fmSlopeUp   = oscFM > oscFM[1]
+fmSlopeDown = oscFM < oscFM[1]
 
-// Trend quality over last N bars
-// Trend quality over last N bars (using SMA of 0/1 flags)
-fmTrendUp   = ta.sma(oscFM >  fmNeutralBand ? 1.0 : 0.0, fmLookback) >= 1.0
-fmTrendDown = ta.sma(oscFM < -fmNeutralBand ? 1.0 : 0.0, fmLookback) >= 1.0
+// Baseline for “overall trend”
+fmBaseline = ta.sma(oscFM, fmLookback)
 
-// Sharp turns
-fmSharpDown = fmSlopeDown and math.abs(oscFM) >= fmStrongThr * fmSharpMult
-fmSharpUp   = fmSlopeUp   and math.abs(oscFM) >= fmStrongThr * fmSharpMult
+// Trend: current value vs baseline + slope
+fmTrendDown = fmSlopeDown and oscFM < fmBaseline
+fmTrendUp   = fmSlopeUp   and oscFM > fmBaseline
+
+// Base conditions: clear overall trend + not neutral
+baseShort = fmTrendDown and not fmIsNeutral
+baseLong  = fmTrendUp   and not fmIsNeutral
+
+// Optional sign gating: only when you want osc above/below zero to matter
+shortCond = fmUseSignGate ? (baseShort and oscFM < 0) : baseShort
+longCond  = fmUseSignGate ? (baseLong  and oscFM > 0) : baseLong
 
 // Final gates (if filter disabled, always true)
-fmGateShort = not useFMFilter or (not fmIsNeutral and (fmTrendDown or fmSharpDown))
-fmGateLong  = not useFMFilter or (not fmIsNeutral and (fmTrendUp   or fmSharpUp))
+fmGateShort = not useFMFilter or shortCond
+fmGateLong  = not useFMFilter or longCond
 
 // ========== Core series ==========
 ema8  = ta.ema(close, 8)
@@ -462,7 +466,7 @@ if allowLabels and _showEXIT and exitShortAllowed and exitShortCond
 exitLongAllowed = inLong and (barsLong >= longMOX or tcsUp <= 1)
 exitLongCond =
       (close < ema8) or (close < vwapSess) or bearDiv
-   or ((high > bandP3up) and ((close <= ema21 + 1.8*atr) or (close < low[1])))
+   or ((high > bandP3up) and ((close <= ema21 + 2.0*atr) or (close < low[1])))
    or (close < math.min(low[1], low[2])) or (fcsUp <= exitThresh) or (barsLong > holdBarsMax)
 if allowLabels and _showEXIT and exitLongAllowed and exitLongCond
     label.new(bar_index, high, "EXIT↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.lime, 0))
