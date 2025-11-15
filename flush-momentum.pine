@@ -3,32 +3,39 @@ indicator("Flush Momentum", shorttitle="FlushMomentum", overlay=false, max_bars_
 
 // === Inputs ===
 src   = input.source(close, "Source")
-len1  = input.int(40,  "Fast EMA length")     
-len2  = input.int(105, "Mid EMA length")      
-len3  = input.int(170, "Slow EMA length")      
+len1  = input.int(40,  "Fast EMA length")
+len2  = input.int(105, "Mid EMA length")
+len3  = input.int(170, "Slow EMA length")
 
-// Coefficients from regression on your exported data
-coef_ce1  = input.float(0.274053,  "Coef: close - EMA1")
-coef_e1e2 = input.float(1.086218,  "Coef: EMA1 - EMA2")
-coef_e2e3 = input.float(-1.390540, "Coef: EMA1 - EMA2")
-offset    = input.float(-0.125119, "Offset (intercept)")
+// Recurrent model coefficients (fit from your export)
+// osc_t ≈ a0 + a1*(close-EMA1)_t + a2*(EMA1-EMA2)_t + a3*(EMA2-EMA3)_t + k*osc_{t-1}
+a0 = input.float(-0.016711, "Bias")
+a1 = input.float( 0.050736, "Coef: close - EMA1")
+a2 = input.float( 0.049021, "Coef: EMA1 - EMA2")
+a3 = input.float(-0.092770, "Coef: EMA2 - EMA3")
+k  = input.float( 0.913499, "Recurrent weight")
 
 // Thresholds
 strongThresh = input.float(8.0,  "Strong magnitude threshold")
 weakThresh   = input.float(3.0,  "Neutral zone half-width")
 
 // === Core EMAs ===
-ema1  = ta.ema(src, len1)
-ema2  = ta.ema(src, len2)
-ema3  = ta.ema(src, len3)
+ema1 = ta.ema(src, len1)
+ema2 = ta.ema(src, len2)
+ema3 = ta.ema(src, len3)
 
 // === Derived spreads ===
 c_e1  = src  - ema1
 e1_e2 = ema1 - ema2
 e2_e3 = ema2 - ema3
 
-// === Oscillator reconstruction ===
-osc = coef_ce1 * c_e1 + coef_e1e2 * e1_e2 + coef_e2e3 * e2_e3 + offset
+// === Recurrent oscillator ===
+// base (new info this bar)
+base_step = a0 + a1 * c_e1 + a2 * e1_e2 + a3 * e2_e3
+
+// osc_t = base_step + k * osc_{t-1}
+var float osc = na
+osc := na(osc[1]) ? base_step : base_step + k * osc[1]
 
 // === State logic ===
 isStrongPos = osc >  strongThresh
@@ -38,29 +45,31 @@ isNeutral   = math.abs(osc) <= weakThresh
 slopeUp     = osc > osc[1]
 slopeDown   = osc < osc[1]
 
-// === Coloring (green up, red down, gray neutral) ===
+// === Coloring (green when rising, red when falling, gray neutral) ===
 col = isNeutral ? color.new(color.gray, 40) :
-      slopeUp   ? color.new(color.lime, 0) :
-      slopeDown ? color.new(color.red, 0) :
+      slopeUp   ? color.new(color.lime, 0)  :
+      slopeDown ? color.new(color.red, 0)   :
                   color.new(color.gray, 40)
 
 // === Background fill for strong momentum ===
 bgCol = isStrongPos ? color.new(color.green, 85) : isStrongNeg ? color.new(color.red,   85) : na
 bgcolor(bgCol)
 
-// === Plots (thicker lines) ===
+// === Plots ===
 plot(osc, color=col, linewidth=3, title="FlushMomentum")
 plot(0,   color=color.new(color.white, 70), linewidth=2, title="Zero")
 
 // === Strong-momentum shift signals ===
-// Trigger when we newly enter strong positive/negative territory.
 bullShift = isStrongPos and not isStrongPos[1] and slopeUp
 bearShift = isStrongNeg and not isStrongNeg[1] and slopeDown
 
-// Markers on the oscillator pane
-plotchar(bullShift, "Strong Bullish Momentum", "▲", location=location.bottom, color=color.lime, size=size.tiny)
-plotchar(bearShift, "Strong Bearish Momentum", "▼", location=location.top,    color=color.red,  size=size.tiny)
+plotchar(bullShift, "Strong Bullish Momentum", "▲",
+         location=location.bottom, color=color.lime, size=size.tiny)
+plotchar(bearShift, "Strong Bearish Momentum", "▼",
+         location=location.top,    color=color.red,  size=size.tiny)
 
 // === Alerts ===
-alertcondition(bullShift, "Strong bullish momentum", "FlushMomentum: strong bullish momentum")
-alertcondition(bearShift, "Strong bearish momentum", "FlushMomentum: strong bearish momentum")
+alertcondition(bullShift, "Strong bullish momentum",
+               "FlushMomentum: strong bullish momentum")
+alertcondition(bearShift, "Strong bearish momentum",
+               "FlushMomentum: strong bearish momentum")
