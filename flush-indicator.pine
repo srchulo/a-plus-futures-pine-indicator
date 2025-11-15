@@ -1,5 +1,5 @@
 //@version=5
-indicator("Flush Continuation + Exit (Moxie 0-cross — both sides, profit-optimized + MOX)",
+indicator("Flush",
      overlay=true, max_labels_count=500, max_lines_count=500)
 
 // ========== Helpers ==========
@@ -435,3 +435,4 @@ plotshape(showHistoryShapes and (withinPostDn and pcx >= pxThresh), title="PCX m
           style=shape.circle, location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
 plotshape(showHistoryShapes and (withinPostUp and pct >= pxThresh), title="PCT mark",
           style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.orange, 0))
+          
