@@ -16,8 +16,9 @@ a3 = input.float(-0.092770, "Coef: EMA2 - EMA3")
 k  = input.float( 0.913499, "Recurrent weight")
 
 // Thresholds
-strongThresh = input.float(8.0,  "Strong magnitude threshold")
-weakThresh   = input.float(3.0,  "Neutral zone half-width")
+strongThresh   = input.float(8.0,  "Strong magnitude threshold")
+weakThresh     = input.float(3.0,  "Neutral zone half-width")
+trendLookback  = input.int(5,      "Trend lookback (bars)", minval=1)
 
 // === Core EMAs ===
 ema1 = ta.ema(src, len1)
@@ -42,8 +43,12 @@ isStrongPos = osc >  strongThresh
 isStrongNeg = osc < -strongThresh
 isNeutral   = math.abs(osc) <= weakThresh
 
-slopeUp     = osc > osc[1]
-slopeDown   = osc < osc[1]
+slopeUp   = osc > osc[1]
+slopeDown = osc < osc[1]
+
+// Trend quality over last N bars (same idea as fmTrendUp/Down)
+trendUp   = ta.sma(osc >  weakThresh ? 1.0 : 0.0, trendLookback) >= 1.0
+trendDown = ta.sma(osc < -weakThresh ? 1.0 : 0.0, trendLookback) >= 1.0
 
 // === Coloring (green when rising, red when falling, gray neutral) ===
 col = isNeutral ? color.new(color.gray, 40) :
@@ -51,8 +56,11 @@ col = isNeutral ? color.new(color.gray, 40) :
       slopeDown ? color.new(color.red, 0)   :
                   color.new(color.gray, 40)
 
-// === Background fill for strong momentum ===
-bgCol = isStrongPos ? color.new(color.green, 85) : isStrongNeg ? color.new(color.red,   85) : na
+// === Background fill for sustained momentum trend ===
+// (uses trendUp/trendDown, not just single-bar strength)
+bgCol = trendUp   ? color.new(color.green, 85) :
+        trendDown ? color.new(color.red,   85) :
+        na
 bgcolor(bgCol)
 
 // === Plots ===
@@ -60,6 +68,7 @@ plot(osc, color=col, linewidth=3, title="FlushMomentum")
 plot(0,   color=color.new(color.white, 70), linewidth=2, title="Zero")
 
 // === Strong-momentum shift signals ===
+// (still based on strongThresh so you can see when strong zones begin)
 bullShift = isStrongPos and not isStrongPos[1] and slopeUp
 bearShift = isStrongNeg and not isStrongNeg[1] and slopeDown
 
