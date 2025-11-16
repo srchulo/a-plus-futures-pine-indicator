@@ -132,7 +132,7 @@ pxBarsWinScaled = math.max(1, math.round(pxBarsWin * tfMult))
 // --- Flush Momentum Filter (using recurrent oscillator)
 groupFM       = "Flush Momentum Filter"
 useFMFilter   = input.bool(true,  "Use FlushMomentum filter",                 group=groupFM)
-fmLookback    = input.int(6,      "Bars for FlushMomentum trend baseline",    minval=1, group=groupFM)
+fmLookback    = input.int(7,      "Bars for FlushMomentum trend baseline",    minval=1, group=groupFM)
 fmNeutralBand = input.float(3.0,  "Neutral band (|osc| ≤, treated as flat)",  group=groupFM)
 fmTrendStrength = input.float(0.35, "History trend fraction (0–1)",           minval=0.34, maxval=1.0, step=0.01, group=groupFM)
 fmUseSignGate = input.bool(false, "Require FlushMomentum to be above/below zero", group=groupFM, tooltip="If ON: shorts require osc<0 and longs osc>0. If OFF: use only trend + neutral band.")
