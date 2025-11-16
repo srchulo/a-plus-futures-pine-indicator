@@ -1,9 +1,3 @@
-Here is a **clean, professional, and accurate README.md** that fully explains your repo, the scripts, the architecture, how they interrelate, and the purpose of each file.
-
-You can copy/paste this directly into your GitHub repo.
-
----
-
 # 📈 **srchulo Trading Indicators Repository**
 
 This repository contains the full suite of custom Pine Script indicators powering the **A+ Flush System**, **Momentum Engine**, and **Srchulo Futures Framework**.
