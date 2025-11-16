@@ -21,7 +21,7 @@ The core logic is centralized around the **Flush Momentum state engine**, which 
 
 ## 📁 **Repository Structure**
 
-### **`flush-indicator.pine`**
+### **`flush-continuation.pine`**
 
 > **Primary A+ Flush System**
 > This is the main indicator used in live trading.
