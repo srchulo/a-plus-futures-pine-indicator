@@ -132,11 +132,12 @@ pxBarsWinScaled = math.max(1, math.round(pxBarsWin * tfMult))
 // --- Flush Momentum Filter (using recurrent oscillator)
 groupFM       = "Flush Momentum Filter"
 useFMFilter   = input.bool(true,  "Use FlushMomentum filter",                 group=groupFM)
-fmLookback    = input.int(10,      "Bars for FlushMomentum trend baseline",    minval=1, group=groupFM)
+fmLookback    = input.int(10,     "Bars for FlushMomentum trend baseline",    minval=1, group=groupFM)
 fmNeutralBand = input.float(3.0,  "Neutral band (|osc| ≤, treated as flat)",  group=groupFM)
 fmTrendStrength = input.float(0.55, "History trend fraction (0–1)",           minval=0.34, maxval=1.0, step=0.01, group=groupFM)
 fmUseSignGate = input.bool(false, "Require FlushMomentum to be above/below zero", group=groupFM, tooltip="If ON: shorts require osc<0 and longs osc>0. If OFF: use only trend + neutral band.")
 fmSharpMult   = input.float(1.0,  "Sharp turn multiplier on strong threshold", group=groupFM, tooltip="Reserved for future tweaks.")
+minFmStateBars = input.int(1, "Min bars FM state must persist", minval=0, group=groupFM)
 showFMPlots   = input.bool(false, "Debug: plot FlushMomentum & Moxie proxy",  group=groupFM)
 showFMDots    = input.bool(false, "Show FM gate markers on chart",            group=groupFM)
 
@@ -201,23 +202,31 @@ longCondBase  = fmUseSignGate ? (baseLong  and oscFM > 0) : baseLong
 shortCond = shortCondBase and goodSlopeShort
 longCond  = longCondBase  and goodSlopeLong
 
-// Final gates (if filter disabled, always true)
-fmGateShort = not useFMFilter or shortCond
-fmGateLong  = not useFMFilter or longCond
+// Raw FM gates (no age restriction yet)
+fmGateShortRaw = not useFMFilter or shortCond
+fmGateLongRaw  = not useFMFilter or longCond
 
 // --- FM Trade Readiness Markers ---
 showFMState = input.bool(true, "Show FM trade readiness markers", group=groupFM)
 
 // Current regime:  1 = long allowed, -1 = short allowed, 0 = neither
 currFmState =
-     fmGateLong  and not fmGateShort ?  1 :
-     fmGateShort and not fmGateLong  ? -1 :
+     fmGateLongRaw  and not fmGateShortRaw ?  1 :
+     fmGateShortRaw and not fmGateLongRaw  ? -1 :
      0
 
 // Track state changes so we only mark transitions
 var int fmState = 0
 stateChanged = currFmState != fmState
 fmState := currFmState
+
+// Track how long we've been in the current FM state
+var int fmStateAge = 0
+fmStateAge := stateChanged ? 0 : fmStateAge + 1
+
+// Final gates (require FM state to be "mature" for at least minFmStateBars)
+fmGateShort = not useFMFilter or (shortCond and fmState == -1 and fmStateAge >= minFmStateBars)
+fmGateLong  = not useFMFilter or (longCond  and fmState ==  1 and fmStateAge >= minFmStateBars)
 
 fmLongReady  = stateChanged and currFmState ==  1
 fmShortReady = stateChanged and currFmState == -1
@@ -335,7 +344,7 @@ fcsUp -= (tooLateUp ? wTooLate : 0)
 fcsUp -= ((close >= bandP3up) and (high > bandP3up) and topWickPct > 0.60) ? wTouchWick : 0
 fcsUp -= bearDiv ? wDiv : 0
 
-// ===== Entry labels (now gated by FlushMomentum)
+// ===== Entry labels (now gated by FINAL FlushMomentum gate)
 if allowLabels
   and _showFCS
   and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1))
@@ -397,7 +406,7 @@ getMinHoldLong() =>
     baseScaled = scaleEnabled ? math.round(base * tfMult) : base
     math.max(1, baseScaled)
 
-// Enter states (now also gated by FlushMomentum)
+// Enter states (now also gated by FINAL FlushMomentum gate)
 if (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
     inShort  := true
     barsShort:= 0
