@@ -191,6 +191,7 @@ showCountdown = input.bool(true, "Show bar-close countdown", group="Show / Alert
 showAPlusArrows = input.bool(true, "Show A+ entry arrows", group="Show / Alerts")
 autoHideAPlusOn1m = input.bool(false, "Auto-hide A+ entry alerts on 1m", group="Show / Alerts")
 suppressAlertsOn1m = input.bool(false, "Suppress A+ entry alerts on 1m", group="Show / Alerts")
+showHudPanel = input.bool(true, "Show TP/SL HUD panel", group="Show / Alerts")
 
 // === NEW: Chart Role (per-chart)
 grpRole = "Chart Role (per-chart)"
@@ -923,7 +924,8 @@ txtAPlusSize = _showAPlusHUD ? ("A+ size: " + (na(sizeAplus) ? "—" : str.tostr
 
 var table hud = na
 var int _hudRows = 0
-if barstate.islast
+
+if showHudPanel and barstate.islast
     // compute needed rows
     hudFlushRows = _showFlushHUD ? 3 : 0
     hudAplusRows = _showAPlusHUD ? 3 : 0
@@ -931,17 +933,14 @@ if barstate.islast
     hudAlwaysRows = 3 + (extBadgeFlush != "" ? 1 : 0) + (extBadge != "" ? 1 : 0)
     hudNeed = hudFlushRows + hudAplusRows + hudAlwaysRows
     hudNeed := math.max(1, hudNeed)
-
     // rebuild table if size changed or not created yet
     if na(hud) or (_hudRows != hudNeed)
         if not na(hud)
             table.delete(hud)
         hud := table.new(position.top_right, 1, hudNeed, border_width=1)
         _hudRows := hudNeed
-
     // write packed rows
     int hr = 0
-
     if _showFlushHUD
         table.cell(hud, 0, hr, "FLUSH TP/SL" + ovrSuffix + ": " + str.tostring(tpTicksFlush) + "/" + str.tostring(slTicksFlush), text_color=color.white, bgcolor=color.new(color.black, 0))
         hr += 1
@@ -949,7 +948,6 @@ if barstate.islast
         hr += 1
         table.cell(hud, 0, hr, "FLUSH size: " + (na(sizeFlush) ? "—" : str.tostring(sizeFlush)) + " | Risk≈$" + (na(slUSD_Flush) ? "—" : str.tostring(slUSD_Flush, format.mintick)) + " | TP≈$" + (na(tpUSD_Flush) ? "—" : str.tostring(tpUSD_Flush, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
         hr += 1
-
     if _showAPlusHUD
         table.cell(hud, 0, hr, "A+ TP/SL: " + str.tostring(tpTicksAplus) + "/" + str.tostring(slTicksAplus), text_color=color.white, bgcolor=color.new(color.black, 0))
         hr += 1
@@ -957,7 +955,6 @@ if barstate.islast
         hr += 1
         table.cell(hud, 0, hr, "A+ size: " + (na(sizeAplus) ? "—" : str.tostring(sizeAplus)) + " | Risk≈$" + (na(slUSD_Aplus) ? "—" : str.tostring(slUSD_Aplus, format.mintick)) + " | TP≈$" + (na(tpUSD_Aplus) ? "—" : str.tostring(tpUSD_Aplus, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
         hr += 1
-
     table.cell(hud, 0, hr, "TP now: " + str.tostring(tpTicksNow) + " | SL now: " + str.tostring(slTicksNow), text_color=color.white, bgcolor=color.new(color.black, 0))
     hr += 1
     table.cell(hud, 0, hr, "Regime: " + displayRegimeLabel, text_color=color.white, bgcolor=color.new(color.black, 0))
@@ -969,6 +966,12 @@ if barstate.islast
         table.cell(hud, 0, hr, extBadge, text_color=color.white, bgcolor=color.new(color.purple, 30))
         hr += 1
     table.cell(hud, 0, hr, "Anchor OK: " + txtAnchor, text_color=color.white, bgcolor=anchorOK_today ? color.new(color.teal, 70) : color.new(color.red, 70))
+
+else
+    if not showHudPanel and not na(hud)
+        table.delete(hud)
+        hud := na
+        _hudRows := 0
 
 // ========= Context Checklist (GO/NO-GO)
 grpCtx = "Context Checklist (GO/NO-GO)"
