@@ -73,6 +73,22 @@ groupScale = "Timeframe Scaling"
 baselineTFmin = input.int(3, "Baseline timeframe (minutes)", minval=1, group=groupScale)  // tuned on 3m
 scaleEnabled  = input.bool(true, "Auto-scale bar-based settings by timeframe", group=groupScale)
 
+// --- TP/SL Advisor (ATR-regime-based, in POINTS)
+groupTPSL = "TP/SL Advisor"
+tpAdvisorEnabled   = input.bool(true,  "Enable TP/SL advisor", group=groupTPSL)
+tpAtrTF            = input.string("3", "TP/SL ATR timeframe (min)", group=groupTPSL)
+atrBaselineLen     = input.int(200,    "ATR baseline length (bars)", minval=20, group=groupTPSL)
+lowVolThreshold    = input.float(0.80, "Low vol: ATR / baseline <",  step=0.05, group=groupTPSL)
+highVolThreshold   = input.float(1.20, "High vol: ATR / baseline >=", step=0.05, group=groupTPSL)
+
+// Recommended TP/SL in POINTS for each regime
+pointsLowVol       = input.float(15.0, "Low vol TP/SL (points)",    step=0.25, group=groupTPSL)
+pointsNormalVol    = input.float(30.0, "Normal vol TP/SL (points)", step=0.25, group=groupTPSL)
+pointsHighVol      = input.float(50.0, "High vol TP/SL (points)",   step=0.25, group=groupTPSL)
+
+showTPSLOnLabels   = input.bool(false, "Show TP/SL suggestion on FCS labels", group=groupTPSL)
+showTPSLHud        = input.bool(true, "Show TP/SL HUD (corner table)",       group=groupTPSL)
+
 // --- Display & Logger
 groupDisp = "Display"
 minimalMode   = input.bool(false, "Minimal mode (show only MOX / EARLY / EXIT)", group=groupDisp)
@@ -85,8 +101,7 @@ showEXIT      = input.bool(true,  "Show EXIT labels", group=groupDisp)
 
 // Label rendering window + thin markers
 labelLookbackBars = input.int(50000, "Label lookback (bars)", minval=100, group=groupDisp)
-showAllHistory    = input.bool(false, "Show labels on full history", group=groupDisp,
-     tooltip="ON draws labels across all available bars (uses label budget faster). OFF limits to recent window.")
+showAllHistory    = input.bool(false, "Show labels on full history", group=groupDisp, tooltip="ON draws labels across all available bars (uses label budget faster). OFF limits to recent window.")
 showHistoryShapes = input.bool(true, "Show thin historical markers", group=groupDisp)
 
 groupLog = "Event Logger"
@@ -105,8 +120,8 @@ logDo(string _side, string _event, float _price, float _fcs, float _pxx, float _
         table.cell(t, 1, row, _side)
         table.cell(t, 2, row, _event)
         table.cell(t, 3, row, str.tostring(_price, format.mintick))
-        table.cell(t, 4, row, na(_fcs)     ? "" : str.tostring(_fcs))
-        table.cell(t, 5, row, na(_pxx)     ? "" : str.tostring(_pxx))
+        table.cell(t, 4, row, na(_fcs) ? "" : str.tostring(_fcs))
+        table.cell(t, 5, row, na(_pxx) ? "" : str.tostring(_pxx))
         table.cell(t, 6, row, na(_tcs_rss) ? "" : str.tostring(_tcs_rss))
     _idx + 1
 
@@ -131,15 +146,15 @@ pxBarsWinScaled = math.max(1, math.round(pxBarsWin * tfMult))
 
 // --- Flush Momentum Filter (using recurrent oscillator)
 groupFM       = "Flush Momentum Filter"
-useFMFilter   = input.bool(false,  "Use FlushMomentum filter",                 group=groupFM)
-fmLookback    = input.int(10,     "Bars for FlushMomentum trend baseline",    minval=1, group=groupFM)
-fmNeutralBand = input.float(3.0,  "Neutral band (|osc| ≤, treated as flat)",  group=groupFM)
-fmTrendStrength = input.float(0.55, "History trend fraction (0–1)",           minval=0.34, maxval=1.0, step=0.01, group=groupFM)
+useFMFilter   = input.bool(false,  "Use FlushMomentum filter", group=groupFM)
+fmLookback    = input.int(10,     "Bars for FlushMomentum trend baseline", minval=1, group=groupFM)
+fmNeutralBand = input.float(3.0,  "Neutral band (|osc| ≤, treated as flat)", group=groupFM)
+fmTrendStrength = input.float(0.55, "History trend fraction (0–1)", minval=0.34, maxval=1.0, step=0.01, group=groupFM)
 fmUseSignGate = input.bool(false, "Require FlushMomentum to be above/below zero", group=groupFM, tooltip="If ON: shorts require osc<0 and longs osc>0. If OFF: use only trend + neutral band.")
 fmSharpMult   = input.float(1.0,  "Sharp turn multiplier on strong threshold", group=groupFM, tooltip="Reserved for future tweaks.")
 minFmStateBars = input.int(1, "Min bars FM state must persist", minval=0, group=groupFM)
-showFMPlots   = input.bool(false, "Debug: plot FlushMomentum & Moxie proxy",  group=groupFM)
-showFMDots    = input.bool(false, "Show FM gate markers on chart",            group=groupFM)
+showFMPlots   = input.bool(false, "Debug: plot FlushMomentum & Moxie proxy", group=groupFM)
+showFMDots    = input.bool(false, "Show FM gate markers on chart", group=groupFM)
 
 // ===== Recurrent FlushMomentum oscillator (local, no plots) =====
 srcFM  = close
@@ -233,29 +248,9 @@ fmShortReady = stateChanged and currFmState == -1
 fmNoTrade    = stateChanged and currFmState ==  0
 
 // Markers on chart
-plotshape(showFMState and fmLongReady,
-          title="FM Long Ready",
-          style=shape.circle,
-          location=location.belowbar,
-          size=size.tiny,
-          color=color.new(color.lime, 0),
-          text="FM→L")
-
-plotshape(showFMState and fmShortReady,
-          title="FM Short Ready",
-          style=shape.circle,
-          location=location.abovebar,
-          size=size.tiny,
-          color=color.new(color.red, 0),
-          text="FM→S")
-
-plotshape(showFMState and fmNoTrade,
-          title="FM No-Trade",
-          style=shape.xcross,
-          location=location.bottom,
-          size=size.tiny,
-          color=color.new(color.gray, 50),
-          text="FM×")
+plotshape(showFMState and fmLongReady, title="FM Long Ready", style=shape.circle, location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0), text="FM→L")
+plotshape(showFMState and fmShortReady, title="FM Short Ready", style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0), text="FM→S")
+plotshape(showFMState and fmNoTrade, title="FM No-Trade", style=shape.xcross, location=location.bottom, size=size.tiny, color=color.new(color.gray, 50), text="FM×")
 
 // ========== Core series ==========
 ema8  = ta.ema(close, 8)
@@ -273,6 +268,28 @@ expandUp = (ema8 - ema21) > nz((ema8 - ema21)[1]) and (ema21 - ema34) > nz((ema2
 vwapSess  = ta.vwap(close)
 atr       = ta.atr(atrLen)
 atrMed    = ta.sma(atr, 200)
+
+// ===== ATR regime & TP/SL recommendation (POINTS, fixed TF) =====
+atrHTF         = request.security(syminfo.tickerid, tpAtrTF, ta.atr(atrLen))
+atrBaselineHTF = request.security(syminfo.tickerid, tpAtrTF, ta.sma(ta.atr(atrLen), atrBaselineLen))
+atrRatio       = atrBaselineHTF > 0 ? atrHTF / atrBaselineHTF : 1.0
+
+// 0 = low, 1 = normal, 2 = high
+volRegime =
+     not tpAdvisorEnabled ? 1 :
+     atrRatio < lowVolThreshold  ? 0 :
+     atrRatio > highVolThreshold ? 2 :
+     1
+
+recPoints =
+     volRegime == 0 ? pointsLowVol :
+     volRegime == 2 ? pointsHighVol :
+                      pointsNormalVol
+
+volRegimeLabel =
+     volRegime == 0 ? "Low" :
+     volRegime == 2 ? "High" :
+                      "Normal"
 
 bandN3dn  = ema21 - 3.0 * atr     // −3 ATR
 bandN2_5dn= ema21 - 2.5 * atr
@@ -344,27 +361,17 @@ fcsUp -= (tooLateUp ? wTooLate : 0)
 fcsUp -= ((close >= bandP3up) and (high > bandP3up) and topWickPct > 0.60) ? wTouchWick : 0
 fcsUp -= bearDiv ? wDiv : 0
 
-// ===== Entry labels (now gated by FINAL FlushMomentum gate)
-if allowLabels
-  and _showFCS
-  and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1))
-  and fcsDn >= entryThresh
-  and fmGateShort
+// ===== Entry labels (FCS only; TP/SL is in HUD table)
+if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDn >= entryThresh and fmGateShort
     label.new(bar_index, high, "FCS↓: " + str.tostring(fcsDn), style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
 
-if allowLabels
-  and _showFCS
-  and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1))
-  and fcsUp >= entryThresh
-  and fmGateLong
-    label.new(bar_index, low,  "FCS↑: " + str.tostring(fcsUp), style=label.style_label_up,   textcolor=color.white, color=color.new(color.green, 0))
+if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUp >= entryThresh and fmGateLong
+    label.new(bar_index, low, "FCS↑: " + str.tostring(fcsUp), style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
 
 // ===== Extreme detectors (PCX bottom for shorts, PCT top for longs)
 offMinus = math.max(1, math.round(3 * tfMult))
 offPlus  = math.max(1, math.round(2 * tfMult))
-dynWin   = pxAdaptive
-     ? (atr > atrMed ? math.max(1, pxBarsWinScaled - offMinus) : pxBarsWinScaled + offPlus)
-     : pxBarsWinScaled
+dynWin   = pxAdaptive ? (atr > atrMed ? math.max(1, pxBarsWinScaled - offMinus) : pxBarsWinScaled + offPlus) : pxBarsWinScaled
 
 withinPostDn  = pxEnabled and barsSinceDown >= 0 and barsSinceDown <= dynWin
 pcx = 0
@@ -479,9 +486,7 @@ minFracShort     = tcsStrongDn ? 0.70 : 0.50
 allowEarlyShort  = inShort and barsShort >= math.floor(shortMOX * minFracShort)
 
 earlyExitOkShort =
-     allowEarlyShort
-  and rssUpFromDown >= requiredRSSShort
-  and ftlValid and higherLow and twoClosesAbove8 and volDecay
+     allowEarlyShort and rssUpFromDown >= requiredRSSShort and ftlValid and higherLow and twoClosesAbove8 and volDecay
 
 suppressEarlyShort = deepBelow2ATR and moxieStillDn and tcsStrongDn
 
@@ -512,9 +517,7 @@ minFracLong     = tcsStrongUp ? 0.70 : 0.50
 allowEarlyLong  = inLong and barsLong >= math.floor(longMOX * minFracLong)
 
 earlyExitOkLong =
-     allowEarlyLong
-  and rssDnFromUp >= requiredRSSLong
-  and fthValid and lowerHigh and twoClosesBelow8 and volDecayU
+     allowEarlyLong and rssDnFromUp >= requiredRSSLong and fthValid and lowerHigh and twoClosesBelow8 and volDecayU
 
 suppressEarlyLong = deepAbove2ATR and moxieStillUp and tcsStrongUp
 
@@ -565,22 +568,33 @@ if logEnabled and na(t)
     table.cell(t, 5, 0, "PCX/PCT",text_color=color.white, bgcolor=color.new(color.silver, 25))
     table.cell(t, 6, 0, "TCS/RSS",text_color=color.white, bgcolor=color.new(color.silver, 25))
 
-// ===== Thin historical markers (cheap, full-history context)
-plotshape(showHistoryShapes and (moxieCrossDown and fcsDn >= entryThresh),  title="FCS↓ mark",
-          style=shape.triangledown, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
-plotshape(showHistoryShapes and (moxieCrossUp   and fcsUp >= entryThresh),  title="FCS↑ mark",
-          style=shape.triangleup,   location=location.belowbar, size=size.tiny, color=color.new(color.green, 0))
+// ===== TP/SL HUD table (top-right) =====
+var table tpTable = na
 
-plotshape(showHistoryShapes and (withinPostDn and pcx >= pxThresh), title="PCX mark",
-          style=shape.circle, location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
-plotshape(showHistoryShapes and (withinPostUp and pct >= pxThresh), title="PCT mark",
-          style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.orange, 0))
+if tpAdvisorEnabled and showTPSLHud and barstate.islast
+    if na(tpTable)
+        tpTable := table.new(position.top_right, 2, 4)
+        table.cell(tpTable, 0, 0, "Metric", text_color=color.white, bgcolor=color.new(color.silver, 25))
+        table.cell(tpTable, 1, 0, "Value",  text_color=color.white, bgcolor=color.new(color.silver, 25))
+    table.cell(tpTable, 0, 1, "ATR regime", text_color=color.white)
+    table.cell(tpTable, 1, 1, volRegimeLabel, text_color=color.white)
+    table.cell(tpTable, 0, 2, "ATR (curr)", text_color=color.white)
+    table.cell(tpTable, 1, 2, str.tostring(atrHTF, format.mintick) + " (" + str.tostring(atrRatio, "#.##") + "×)", text_color=color.white)
+    table.cell(tpTable, 0, 3, "Rec TP/SL", text_color=color.white)
+    table.cell(tpTable, 1, 3, str.tostring(recPoints, format.mintick) + " pts", text_color=color.white)
+else if (not tpAdvisorEnabled or not showTPSLHud) and not na(tpTable)
+    table.clear(tpTable, 0, 0, 2, 4)
+
+// ===== Thin historical markers (cheap, full-history context)
+plotshape(showHistoryShapes and (moxieCrossDown and fcsDn >= entryThresh),  title="FCS↓ mark", style=shape.triangledown, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
+plotshape(showHistoryShapes and (moxieCrossUp   and fcsUp >= entryThresh),  title="FCS↑ mark", style=shape.triangleup,   location=location.belowbar, size=size.tiny, color=color.new(color.green, 0))
+
+plotshape(showHistoryShapes and (withinPostDn and pcx >= pxThresh), title="PCX mark", style=shape.circle, location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
+plotshape(showHistoryShapes and (withinPostUp and pct >= pxThresh), title="PCT mark", style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.orange, 0))
 
 // ===== FlushMomentum debug: plots & FM gate dots =====
-plot(showFMPlots ? oscFM      : na, title="FlushMomentum osc",    color=color.new(color.orange, 0), linewidth=2)
+plot(showFMPlots ? oscFM      : na, title="FlushMomentum osc", color=color.new(color.orange, 0), linewidth=2)
 plot(showFMPlots ? moxieProxy : na, title="Moxie proxy (EMA close−34)", color=color.new(color.aqua, 0), linewidth=1)
 
-plotshape(showFMDots and fmGateShort, title="FM Gate Short", style=shape.circle,
-          location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
-plotshape(showFMDots and fmGateLong,  title="FM Gate Long",  style=shape.circle,
-          location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
+plotshape(showFMDots and fmGateShort, title="FM Gate Short", style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
+plotshape(showFMDots and fmGateLong,  title="FM Gate Long",  style=shape.circle, location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
