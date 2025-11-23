@@ -80,8 +80,11 @@ groupTPSL = "TP/SL Advisor"
 tpAdvisorEnabled   = input.bool(true,  "Enable TP/SL advisor", group=groupTPSL)
 tpAtrTF            = input.string("3", "TP/SL ATR timeframe (min)", group=groupTPSL)
 atrBaselineLen     = input.int(200,    "ATR baseline length (bars)", minval=20, group=groupTPSL)
-lowVolThreshold    = input.float(0.80, "Low vol: ATR / baseline <",  step=0.05, group=groupTPSL)
-highVolThreshold   = input.float(1.20, "High vol: ATR / baseline >=", step=0.05, group=groupTPSL)
+// Base thresholds (used for Generic profile / hlines)
+lowVolThreshold    = input.float(0.80, "Base low vol: ATR / baseline <",  step=0.05, group=groupTPSL)
+highVolThreshold   = input.float(1.20, "Base high vol: ATR / baseline >=", step=0.05, group=groupTPSL)
+// Profile for tuned MNQ / SPX behaviour
+profileTPSL        = input.string("Auto", "ATR regime profile", options=["Auto","MNQ","SPX","Generic"], group=groupTPSL, tooltip="Auto: detect MNQ/SPX from symbol and use tuned thresholds (MNQ 0.9/1.7, SPX 0.8/1.2). Generic: use base thresholds above.")
 
 // Recommended TP/SL in POINTS for each regime
 pointsLowVol       = input.float(15.0, "Low vol TP/SL (points)",    step=0.25, group=groupTPSL)
@@ -283,11 +286,27 @@ atrHTF         = request.security(syminfo.tickerid, tpAtrTF, ta.atr(atrLen))
 atrBaselineHTF = request.security(syminfo.tickerid, tpAtrTF, ta.sma(ta.atr(atrLen), atrBaselineLen))
 atrRatio       = atrBaselineHTF > 0 ? atrHTF / atrBaselineHTF : 1.0
 
+// Instrument detection & effective thresholds
+tickerUpper = str.upper(syminfo.ticker)
+isMNQ = str.contains(tickerUpper, "MNQ")
+isSPX = str.contains(tickerUpper, "SPX")
+
+float effLow  = lowVolThreshold
+float effHigh = highVolThreshold
+
+if profileTPSL == "MNQ" or (profileTPSL == "Auto" and isMNQ)
+    effLow  := 0.90
+    effHigh := 1.70
+else if profileTPSL == "SPX" or (profileTPSL == "Auto" and isSPX)
+    effLow  := 0.80
+    effHigh := 1.20
+// else: Generic → keep base thresholds
+
 // 0 = low, 1 = normal, 2 = high
 volRegime =
      not tpAdvisorEnabled ? 1 :
-     atrRatio < lowVolThreshold  ? 0 :
-     atrRatio > highVolThreshold ? 2 :
+     atrRatio < effLow  ? 0 :
+     atrRatio > effHigh ? 2 :
      1
 
 recPoints =
@@ -304,8 +323,8 @@ volRegimeLabel =
 plot(debugAtrSeries ? atrHTF         : na, title="ATR (HTF)",          color=color.new(color.orange, 0))
 plot(debugAtrSeries ? atrBaselineHTF : na, title="ATR baseline (HTF)", color=color.new(color.teal,   0))
 plot(debugAtrRatio  ? atrRatio       : na, title="ATR ratio",          color=color.new(color.yellow, 0))
-hline(lowVolThreshold,  "Low-vol threshold",  color=color.new(color.green, 70))
-hline(highVolThreshold, "High-vol threshold", color=color.new(color.red,   70))
+hline(lowVolThreshold,  "Low-vol threshold (base)",  color=color.new(color.green, 70))
+hline(highVolThreshold, "High-vol threshold (base)", color=color.new(color.red,   70))
 
 bandN3dn  = ema21 - 3.0 * atr     // −3 ATR
 bandN2_5dn= ema21 - 2.5 * atr
@@ -343,7 +362,7 @@ roomOKdn = (close - bandN3dn) >= roomATRMult * atr
 fcsDn = 0
 fcsDn += ribbonBear and ribbonSlopeDn and expandDn ? wRibbon : 0
 fcsDn += slope(ema34,3) < 0 ? wHTF : 0
-fcsDn += close < vwapSess ? wVWAP : 0
+fcsDn += close < vwapSess ? wVWAP : 0           // bug fixed: use wVWAP, not 1
 fcsDn += roomOKdn ? wRoom : 0
 fcsDn += (volThrust and bearBody) ? wVolBody : 0
 fcsDn += (close < ta.lowest(low,10)[1] and not (close > ta.lowest(low,10))) ? wStruct : 0
@@ -428,7 +447,7 @@ var bool inLong  = false
 var int  barsLong = 0
 var int  longMOX  = 0
 
-// MOX helpers — scale min-hold by timeframe (unchanged)
+// MOX helpers — scale min-hold by timeframe
 getMinHoldShort() =>
     base = minHoldShortBase
     baseScaled = scaleEnabled ? math.round(base * tfMult) : base
@@ -439,7 +458,7 @@ getMinHoldLong() =>
     baseScaled = scaleEnabled ? math.round(base * tfMult) : base
     math.max(1, baseScaled)
 
-// Enter states (now also gated by FINAL FlushMomentum gate)
+// Enter states (gated by FlushMomentum)
 if (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
     inShort  := true
     barsShort:= 0
@@ -609,7 +628,7 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
         table.cell(tpTable, 0, 0, "Metric", text_color=color.white, bgcolor=color.new(color.silver, 25))
         table.cell(tpTable, 1, 0, "Value",  text_color=color.white, bgcolor=color.new(color.silver, 25))
     table.cell(tpTable, 0, 1, "ATR regime", text_color=color.white)
-    table.cell(tpTable, 1, 1, volRegimeLabel, text_color=color.white)
+    table.cell(tpTable, 1, 1, volRegimeLabel + " (" + profileTPSL + ")", text_color=color.white)
     table.cell(tpTable, 0, 2, "ATR (curr)", text_color=color.white)
     table.cell(tpTable, 1, 2, str.tostring(atrHTF, format.mintick) + " (" + str.tostring(atrRatio, "#.##") + "×)", text_color=color.white)
     table.cell(tpTable, 0, 3, "Rec TP/SL", text_color=color.white)
