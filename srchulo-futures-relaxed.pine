@@ -48,8 +48,8 @@ calcOnClose = input.bool(false, "Lock signals on bar close (no flicker)", group=
 grpSlope = "Moxie-like Slope Filter"
 slopeMode = input.string("MTF (All selected must agree)", "Slope Mode", options=["Current TF only","MTF (All selected must agree)"], group=grpSlope)
 useTF_2m = input.bool(true, "Use 2m", group=grpSlope)
-useTF_3m = input.bool(true, "Use 3m", group=grpSlope)
-useTF_5m = input.bool(false, "Use 5m", group=grpSlope)
+useTF_3m = input.bool(false, "Use 3m", group=grpSlope)
+useTF_5m = input.bool(true, "Use 5m", group=grpSlope)
 useTF_15m = input.bool(false, "Use 15m", group=grpSlope)
 useTF_30m = input.bool(false, "Use 30m", group=grpSlope)
 useTF_1h = input.bool(false, "Use 1h", group=grpSlope)
