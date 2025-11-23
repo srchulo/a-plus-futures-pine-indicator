@@ -158,7 +158,7 @@ threshShort = input.int(5, "Score threshold SHORT", group=grpDec, minval=1)
 minAtrTicks = input.int(22, "Min ATR (ticks) gate", group=grpDec)
 entryConfirmTicks = input.int(2, "Entry confirmation (ticks beyond signal bar)", group=grpDec, minval=1)
 cooldownBars = input.int(10, "Cooldown bars", group=grpDec)
-maxSignalsPerDay = input.int(12, "Max signals per day", group=grpDec)
+maxSignalsPerDay = input.int(100, "Max signals per day", group=grpDec)
 ticksTol = input.int(4, "Structure tolerance (ticks)", group=grpDec)
 retestBars = input.int(5, "VWAP retest within N bars", group=grpDec)
 
