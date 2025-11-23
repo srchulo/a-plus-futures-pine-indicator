@@ -89,6 +89,10 @@ pointsHighVol      = input.float(50.0, "High vol TP/SL (points)",   step=0.25, g
 showTPSLOnLabels   = input.bool(false, "Show TP/SL suggestion on FCS labels", group=groupTPSL)
 showTPSLHud        = input.bool(true, "Show TP/SL HUD (corner table)",       group=groupTPSL)
 
+// Debug options for ATR regime
+debugAtrSeries = input.bool(false, "Debug: plot ATR & baseline", group=groupTPSL)
+debugAtrRatio  = input.bool(false, "Debug: plot ATR ratio",      group=groupTPSL)
+
 // --- Display & Logger
 groupDisp = "Display"
 minimalMode   = input.bool(false, "Minimal mode (show only MOX / EARLY / EXIT)", group=groupDisp)
@@ -291,6 +295,13 @@ volRegimeLabel =
      volRegime == 2 ? "High" :
                       "Normal"
 
+// === TP/SL debug plots ===
+plot(debugAtrSeries ? atrHTF         : na, title="ATR (HTF)",          color=color.new(color.orange, 0))
+plot(debugAtrSeries ? atrBaselineHTF : na, title="ATR baseline (HTF)", color=color.new(color.teal,   0))
+plot(debugAtrRatio  ? atrRatio       : na, title="ATR ratio",          color=color.new(color.yellow, 0))
+hline(lowVolThreshold,  "Low-vol threshold",  color=color.new(color.green, 70))
+hline(highVolThreshold, "High-vol threshold", color=color.new(color.red,   70))
+
 bandN3dn  = ema21 - 3.0 * atr     // −3 ATR
 bandN2_5dn= ema21 - 2.5 * atr
 bandP3up  = ema21 + 3.0 * atr     // +3 ATR
@@ -362,11 +373,19 @@ fcsUp -= ((close >= bandP3up) and (high > bandP3up) and topWickPct > 0.60) ? wTo
 fcsUp -= bearDiv ? wDiv : 0
 
 // ===== Entry labels (FCS only; TP/SL is in HUD table)
+string fcsDnText = "FCS↓: " + str.tostring(fcsDn)
+if showTPSLOnLabels and tpAdvisorEnabled
+    fcsDnText += "\nTP/SL: " + str.tostring(recPoints, format.mintick) + " (" + volRegimeLabel + ")"
+
 if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDn >= entryThresh and fmGateShort
-    label.new(bar_index, high, "FCS↓: " + str.tostring(fcsDn), style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
+    label.new(bar_index, high, fcsDnText, style     = label.style_label_down, textcolor = color.white, color     = color.new(color.red, 0))
+
+string fcsUpText = "FCS↑: " + str.tostring(fcsUp)
+if showTPSLOnLabels and tpAdvisorEnabled
+    fcsUpText += "\nTP/SL: " + str.tostring(recPoints, format.mintick) + " (" + volRegimeLabel + ")"
 
 if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUp >= entryThresh and fmGateLong
-    label.new(bar_index, low, "FCS↑: " + str.tostring(fcsUp), style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
+    label.new(bar_index, low, fcsUpText, style     = label.style_label_up, textcolor = color.white, color     = color.new(color.green, 0))
 
 // ===== Extreme detectors (PCX bottom for shorts, PCT top for longs)
 offMinus = math.max(1, math.round(3 * tfMult))
