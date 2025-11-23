@@ -67,6 +67,8 @@ minHoldShortBase = input.int(25, "Shorts after 0↓: min-hold bars", minval=1, g
 minHoldLongBase  = input.int(20, "Longs after 0↑: min-hold bars",  minval=1, group=groupMOX)
 moxATRAdapt      = input.bool(true, "ATR adapt MOX (±20%/±10%)", group=groupMOX)
 revThresh        = input.int(2, "Reversal Strength needed for early exit", minval=1, maxval=5, group=groupMOX)
+// vertical offset so MOX labels don’t sit on top of FCS labels
+moxLabelOffsetAtr = input.float(0.6, "MOX label offset (× ATR)", minval=0.0, step=0.1, group=groupMOX)
 
 // --- Timeframe Scaling (NEW)
 groupScale = "Timeframe Scaling"
@@ -102,6 +104,9 @@ showPCT       = input.bool(true,  "Show PCT labels", group=groupDisp)
 showMOX       = input.bool(true,  "Show MOX labels", group=groupDisp)
 showEARLY     = input.bool(true,  "Show EARLY EXIT labels", group=groupDisp)
 showEXIT      = input.bool(true,  "Show EXIT labels", group=groupDisp)
+// NEW: offsets for FCS and EXIT so they don’t stack
+fcsLabelOffsetAtr  = input.float(1.0, "FCS label offset (× ATR)",  minval=0.0, step=0.1, group=groupDisp)
+exitLabelOffsetAtr = input.float(0.8, "EXIT label offset (× ATR)", minval=0.0, step=0.1, group=groupDisp)
 
 // Label rendering window + thin markers
 labelLookbackBars = input.int(50000, "Label lookback (bars)", minval=100, group=groupDisp)
@@ -252,9 +257,9 @@ fmShortReady = stateChanged and currFmState == -1
 fmNoTrade    = stateChanged and currFmState ==  0
 
 // Markers on chart
-plotshape(showFMState and fmLongReady, title="FM Long Ready", style=shape.circle, location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0), text="FM→L")
-plotshape(showFMState and fmShortReady, title="FM Short Ready", style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0), text="FM→S")
-plotshape(showFMState and fmNoTrade, title="FM No-Trade", style=shape.xcross, location=location.bottom, size=size.tiny, color=color.new(color.gray, 50), text="FM×")
+plotshape(showFMState and fmLongReady,  title="FM Long Ready",  style=shape.circle, location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0), text="FM→L")
+plotshape(showFMState and fmShortReady, title="FM Short Ready", style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0),  text="FM→S")
+plotshape(showFMState and fmNoTrade,    title="FM No-Trade",    style=shape.xcross, location=location.bottom,   size=size.tiny, color=color.new(color.gray, 50), text="FM×")
 
 // ========== Core series ==========
 ema8  = ta.ema(close, 8)
@@ -378,14 +383,16 @@ if showTPSLOnLabels and tpAdvisorEnabled
     fcsDnText += "\nTP/SL: " + str.tostring(recPoints, format.mintick) + " (" + volRegimeLabel + ")"
 
 if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDn >= entryThresh and fmGateShort
-    label.new(bar_index, high, fcsDnText, style     = label.style_label_down, textcolor = color.white, color     = color.new(color.red, 0))
+    float fcsShortY = high + atr * fcsLabelOffsetAtr
+    label.new(bar_index, fcsShortY, fcsDnText, style = label.style_label_down, textcolor = color.white, color = color.new(color.red, 0))
 
 string fcsUpText = "FCS↑: " + str.tostring(fcsUp)
 if showTPSLOnLabels and tpAdvisorEnabled
     fcsUpText += "\nTP/SL: " + str.tostring(recPoints, format.mintick) + " (" + volRegimeLabel + ")"
 
 if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUp >= entryThresh and fmGateLong
-    label.new(bar_index, low, fcsUpText, style     = label.style_label_up, textcolor = color.white, color     = color.new(color.green, 0))
+    float fcsLongY = low - atr * fcsLabelOffsetAtr
+    label.new(bar_index, fcsLongY, fcsUpText, style = label.style_label_up, textcolor = color.white, color = color.new(color.green, 0))
 
 // ===== Extreme detectors (PCX bottom for shorts, PCT top for longs)
 offMinus = math.max(1, math.round(3 * tfMult))
@@ -437,16 +444,20 @@ if (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
     inShort  := true
     barsShort:= 0
     shortMOX := getMinHoldShort()
+    float shortMoxY = high + atr * moxLabelOffsetAtr
     if allowLabels and _showMOX
-        label.new(bar_index, high, "MOX↓ set: " + str.tostring(shortMOX), style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
+        label.new(bar_index, shortMoxY, "MOX↓ set: " + str.tostring(shortMOX),
+                  style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
     logIdx := logDo("SHORT", "ENTRY", close, fcsDn, NAf, NAf, logIdx)
 
 if (barsSinceUp <= 2) and (fcsUp >= entryThresh) and fmGateLong
     inLong  := true
     barsLong:= 0
     longMOX := getMinHoldLong()
+    float longMoxY = low - atr * moxLabelOffsetAtr
     if allowLabels and _showMOX
-        label.new(bar_index, low, "MOX↑ set: " + str.tostring(longMOX), style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
+        label.new(bar_index, longMoxY, "MOX↑ set: " + str.tostring(longMOX),
+                  style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
     logIdx := logDo("LONG", "ENTRY", close, fcsUp, NAf, NAf, logIdx)
 
 // ===== Reversal Strength & Trend Continuation
@@ -484,7 +495,7 @@ if allowLabels and _showMOX and inShort and barsShort == shortMOX
 if allowLabels and _showMOX and inLong and barsLong == longMOX
     label.new(bar_index, high, "MOX↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.yellow, 0))
 
-// ===== EARLY EXIT (unchanged logic)
+// ===== EARLY EXIT
 tcsStrongDn   = tcsDown >= 3
 moxieStillDn  = slope(moxieProxy, 3) < 0 and moxieProxy < 0
 deepBelow2ATR = (ema21 - 2.0*atr) - close > 0.4*atr
@@ -547,14 +558,15 @@ if allowLabels and _showEARLY and inLong and earlyExitOkLong and not suppressEar
         inLong   := false
         barsLong := 0
 
-// ===== Final EXIT (unchanged thresholds)
+// ===== Final EXIT
 exitShortAllowed = inShort and (barsShort >= shortMOX or tcsDown <= 1)
 exitShortCond =
       (close > ema8) or (close > vwapSess) or bullDiv
    or ((low < bandN3dn) and ((close >= ema21 - 1.8*atr) or (close > high[1])))
    or (close > math.max(high[1], high[2])) or (fcsDn <= exitThresh) or (barsShort > holdBarsMax)
 if allowLabels and _showEXIT and exitShortAllowed and exitShortCond
-    label.new(bar_index, low, "EXIT↓", style=label.style_label_up, textcolor=color.white, color=color.new(color.lime, 0))
+    float exitShortY = low - atr * exitLabelOffsetAtr
+    label.new(bar_index, exitShortY, "EXIT↓", style=label.style_label_up, textcolor=color.white, color=color.new(color.lime, 0))
     logIdx := logDo("SHORT", "EXIT↓", close, fcsDn, NAf, tcsDown, logIdx)
     inShort   := false
     barsShort := 0
@@ -562,10 +574,11 @@ if allowLabels and _showEXIT and exitShortAllowed and exitShortCond
 exitLongAllowed = inLong and (barsLong >= longMOX or tcsUp <= 1)
 exitLongCond =
       (close < ema8) or (close < vwapSess) or bearDiv
-   or ((high > bandP3up) and ((close <= ema21 + 1.8*atr) or (close < low[1])))
+   or ((high > bandP3up) and ((close <= ema21 + 2.0*atr) or (close < low[1])))
    or (close < math.min(low[1], low[2])) or (fcsUp <= exitThresh) or (barsLong > holdBarsMax)
 if allowLabels and _showEXIT and exitLongAllowed and exitLongCond
-    label.new(bar_index, high, "EXIT↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.lime, 0))
+    float exitLongY = high + atr * exitLabelOffsetAtr
+    label.new(bar_index, exitLongY, "EXIT↑", style=label.style_label_down, textcolor=color.white, color=color.new(color.lime, 0))
     logIdx := logDo("LONG", "EXIT↑", close, fcsUp, NAf, tcsUp, logIdx)
     inLong   := false
     barsLong := 0
@@ -612,8 +625,8 @@ plotshape(showHistoryShapes and (withinPostDn and pcx >= pxThresh), title="PCX m
 plotshape(showHistoryShapes and (withinPostUp and pct >= pxThresh), title="PCT mark", style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.orange, 0))
 
 // ===== FlushMomentum debug: plots & FM gate dots =====
-plot(showFMPlots ? oscFM      : na, title="FlushMomentum osc", color=color.new(color.orange, 0), linewidth=2)
-plot(showFMPlots ? moxieProxy : na, title="Moxie proxy (EMA close−34)", color=color.new(color.aqua, 0), linewidth=1)
+plot(showFMPlots ? oscFM      : na, title="FlushMomentum osc",         color=color.new(color.orange, 0), linewidth=2)
+plot(showFMPlots ? moxieProxy : na, title="Moxie proxy (EMA close−34)", color=color.new(color.aqua,   0), linewidth=1)
 
-plotshape(showFMDots and fmGateShort, title="FM Gate Short", style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
-plotshape(showFMDots and fmGateLong,  title="FM Gate Long",  style=shape.circle, location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
+plotshape(showFMDots and fmGateShort, title="FM Gate Short", style=shape.circle,  location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
+plotshape(showFMDots and fmGateLong,  title="FM Gate Long",  style=shape.circle,  location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
