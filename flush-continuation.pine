@@ -95,7 +95,7 @@ pointsHighVol      = input.float(50.0, "Baseline High vol TP/SL (MNQ pts)",   st
 // Symbol-specific scaling (× MNQ baseline)
 useSymbolScaling   = input.bool(true,  "Use symbol-specific TP/SL scaling", group=groupTPSL)
 mnqScale           = input.float(1.0,  "MNQ scale (× MNQ baseline)", step=0.05, group=groupTPSL)
-mesScale           = input.float(0.40, "MES scale (× MNQ baseline)", step=0.05, group=groupTPSL) // 15 MNQ pts ≈ 6 MES pts
+mesScale           = input.float(0.30, "MES scale (× MNQ baseline)", step=0.05, group=groupTPSL) // 15 MNQ pts ≈ 6 MES pts
 spxScale           = input.float(1.0,  "SPX scale (× MNQ baseline)", step=0.05, group=groupTPSL)
 esScale            = input.float(1.0,  "ES scale (× MNQ baseline)",  step=0.05, group=groupTPSL)
 otherScale         = input.float(1.0,  "Other symbols scale (× MNQ baseline)", step=0.05, group=groupTPSL)
@@ -671,13 +671,7 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
 
     if isMES and not na(mesTicks) and not na(mesDollarsPerContract)
         table.cell(tpTable, 0, 4, "MES TP/SL", text_color=color.white)
-        table.cell(
-          tpTable, 1, 4,
-          str.tostring(recPoints, format.mintick) + " pts ≈ " +
-          str.tostring(mesTicks, "#") + " ticks ≈ $" +
-          str.tostring(mesDollarsPerContract, "#"),
-          text_color=color.white
-        )
+        table.cell(tpTable, 1, 4, str.tostring(recPoints, format.mintick) + " pts ≈ " + str.tostring(mesTicks, "#") + " ticks ≈ $" + str.tostring(mesDollarsPerContract, "#"), text_color=color.white)
     else
         table.cell(tpTable, 0, 4, "")
         table.cell(tpTable, 1, 4, "")
