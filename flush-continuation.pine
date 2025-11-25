@@ -76,6 +76,7 @@ baselineTFmin = input.int(3, "Baseline timeframe (minutes)", minval=1, group=gro
 scaleEnabled  = input.bool(true, "Auto-scale bar-based settings by timeframe", group=groupScale)
 
 // --- TP/SL Advisor (ATR-regime-based, in POINTS)
+// NOTE: 15 / 30 / 50 are tuned for **MNQ** (baseline).
 groupTPSL = "TP/SL Advisor"
 tpAdvisorEnabled   = input.bool(true,  "Enable TP/SL advisor", group=groupTPSL)
 tpAtrTF            = input.string("3", "TP/SL ATR timeframe (min)", group=groupTPSL)
@@ -86,13 +87,21 @@ highVolThreshold   = input.float(1.20, "Base high vol: ATR / baseline >=", step=
 // Profile for tuned MNQ / SPX behaviour
 profileTPSL        = input.string("Auto", "ATR regime profile", options=["Auto","MNQ","SPX","Generic"], group=groupTPSL, tooltip="Auto: detect MNQ/SPX from symbol and use tuned thresholds (MNQ 0.9/1.7, SPX 0.8/1.2). Generic: use base thresholds above.")
 
-// Recommended TP/SL in POINTS for each regime
-pointsLowVol       = input.float(15.0, "Low vol TP/SL (points)",    step=0.25, group=groupTPSL)
-pointsNormalVol    = input.float(30.0, "Normal vol TP/SL (points)", step=0.25, group=groupTPSL)
-pointsHighVol      = input.float(50.0, "High vol TP/SL (points)",   step=0.25, group=groupTPSL)
+// Baseline TP/SL in POINTS for **MNQ**
+pointsLowVol       = input.float(15.0, "Baseline Low vol TP/SL (MNQ pts)",    step=0.25, group=groupTPSL)
+pointsNormalVol    = input.float(30.0, "Baseline Normal vol TP/SL (MNQ pts)", step=0.25, group=groupTPSL)
+pointsHighVol      = input.float(50.0, "Baseline High vol TP/SL (MNQ pts)",   step=0.25, group=groupTPSL)
+
+// Symbol-specific scaling (× MNQ baseline)
+useSymbolScaling   = input.bool(true,  "Use symbol-specific TP/SL scaling", group=groupTPSL)
+mnqScale           = input.float(1.0,  "MNQ scale (× MNQ baseline)", step=0.05, group=groupTPSL)
+mesScale           = input.float(0.40, "MES scale (× MNQ baseline)", step=0.05, group=groupTPSL) // 15 MNQ pts ≈ 6 MES pts
+spxScale           = input.float(1.0,  "SPX scale (× MNQ baseline)", step=0.05, group=groupTPSL)
+esScale            = input.float(1.0,  "ES scale (× MNQ baseline)",  step=0.05, group=groupTPSL)
+otherScale         = input.float(1.0,  "Other symbols scale (× MNQ baseline)", step=0.05, group=groupTPSL)
 
 showTPSLOnLabels   = input.bool(false, "Show TP/SL suggestion on FCS labels", group=groupTPSL)
-showTPSLHud        = input.bool(true, "Show TP/SL HUD (corner table)",       group=groupTPSL)
+showTPSLHud        = input.bool(true,  "Show TP/SL HUD (corner table)",       group=groupTPSL)
 
 // Debug options for ATR regime
 debugAtrSeries = input.bool(false, "Debug: plot ATR & baseline", group=groupTPSL)
@@ -286,11 +295,16 @@ atrHTF         = request.security(syminfo.tickerid, tpAtrTF, ta.atr(atrLen))
 atrBaselineHTF = request.security(syminfo.tickerid, tpAtrTF, ta.sma(ta.atr(atrLen), atrBaselineLen))
 atrRatio       = atrBaselineHTF > 0 ? atrHTF / atrBaselineHTF : 1.0
 
-// Instrument detection & effective thresholds
+// Instrument detection for ATR profile + scaling
 tickerUpper = str.upper(syminfo.ticker)
-isMNQ = str.contains(tickerUpper, "MNQ")
-isSPX = str.contains(tickerUpper, "SPX")
+rootUpper   = str.upper(syminfo.root)
 
+isMNQ = str.contains(tickerUpper, "MNQ") or rootUpper == "MNQ"
+isSPX = str.contains(tickerUpper, "SPX") or rootUpper == "SPX"
+isMES = str.contains(tickerUpper, "MES") or rootUpper == "MES"
+isES  = str.contains(tickerUpper, "ES")  or rootUpper == "ES"
+
+// Effective ATR thresholds
 float effLow  = lowVolThreshold
 float effHigh = highVolThreshold
 
@@ -309,15 +323,34 @@ volRegime =
      atrRatio > effHigh ? 2 :
      1
 
-recPoints =
+// Baseline MNQ points by regime
+basePoints =
      volRegime == 0 ? pointsLowVol :
      volRegime == 2 ? pointsHighVol :
                       pointsNormalVol
+
+// Symbol-specific scaling factor (relative to MNQ)
+symScale =
+     not useSymbolScaling ? 1.0 :
+     isMNQ ? mnqScale :
+     isMES ? mesScale :
+     isSPX ? spxScale :
+     isES  ? esScale  :
+             otherScale
+
+// Final recommended TP/SL in points for *this* instrument
+recPoints = basePoints * symScale
 
 volRegimeLabel =
      volRegime == 0 ? "Low" :
      volRegime == 2 ? "High" :
                       "Normal"
+
+// === MES-specific calculations (auto) ===
+mesTickSize           = syminfo.mintick
+mesTicks              = isMES and mesTickSize > 0 ? recPoints / mesTickSize : na
+mesDollarPerPoint     = 5.0
+mesDollarsPerContract = isMES ? recPoints * mesDollarPerPoint : na
 
 // === TP/SL debug plots ===
 plot(debugAtrSeries ? atrHTF         : na, title="ATR (HTF)",          color=color.new(color.orange, 0))
@@ -398,16 +431,18 @@ fcsUp -= bearDiv ? wDiv : 0
 
 // ===== Entry labels (FCS only; TP/SL is in HUD table)
 string fcsDnText = "FCS↓: " + str.tostring(fcsDn)
+string fcsUpText = "FCS↑: " + str.tostring(fcsUp)
+
 if showTPSLOnLabels and tpAdvisorEnabled
-    fcsDnText += "\nTP/SL: " + str.tostring(recPoints, format.mintick) + " (" + volRegimeLabel + ")"
+    string tpLine = "TP/SL: " + str.tostring(recPoints, format.mintick) + " (" + volRegimeLabel + ")"
+    if isMES and not na(mesTicks) and not na(mesDollarsPerContract)
+        tpLine += "\nMES≈" + str.tostring(mesTicks, "#") + "t / $" + str.tostring(mesDollarsPerContract, "#")
+    fcsDnText += "\n" + tpLine
+    fcsUpText += "\n" + tpLine
 
 if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDn >= entryThresh and fmGateShort
     float fcsShortY = high + atr * fcsLabelOffsetAtr
     label.new(bar_index, fcsShortY, fcsDnText, style = label.style_label_down, textcolor = color.white, color = color.new(color.red, 0))
-
-string fcsUpText = "FCS↑: " + str.tostring(fcsUp)
-if showTPSLOnLabels and tpAdvisorEnabled
-    fcsUpText += "\nTP/SL: " + str.tostring(recPoints, format.mintick) + " (" + volRegimeLabel + ")"
 
 if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUp >= entryThresh and fmGateLong
     float fcsLongY = low - atr * fcsLabelOffsetAtr
@@ -459,7 +494,7 @@ getMinHoldLong() =>
     math.max(1, baseScaled)
 
 // Enter states (gated by FlushMomentum)
-// *** MOX labels back on the candle (high/low), not offset by ATR ***
+// MOX labels back on the candle (high/low), not offset by ATR
 if (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
     inShort  := true
     barsShort:= 0
@@ -623,7 +658,8 @@ var table tpTable = na
 
 if tpAdvisorEnabled and showTPSLHud and barstate.islast
     if na(tpTable)
-        tpTable := table.new(position.top_right, 2, 4)
+        // 5 rows: header + 3 core + 1 MES row
+        tpTable := table.new(position.top_right, 2, 5)
         table.cell(tpTable, 0, 0, "Metric", text_color=color.white, bgcolor=color.new(color.silver, 25))
         table.cell(tpTable, 1, 0, "Value",  text_color=color.white, bgcolor=color.new(color.silver, 25))
     table.cell(tpTable, 0, 1, "ATR regime", text_color=color.white)
@@ -632,8 +668,21 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     table.cell(tpTable, 1, 2, str.tostring(atrHTF, format.mintick) + " (" + str.tostring(atrRatio, "#.##") + "×)", text_color=color.white)
     table.cell(tpTable, 0, 3, "Rec TP/SL", text_color=color.white)
     table.cell(tpTable, 1, 3, str.tostring(recPoints, format.mintick) + " pts", text_color=color.white)
+
+    if isMES and not na(mesTicks) and not na(mesDollarsPerContract)
+        table.cell(tpTable, 0, 4, "MES TP/SL", text_color=color.white)
+        table.cell(
+          tpTable, 1, 4,
+          str.tostring(recPoints, format.mintick) + " pts ≈ " +
+          str.tostring(mesTicks, "#") + " ticks ≈ $" +
+          str.tostring(mesDollarsPerContract, "#"),
+          text_color=color.white
+        )
+    else
+        table.cell(tpTable, 0, 4, "")
+        table.cell(tpTable, 1, 4, "")
 else if (not tpAdvisorEnabled or not showTPSLHud) and not na(tpTable)
-    table.clear(tpTable, 0, 0, 2, 4)
+    table.clear(tpTable, 0, 0, 1, 4)
 
 // ===== Thin historical markers (cheap, full-history context)
 plotshape(showHistoryShapes and (moxieCrossDown and fcsDn >= entryThresh),  title="FCS↓ mark", style=shape.triangledown, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
