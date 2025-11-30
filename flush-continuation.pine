@@ -88,9 +88,9 @@ highVolThreshold   = input.float(1.20, "Base high vol: ATR / baseline >=", step=
 profileTPSL        = input.string("Auto", "ATR regime profile", options=["Auto","MNQ","SPX","Generic"], group=groupTPSL, tooltip="Auto: detect MNQ/SPX from symbol and use tuned thresholds (MNQ 0.9/1.7, SPX 0.8/1.2). Generic: use base thresholds above.")
 
 tpMode = input.string("Auto", "TP/SL mode", options=["Auto","Points (futures)","Percent (crypto)"], group=groupTPSL)
-percentLowVol    = input.float(0.5, "Baseline Low vol TP/SL (%)",    step=0.1, group=groupTPSL)
-percentNormalVol = input.float(2.0, "Baseline Normal vol TP/SL (%)", step=0.1, group=groupTPSL)
-percentHighVol   = input.float(3.0, "Baseline High vol TP/SL (%)",   step=0.1, group=groupTPSL)
+percentLowVol    = input.float(0.35, "Baseline Low vol TP/SL (%)",    step=0.05, group=groupTPSL)
+percentNormalVol = input.float(0.50, "Baseline Normal vol TP/SL (%)", step=0.05, group=groupTPSL)
+percentHighVol   = input.float(0.80, "Baseline High vol TP/SL (%)",   step=0.05, group=groupTPSL)
 
 // Baseline TP/SL in POINTS for **MNQ**
 pointsLowVol       = input.float(15.0, "Baseline Low vol TP/SL (MNQ pts)",    step=0.25, group=groupTPSL)
@@ -117,6 +117,7 @@ useLevAdvisor    = input.bool(true, "Show leverage advisor (crypto)", group=grou
 
 showTPSLOnLabels   = input.bool(false, "Show TP/SL suggestion on FCS labels", group=groupTPSL)
 showTPSLHud        = input.bool(true,  "Show TP/SL HUD (corner table)",       group=groupTPSL)
+show2RLine         = input.bool(true,  "Show TP@2R line on entries",          group=groupTPSL)
 
 // Debug options for ATR regime
 debugAtrSeries = input.bool(false, "Debug: plot ATR & baseline", group=groupTPSL)
@@ -550,6 +551,15 @@ var bool inLong  = false
 var int  barsLong = 0
 var int  longMOX  = 0
 
+var line tpLineShort = na
+var line tpLineLong = na
+var float entryPriceShort = na
+var float entryPriceLong = na
+var float entryRecPctShort = na
+var float entryRecPctLong = na
+var float entryRecPointsShort = na
+var float entryRecPointsLong = na
+
 // MOX helpers — scale min-hold by timeframe
 getMinHoldShort() =>
     base = minHoldShortBase
@@ -567,6 +577,14 @@ if (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
     inShort  := true
     barsShort:= 0
     shortMOX := getMinHoldShort()
+    entryPriceShort := close
+    entryRecPctShort := recPct
+    entryRecPointsShort := recPoints
+    if show2RLine and not na(entryRecPointsShort) and not na(entryRecPctShort)
+        float tpShortPrice = usePercentMode ? entryPriceShort * (1.0 - (entryRecPctShort * 2.0) / 100.0) : entryPriceShort - entryRecPointsShort * 2.0
+        if not na(tpLineShort)
+            line.delete(tpLineShort)
+        tpLineShort := line.new(bar_index, tpShortPrice, bar_index + 1, tpShortPrice, extend=extend.right, color=color.new(color.red, 40), style=line.style_dotted)
     if allowLabels and _showMOX
         label.new(bar_index, high, "MOX↓ set: " + str.tostring(shortMOX),
                   style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
@@ -576,6 +594,14 @@ if (barsSinceUp <= 2) and (fcsUp >= entryThresh) and fmGateLong
     inLong  := true
     barsLong:= 0
     longMOX := getMinHoldLong()
+    entryPriceLong := close
+    entryRecPctLong := recPct
+    entryRecPointsLong := recPoints
+    if show2RLine and not na(entryRecPointsLong) and not na(entryRecPctLong)
+        float tpLongPrice = usePercentMode ? entryPriceLong * (1.0 + (entryRecPctLong * 2.0) / 100.0) : entryPriceLong + entryRecPointsLong * 2.0
+        if not na(tpLineLong)
+            line.delete(tpLineLong)
+        tpLineLong := line.new(bar_index, tpLongPrice, bar_index + 1, tpLongPrice, extend=extend.right, color=color.new(color.green, 40), style=line.style_dotted)
     if allowLabels and _showMOX
         label.new(bar_index, low, "MOX↑ set: " + str.tostring(longMOX),
                   style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
@@ -730,7 +756,7 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     bool showSizeRow = not isMajorCrypto and useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
     bool showLevRows = useLevAdvisor and isMajorCrypto and usePercentMode and not na(slFrac)
 
-    int rowsNeeded = 4
+    int rowsNeeded = 5
     rowsNeeded += showPerCtr  ? 1 : 0
     rowsNeeded += showSizeRow ? 1 : 0
     rowsNeeded += showLevRows ? 2 : 0
@@ -751,6 +777,15 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     table.cell(tpTable, 0, r, "Rec TP/SL", text_color=color.white)
     string tpDisplay = usePercentMode and not na(recPct) and not na(recPoints) ? str.tostring(recPct, "#.##") + "% (~" + str.tostring(recPoints, format.mintick) + ")" : not usePercentMode and not na(recPct) ? str.tostring(recPoints, format.mintick) + " pts (~" + str.tostring(recPct, "#.##") + "%)" : str.tostring(recPoints, format.mintick) + " pts"
     table.cell(tpTable, 1, r, tpDisplay, text_color=color.white)
+    r += 1
+    table.cell(tpTable, 0, r, "TP@2R", text_color=color.white)
+    string tp2RDisplay = "n/a"
+    if not na(recPoints) and not na(recPct)
+        if usePercentMode
+            tp2RDisplay := str.tostring(recPct * 2.0, "#.##") + "% (~" + str.tostring(recPoints * 2.0, format.mintick) + ")"
+        else
+            tp2RDisplay := str.tostring(recPoints * 2.0, format.mintick) + " pts (~" + str.tostring(recPct * 2.0, "#.##") + "%)"
+    table.cell(tpTable, 1, r, tp2RDisplay, text_color=color.white)
     r += 1
 
     if showPerCtr
