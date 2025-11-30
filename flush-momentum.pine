@@ -4,7 +4,6 @@ indicator("Flush Momentum", shorttitle="FlushMomentum", overlay=false, max_bars_
 // FlushMomentum model params (KEEP IN SYNC IN BOTH SCRIPTS)
 // len1=40, len2=105, len3=170
 // a0=-0.016711, a1=0.050736, a2=0.049021, a3=-0.092770, k=0.913499
-// neutralBand / weakThresh = 3.0
 
 // === Inputs ===
 src   = input.source(close, "Source")
@@ -20,10 +19,50 @@ a2 = input.float( 0.049021, "Coef: EMA1 - EMA2")
 a3 = input.float(-0.092770, "Coef: EMA2 - EMA3")
 k  = input.float( 0.913499, "Recurrent weight")
 
-// Thresholds
-strongThresh   = input.float(8.0,  "Strong magnitude threshold")
-weakThresh     = input.float(3.0,  "Neutral zone half-width")
-trendLookback  = input.int(5,      "Trend lookback (bars)", minval=1)
+// === Thresholds & auto symbol logic ===
+// Base manual thresholds (used for "Other" or when auto is off)
+manualStrongThresh = input.float(1.5, "Strong magnitude threshold (manual)")
+manualWeakThresh   = input.float(0.6, "Neutral zone half-width (manual)")
+trendLookback      = input.int(5, "Trend lookback (bars)", minval=1)
+
+// Turn on/off symbol-based auto thresholds
+useAutoBySymbol    = input.bool(true, "Auto thresholds by symbol")
+
+// Detect some common symbols
+isMNQ = str.startswith(syminfo.ticker, "MNQ")
+isMES = str.startswith(syminfo.ticker, "MES")
+isMicroIndex = isMNQ or isMES
+
+isBTC = str.contains(syminfo.ticker, "BTC")
+isETH = str.contains(syminfo.ticker, "ETH")
+isSOL = str.contains(syminfo.ticker, "SOL")
+isMajorCrypto = isBTC or isETH or isSOL
+
+// Effective thresholds (used everywhere below)
+float strongThresh = na
+float weakThresh   = na
+
+if useAutoBySymbol
+    // Futures-style defaults (MNQ / MES) – more “spread out”
+    if isMicroIndex
+        strongThresh := 2.0
+        weakThresh   := 0.8
+    // Crypto majors (BTC / ETH / SOL) – tighter since osc is typically smaller range
+    else if isMajorCrypto
+        strongThresh := 0.8
+        weakThresh   := 0.3
+    // Fallback to manual for everything else
+    else
+        strongThresh := manualStrongThresh
+        weakThresh   := manualWeakThresh
+else
+    // Purely manual mode
+    strongThresh := manualStrongThresh
+    weakThresh   := manualWeakThresh
+
+// (Optional) expose effective thresholds in Data Window (hidden on chart)
+plot(strongThresh, "StrongThresholdEffective", display=display.none)
+plot(weakThresh,   "WeakThresholdEffective",   display=display.none)
 
 // === Core EMAs ===
 ema1 = ta.ema(src, len1)
@@ -51,7 +90,7 @@ isNeutral   = math.abs(osc) <= weakThresh
 slopeUp   = osc > osc[1]
 slopeDown = osc < osc[1]
 
-// Trend quality over last N bars (same idea as fmTrendUp/Down)
+// Trend quality over last N bars
 trendUp   = ta.sma(osc >  weakThresh ? 1.0 : 0.0, trendLookback) >= 1.0
 trendDown = ta.sma(osc < -weakThresh ? 1.0 : 0.0, trendLookback) >= 1.0
 
@@ -62,7 +101,6 @@ col = isNeutral ? color.new(color.gray, 40) :
                   color.new(color.gray, 40)
 
 // === Background fill for sustained momentum trend ===
-// (uses trendUp/trendDown, not just single-bar strength)
 bgCol = trendUp   ? color.new(color.green, 85) : trendDown ? color.new(color.red,   85) : na
 bgcolor(bgCol)
 
@@ -71,7 +109,6 @@ plot(osc, color=col, linewidth=3, title="FlushMomentum")
 plot(0,   color=color.new(color.white, 70), linewidth=2, title="Zero")
 
 // === Strong-momentum shift signals ===
-// (still based on strongThresh so you can see when strong zones begin)
 bullShift = isStrongPos and not isStrongPos[1] and slopeUp
 bearShift = isStrongNeg and not isStrongNeg[1] and slopeDown
 
