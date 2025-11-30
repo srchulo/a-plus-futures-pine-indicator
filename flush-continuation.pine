@@ -87,6 +87,11 @@ highVolThreshold   = input.float(1.20, "Base high vol: ATR / baseline >=", step=
 // Profile for tuned MNQ / SPX behaviour
 profileTPSL        = input.string("Auto", "ATR regime profile", options=["Auto","MNQ","SPX","Generic"], group=groupTPSL, tooltip="Auto: detect MNQ/SPX from symbol and use tuned thresholds (MNQ 0.9/1.7, SPX 0.8/1.2). Generic: use base thresholds above.")
 
+tpMode = input.string("Auto", "TP/SL mode", options=["Auto","Points (futures)","Percent (crypto)"], group=groupTPSL)
+percentLowVol    = input.float(0.5, "Baseline Low vol TP/SL (%)",    step=0.1, group=groupTPSL)
+percentNormalVol = input.float(2.0, "Baseline Normal vol TP/SL (%)", step=0.1, group=groupTPSL)
+percentHighVol   = input.float(3.0, "Baseline High vol TP/SL (%)",   step=0.1, group=groupTPSL)
+
 // Baseline TP/SL in POINTS for **MNQ**
 pointsLowVol       = input.float(15.0, "Baseline Low vol TP/SL (MNQ pts)",    step=0.25, group=groupTPSL)
 pointsNormalVol    = input.float(30.0, "Baseline Normal vol TP/SL (MNQ pts)", step=0.25, group=groupTPSL)
@@ -95,10 +100,15 @@ pointsHighVol      = input.float(50.0, "Baseline High vol TP/SL (MNQ pts)",   st
 // Symbol-specific scaling (× MNQ baseline)
 useSymbolScaling   = input.bool(true,  "Use symbol-specific TP/SL scaling", group=groupTPSL)
 mnqScale           = input.float(1.0,  "MNQ scale (× MNQ baseline)", step=0.05, group=groupTPSL)
-mesScale           = input.float(0.30, "MES scale (× MNQ baseline)", step=0.05, group=groupTPSL) // 15 MNQ pts ≈ 6 MES pts
+mesScale           = input.float(0.30, "MES scale (× MNQ baseline)", step=0.05, group=groupTPSL) // ~4.5/9/15
 spxScale           = input.float(1.0,  "SPX scale (× MNQ baseline)", step=0.05, group=groupTPSL)
 esScale            = input.float(1.0,  "ES scale (× MNQ baseline)",  step=0.05, group=groupTPSL)
 otherScale         = input.float(1.0,  "Other symbols scale (× MNQ baseline)", step=0.05, group=groupTPSL)
+
+// New: sizing advisor
+targetProfit          = input.float(250.0, "Target profit per trade ($)", step=25.0, group=groupTPSL)
+useSizeAdvisor        = input.bool(true,   "Show contracts for target profit", group=groupTPSL)
+dollarsPerPointOverride = input.float(0.0, "Override $/point (0 = auto)", step=0.5, group=groupTPSL)
 
 showTPSLOnLabels   = input.bool(false, "Show TP/SL suggestion on FCS labels", group=groupTPSL)
 showTPSLHud        = input.bool(true,  "Show TP/SL HUD (corner table)",       group=groupTPSL)
@@ -304,6 +314,13 @@ isSPX = str.contains(tickerUpper, "SPX") or rootUpper == "SPX"
 isMES = str.contains(tickerUpper, "MES") or rootUpper == "MES"
 isES  = str.contains(tickerUpper, "ES")  or rootUpper == "ES"
 
+baseUpper = str.upper(syminfo.basecurrency)
+isBTC = baseUpper == "BTC"
+isETH = baseUpper == "ETH"
+isSOL = baseUpper == "SOL"
+isMajorCrypto = (syminfo.type == "crypto") and (isBTC or isETH or isSOL)
+usePercentMode = tpMode == "Percent (crypto)" or (tpMode == "Auto" and isMajorCrypto)
+
 // Effective ATR thresholds
 float effLow  = lowVolThreshold
 float effHigh = highVolThreshold
@@ -314,6 +331,9 @@ if profileTPSL == "MNQ" or (profileTPSL == "Auto" and isMNQ)
 else if profileTPSL == "SPX" or (profileTPSL == "Auto" and isSPX)
     effLow  := 0.80
     effHigh := 1.20
+else if isMajorCrypto
+    effLow  := 0.95
+    effHigh := 1.40
 // else: Generic → keep base thresholds
 
 // 0 = low, 1 = normal, 2 = high
@@ -338,19 +358,47 @@ symScale =
      isES  ? esScale  :
              otherScale
 
-// Final recommended TP/SL in points for *this* instrument
-recPoints = basePoints * symScale
+// Baseline % TP/SL by regime (for crypto majors)
+basePct =
+     volRegime == 0 ? percentLowVol :
+     volRegime == 2 ? percentHighVol :
+                      percentNormalVol
+
+float recPoints = na
+float recPct    = na
+
+if usePercentMode
+    recPct    := basePct
+    recPoints := close * recPct / 100.0
+else
+    recPoints := basePoints * symScale
+    recPct    := close > 0 ? (recPoints / close) * 100.0 : na
 
 volRegimeLabel =
      volRegime == 0 ? "Low" :
      volRegime == 2 ? "High" :
                       "Normal"
 
+// === $/point + per-contract PnL & contracts for target ===
+autoDollarsPerPoint =
+     isMNQ ? 2.0 :
+     isMES ? 5.0 :
+     isES  ? 50.0 :
+     isSPX ? 50.0 :
+             1.0
+
+dollarsPerPoint =
+     dollarsPerPointOverride > 0 ? dollarsPerPointOverride : autoDollarsPerPoint
+
+perContractPnL = recPoints * dollarsPerPoint
+
+contractsForTargetRaw = (useSizeAdvisor and perContractPnL > 0) ? (targetProfit / perContractPnL) : na
+contractsForTarget    = not na(contractsForTargetRaw) ? math.ceil(contractsForTargetRaw) : na
+
 // === MES-specific calculations (auto) ===
 mesTickSize           = syminfo.mintick
 mesTicks              = isMES and mesTickSize > 0 ? recPoints / mesTickSize : na
-mesDollarPerPoint     = 5.0
-mesDollarsPerContract = isMES ? recPoints * mesDollarPerPoint : na
+mesDollarsPerContract = isMES ? perContractPnL : na
 
 // === TP/SL debug plots ===
 plot(debugAtrSeries ? atrHTF         : na, title="ATR (HTF)",          color=color.new(color.orange, 0))
@@ -434,9 +482,12 @@ string fcsDnText = "FCS↓: " + str.tostring(fcsDn)
 string fcsUpText = "FCS↑: " + str.tostring(fcsUp)
 
 if showTPSLOnLabels and tpAdvisorEnabled
-    string tpLine = "TP/SL: " + str.tostring(recPoints, format.mintick) + " (" + volRegimeLabel + ")"
+    string tpCore = usePercentMode and not na(recPct) ? str.tostring(recPct, "#.##") + "% (~" + str.tostring(recPoints, format.mintick) + ")" : str.tostring(recPoints, format.mintick) + " pts"
+    string tpLine = "TP/SL: " + tpCore + " (" + volRegimeLabel + ")"
     if isMES and not na(mesTicks) and not na(mesDollarsPerContract)
         tpLine += "\nMES≈" + str.tostring(mesTicks, "#") + "t / $" + str.tostring(mesDollarsPerContract, "#")
+    else if perContractPnL > 0
+        tpLine += "\n≈ $" + str.tostring(perContractPnL, "#") + " / ctr"
     fcsDnText += "\n" + tpLine
     fcsUpText += "\n" + tpLine
 
@@ -658,8 +709,8 @@ var table tpTable = na
 
 if tpAdvisorEnabled and showTPSLHud and barstate.islast
     if na(tpTable)
-        // 5 rows: header + 3 core + 1 MES row
-        tpTable := table.new(position.top_right, 2, 5)
+        // 6 rows: header + 3 core + 1 per-ctr + 1 size
+        tpTable := table.new(position.top_right, 2, 6)
         table.cell(tpTable, 0, 0, "Metric", text_color=color.white, bgcolor=color.new(color.silver, 25))
         table.cell(tpTable, 1, 0, "Value",  text_color=color.white, bgcolor=color.new(color.silver, 25))
     table.cell(tpTable, 0, 1, "ATR regime", text_color=color.white)
@@ -667,16 +718,29 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     table.cell(tpTable, 0, 2, "ATR (curr)", text_color=color.white)
     table.cell(tpTable, 1, 2, str.tostring(atrHTF, format.mintick) + " (" + str.tostring(atrRatio, "#.##") + "×)", text_color=color.white)
     table.cell(tpTable, 0, 3, "Rec TP/SL", text_color=color.white)
-    table.cell(tpTable, 1, 3, str.tostring(recPoints, format.mintick) + " pts", text_color=color.white)
+    string tpDisplay = usePercentMode and not na(recPct) and not na(recPoints) ? str.tostring(recPct, "#.##") + "% (~" + str.tostring(recPoints, format.mintick) + ")" : not usePercentMode and not na(recPct) ? str.tostring(recPoints, format.mintick) + " pts (~" + str.tostring(recPct, "#.##") + "%)" : str.tostring(recPoints, format.mintick) + " pts"
+    table.cell(tpTable, 1, 3, tpDisplay, text_color=color.white)
 
+    // Row 4: per-contract info (MES gets ticks + $, others get $)
     if isMES and not na(mesTicks) and not na(mesDollarsPerContract)
-        table.cell(tpTable, 0, 4, "MES TP/SL", text_color=color.white)
-        table.cell(tpTable, 1, 4, str.tostring(recPoints, format.mintick) + " pts ≈ " + str.tostring(mesTicks, "#") + " ticks ≈ $" + str.tostring(mesDollarsPerContract, "#"), text_color=color.white)
+        table.cell(tpTable, 0, 4, "Per ctr PnL", text_color=color.white)
+        table.cell(tpTable, 1, 4, str.tostring(recPoints, format.mintick) + " pts ≈ " + str.tostring(mesTicks, "#") + " t ≈ $" + str.tostring(mesDollarsPerContract, "#"), text_color=color.white)
+    else if perContractPnL > 0
+        table.cell(tpTable, 0, 4, "Per ctr PnL", text_color=color.white)
+        table.cell(tpTable, 1, 4, str.tostring(recPoints, format.mintick) + " pts ≈ $" + str.tostring(perContractPnL, "#"), text_color=color.white)
     else
         table.cell(tpTable, 0, 4, "")
         table.cell(tpTable, 1, 4, "")
+
+    // Row 5: contracts needed for target profit
+    if useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
+        table.cell(tpTable, 0, 5, "Size for $" + str.tostring(targetProfit, "#"), text_color=color.white)
+        table.cell(tpTable, 1, 5, "≈ " + str.tostring(contractsForTarget, "#") + " ctrs (@ $" + str.tostring(perContractPnL, "#") + "/ctr)", text_color=color.white)
+    else
+        table.cell(tpTable, 0, 5, "")
+        table.cell(tpTable, 1, 5, "")
 else if (not tpAdvisorEnabled or not showTPSLHud) and not na(tpTable)
-    table.clear(tpTable, 0, 0, 1, 4)
+    table.clear(tpTable, 0, 0, 1, 5)
 
 // ===== Thin historical markers (cheap, full-history context)
 plotshape(showHistoryShapes and (moxieCrossDown and fcsDn >= entryThresh),  title="FCS↓ mark", style=shape.triangledown, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
