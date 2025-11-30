@@ -110,6 +110,11 @@ targetProfit          = input.float(250.0, "Target profit per trade ($)", step=2
 useSizeAdvisor        = input.bool(true,   "Show contracts for target profit", group=groupTPSL)
 dollarsPerPointOverride = input.float(0.0, "Override $/point (0 = auto)", step=0.5, group=groupTPSL)
 
+// New: account & leverage advisor for crypto
+accountBalance   = input.float(200000.0, "Account balance ($)", step=100.0, group=groupTPSL)
+riskPctBalance   = input.float(1.0, "Risk per trade (% bal)", step=0.25, group=groupTPSL)
+useLevAdvisor    = input.bool(true, "Show leverage advisor (crypto)", group=groupTPSL)
+
 showTPSLOnLabels   = input.bool(false, "Show TP/SL suggestion on FCS labels", group=groupTPSL)
 showTPSLHud        = input.bool(true,  "Show TP/SL HUD (corner table)",       group=groupTPSL)
 
@@ -400,6 +405,20 @@ mesTickSize           = syminfo.mintick
 mesTicks              = isMES and mesTickSize > 0 ? recPoints / mesTickSize : na
 mesDollarsPerContract = isMES ? perContractPnL : na
 
+// === Crypto leverage & size advisor (for % mode) ===
+riskDollarBal = accountBalance * riskPctBalance / 100.0
+cryptoSlPct = usePercentMode and isMajorCrypto ? recPct : na
+slFrac      = not na(cryptoSlPct) and cryptoSlPct > 0 ? cryptoSlPct / 100.0 : na
+
+notionalForRisk = not na(slFrac) and riskDollarBal > 0 ? riskDollarBal / slFrac : na
+notionalForTP   = not na(slFrac) and targetProfit > 0 ? targetProfit / slFrac : na
+
+levForRisk = not na(notionalForRisk) and accountBalance > 0 ? notionalForRisk / accountBalance : na
+levForTP   = not na(notionalForTP)   and accountBalance > 0 ? notionalForTP   / accountBalance : na
+
+sizeCoinsRisk = not na(notionalForRisk) and close > 0 ? notionalForRisk / close : na
+sizeCoinsTP   = not na(notionalForTP)   and close > 0 ? notionalForTP   / close : na
+
 // === TP/SL debug plots ===
 plot(debugAtrSeries ? atrHTF         : na, title="ATR (HTF)",          color=color.new(color.orange, 0))
 plot(debugAtrSeries ? atrBaselineHTF : na, title="ATR baseline (HTF)", color=color.new(color.teal,   0))
@@ -451,7 +470,6 @@ fcsDn += (moxieProxy < 0 and slope(moxieProxy,3) < 0) ? wMoxieRun : 0
 fcsDn += ((ema21 - ema8) - nz((ema21 - ema8)[1]) + (ema34 - ema21) - nz((ema34 - ema21)[1]) > 0) ? wEMAGapAcc : 0
 fcsDn += (impulse and bearBody) ? wImpulse : 0
 fcsDn += earlyBoostDn ? wEarlyBoost : 0
-// scaled "too late" penalty
 tooLateDn = barsSinceDown > barsLateScaled
 fcsDn -= (tooLateDn ? wTooLate : 0)
 fcsDn -= ((close <= bandN3dn) and (low < bandN3dn) and closePct > 0.60) ? wTouchWick : 0
@@ -471,7 +489,6 @@ fcsUp += (moxieProxy > 0 and slope(moxieProxy,3) > 0) ? wMoxieRun : 0
 fcsUp += ((ema8 - ema21) - nz((ema8 - ema21)[1]) + (ema21 - ema34) - nz((ema21 - ema34)[1]) > 0) ? wEMAGapAcc : 0
 fcsUp += (impulse and bullBody) ? wImpulse : 0
 fcsUp += earlyBoostUp ? wEarlyBoost : 0
-// scaled "too late" penalty
 tooLateUp = barsSinceUp > barsLateScaled
 fcsUp -= (tooLateUp ? wTooLate : 0)
 fcsUp -= ((close >= bandP3up) and (high > bandP3up) and topWickPct > 0.60) ? wTouchWick : 0
@@ -486,7 +503,7 @@ if showTPSLOnLabels and tpAdvisorEnabled
     string tpLine = "TP/SL: " + tpCore + " (" + volRegimeLabel + ")"
     if isMES and not na(mesTicks) and not na(mesDollarsPerContract)
         tpLine += "\nMES≈" + str.tostring(mesTicks, "#") + "t / $" + str.tostring(mesDollarsPerContract, "#")
-    else if perContractPnL > 0
+    else if perContractPnL > 0 and not isMajorCrypto
         tpLine += "\n≈ $" + str.tostring(perContractPnL, "#") + " / ctr"
     fcsDnText += "\n" + tpLine
     fcsUpText += "\n" + tpLine
@@ -706,41 +723,59 @@ if logEnabled and na(t)
 
 // ===== TP/SL HUD table (top-right) =====
 var table tpTable = na
+var int   tpRows  = 0
 
 if tpAdvisorEnabled and showTPSLHud and barstate.islast
-    if na(tpTable)
-        // 6 rows: header + 3 core + 1 per-ctr + 1 size
-        tpTable := table.new(position.top_right, 2, 6)
+    bool showPerCtr  = not isMajorCrypto and perContractPnL > 0
+    bool showSizeRow = not isMajorCrypto and useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
+    bool showLevRows = useLevAdvisor and isMajorCrypto and usePercentMode and not na(slFrac)
+
+    int rowsNeeded = 4
+    rowsNeeded += showPerCtr  ? 1 : 0
+    rowsNeeded += showSizeRow ? 1 : 0
+    rowsNeeded += showLevRows ? 2 : 0
+
+    if na(tpTable) or tpRows != rowsNeeded
+        tpTable := table.new(position.top_right, 2, rowsNeeded)
+        tpRows  := rowsNeeded
         table.cell(tpTable, 0, 0, "Metric", text_color=color.white, bgcolor=color.new(color.silver, 25))
         table.cell(tpTable, 1, 0, "Value",  text_color=color.white, bgcolor=color.new(color.silver, 25))
-    table.cell(tpTable, 0, 1, "ATR regime", text_color=color.white)
-    table.cell(tpTable, 1, 1, volRegimeLabel + " (" + profileTPSL + ")", text_color=color.white)
-    table.cell(tpTable, 0, 2, "ATR (curr)", text_color=color.white)
-    table.cell(tpTable, 1, 2, str.tostring(atrHTF, format.mintick) + " (" + str.tostring(atrRatio, "#.##") + "×)", text_color=color.white)
-    table.cell(tpTable, 0, 3, "Rec TP/SL", text_color=color.white)
+
+    int r = 1
+    table.cell(tpTable, 0, r, "ATR regime", text_color=color.white)
+    table.cell(tpTable, 1, r, volRegimeLabel + " (" + profileTPSL + ")", text_color=color.white)
+    r += 1
+    table.cell(tpTable, 0, r, "ATR (curr)", text_color=color.white)
+    table.cell(tpTable, 1, r, str.tostring(atrHTF, format.mintick) + " (" + str.tostring(atrRatio, "#.##") + "×)", text_color=color.white)
+    r += 1
+    table.cell(tpTable, 0, r, "Rec TP/SL", text_color=color.white)
     string tpDisplay = usePercentMode and not na(recPct) and not na(recPoints) ? str.tostring(recPct, "#.##") + "% (~" + str.tostring(recPoints, format.mintick) + ")" : not usePercentMode and not na(recPct) ? str.tostring(recPoints, format.mintick) + " pts (~" + str.tostring(recPct, "#.##") + "%)" : str.tostring(recPoints, format.mintick) + " pts"
-    table.cell(tpTable, 1, 3, tpDisplay, text_color=color.white)
+    table.cell(tpTable, 1, r, tpDisplay, text_color=color.white)
+    r += 1
 
-    // Row 4: per-contract info (MES gets ticks + $, others get $)
-    if isMES and not na(mesTicks) and not na(mesDollarsPerContract)
-        table.cell(tpTable, 0, 4, "Per ctr PnL", text_color=color.white)
-        table.cell(tpTable, 1, 4, str.tostring(recPoints, format.mintick) + " pts ≈ " + str.tostring(mesTicks, "#") + " t ≈ $" + str.tostring(mesDollarsPerContract, "#"), text_color=color.white)
-    else if perContractPnL > 0
-        table.cell(tpTable, 0, 4, "Per ctr PnL", text_color=color.white)
-        table.cell(tpTable, 1, 4, str.tostring(recPoints, format.mintick) + " pts ≈ $" + str.tostring(perContractPnL, "#"), text_color=color.white)
-    else
-        table.cell(tpTable, 0, 4, "")
-        table.cell(tpTable, 1, 4, "")
+    if showPerCtr
+        table.cell(tpTable, 0, r, "Per ctr PnL", text_color=color.white)
+        if isMES and not na(mesTicks) and not na(mesDollarsPerContract)
+            table.cell(tpTable, 1, r, str.tostring(recPoints, format.mintick) + " pts ≈ " + str.tostring(mesTicks, "#") + " t ≈ $" + str.tostring(mesDollarsPerContract, "#"), text_color=color.white)
+        else
+            table.cell(tpTable, 1, r, str.tostring(recPoints, format.mintick) + " pts ≈ $" + str.tostring(perContractPnL, "#"), text_color=color.white)
+        r += 1
 
-    // Row 5: contracts needed for target profit
-    if useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
-        table.cell(tpTable, 0, 5, "Size for $" + str.tostring(targetProfit, "#"), text_color=color.white)
-        table.cell(tpTable, 1, 5, "≈ " + str.tostring(contractsForTarget, "#") + " ctrs (@ $" + str.tostring(perContractPnL, "#") + "/ctr)", text_color=color.white)
-    else
-        table.cell(tpTable, 0, 5, "")
-        table.cell(tpTable, 1, 5, "")
+    if showSizeRow
+        table.cell(tpTable, 0, r, "Size for $" + str.tostring(targetProfit, "#"), text_color=color.white)
+        table.cell(tpTable, 1, r, "≈ " + str.tostring(contractsForTarget, "#") + " ctrs (@ $" + str.tostring(perContractPnL, "#") + "/ctr)", text_color=color.white)
+        r += 1
+
+    if showLevRows
+        string levRiskStr = not na(levForRisk) and not na(sizeCoinsRisk) ? "L" + str.tostring(levForRisk, "#.##") + " (~" + str.tostring(sizeCoinsRisk, "#.###") + " " + baseUpper + ")" : ""
+        string levTPStr   = not na(levForTP)   and not na(sizeCoinsTP)   ? "L" + str.tostring(levForTP, "#.##")   + " (~" + str.tostring(sizeCoinsTP, "#.###")   + " " + baseUpper + ")" : ""
+        table.cell(tpTable, 0, r, "Lev for risk", text_color=color.white)
+        table.cell(tpTable, 1, r, levRiskStr, text_color=color.white)
+        r += 1
+        table.cell(tpTable, 0, r, "Lev for $" + str.tostring(targetProfit, "#"), text_color=color.white)
+        table.cell(tpTable, 1, r, levTPStr, text_color=color.white)
 else if (not tpAdvisorEnabled or not showTPSLHud) and not na(tpTable)
-    table.clear(tpTable, 0, 0, 1, 5)
+    table.clear(tpTable, 0, 0, 1, tpRows > 0 ? tpRows - 1 : 0)
 
 // ===== Thin historical markers (cheap, full-history context)
 plotshape(showHistoryShapes and (moxieCrossDown and fcsDn >= entryThresh),  title="FCS↓ mark", style=shape.triangledown, location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
