@@ -339,7 +339,7 @@ float effLow  = lowVolThreshold
 float effHigh = highVolThreshold
 
 if profileTPSL == "MNQ" or (profileTPSL == "Auto" and isMNQ)
-    effLow  := 0.90
+    effLow  := 1.10
     effHigh := 2.00
 else if profileTPSL == "SPX" or (profileTPSL == "Auto" and isSPX)
     effLow  := 0.80
