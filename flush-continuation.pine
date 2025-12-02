@@ -320,12 +320,19 @@ isSPX = str.contains(tickerUpper, "SPX") or rootUpper == "SPX"
 isMES = str.contains(tickerUpper, "MES") or rootUpper == "MES"
 isES  = str.contains(tickerUpper, "ES")  or rootUpper == "ES"
 
+// --- CRYPTO VS FUTURES MODE (updated) ---
 baseUpper = str.upper(syminfo.basecurrency)
 isBTC = baseUpper == "BTC"
 isETH = baseUpper == "ETH"
 isSOL = baseUpper == "SOL"
-isMajorCrypto = (syminfo.type == "crypto") and (isBTC or isETH or isSOL)
-usePercentMode = tpMode == "Percent (crypto)" or (tpMode == "Auto" and isMajorCrypto)
+
+// Treat only BTC/ETH/SOL as major crypto AND never treat MES as crypto
+isMajorCrypto = (syminfo.type == "crypto") and (isBTC or isETH or isSOL) and not isMES
+
+// Percent mode only if instrument is actually major crypto
+usePercentMode =
+     (tpMode == "Percent (crypto)" and isMajorCrypto) or
+     (tpMode == "Auto"             and isMajorCrypto)
 
 // Effective ATR thresholds
 float effLow  = lowVolThreshold
@@ -333,7 +340,7 @@ float effHigh = highVolThreshold
 
 if profileTPSL == "MNQ" or (profileTPSL == "Auto" and isMNQ)
     effLow  := 0.90
-    effHigh := 1.70
+    effHigh := 2.00
 else if profileTPSL == "SPX" or (profileTPSL == "Auto" and isSPX)
     effLow  := 0.80
     effHigh := 1.20
