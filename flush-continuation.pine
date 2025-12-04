@@ -75,8 +75,7 @@ groupScale = "Timeframe Scaling"
 baselineTFmin = input.int(3, "Baseline timeframe (minutes)", minval=1, group=groupScale)  // tuned on 3m
 scaleEnabled  = input.bool(true, "Auto-scale bar-based settings by timeframe", group=groupScale)
 
-// --- TP/SL Advisor (ATR-regime-based, in POINTS)
-// NOTE: 15 / 30 / 50 are tuned for **MNQ** (baseline).
+// --- TP/SL Advisor (MNQ Dynamic SL/TP 2.0) ---
 groupTPSL = "TP/SL Advisor"
 tpAdvisorEnabled   = input.bool(true,  "Enable TP/SL advisor", group=groupTPSL)
 tpAtrTF            = input.string("3", "TP/SL ATR timeframe (min)", group=groupTPSL)
@@ -85,39 +84,52 @@ atrBaselineLen     = input.int(200,    "ATR baseline length (bars)", minval=20, 
 lowVolThreshold    = input.float(0.80, "Base low vol: ATR / baseline <",  step=0.05, group=groupTPSL)
 highVolThreshold   = input.float(1.20, "Base high vol: ATR / baseline >=", step=0.05, group=groupTPSL)
 // Profile for tuned MNQ / SPX behaviour
-profileTPSL        = input.string("Auto", "ATR regime profile", options=["Auto","MNQ","SPX","Generic"], group=groupTPSL, tooltip="Auto: detect MNQ/SPX from symbol and use tuned thresholds (MNQ 0.9/1.7, SPX 0.8/1.2). Generic: use base thresholds above.")
+profileTPSL        = input.string("Auto", "ATR regime profile", options=["Auto","MNQ","SPX","Generic"], group=groupTPSL, tooltip="Auto: detect MNQ/SPX from symbol and use tuned thresholds (MNQ 1.10/2.00, SPX 0.8/1.2). Generic: use base thresholds above.")
 
+// Mode: percent (crypto) vs points (futures)
 tpMode = input.string("Auto", "TP/SL mode", options=["Auto","Points (futures)","Percent (crypto)"], group=groupTPSL)
+
+// Percent baselines (for crypto majors only)
 percentLowVol    = input.float(0.35, "Baseline Low vol TP/SL (%)",    step=0.05, group=groupTPSL)
 percentNormalVol = input.float(0.50, "Baseline Normal vol TP/SL (%)", step=0.05, group=groupTPSL)
 percentHighVol   = input.float(0.80, "Baseline High vol TP/SL (%)",   step=0.05, group=groupTPSL)
 
-// Baseline TP/SL in POINTS for **MNQ**
+// MNQ Dynamic SL/TP 2.0 baselines (UPDATED: Calm 16/20, Trend 22/35, High-Vol 28/40)
+mnqSlLowVol     = input.float(16.0, "MNQ Calm SL (Low ATR)",        step=0.25, group=groupTPSL)
+mnqSlNormalVol  = input.float(22.0, "MNQ Trend SL (Normal ATR)",    step=0.25, group=groupTPSL)
+mnqSlHighVol    = input.float(28.0, "MNQ High-Vol SL",              step=0.25, group=groupTPSL)
+
+mnqTpLowVol     = input.float(20.0, "MNQ Calm TP (Low ATR)",        step=0.25, group=groupTPSL)
+mnqTpNormalVol  = input.float(35.0, "MNQ Trend TP (Normal ATR)",    step=0.25, group=groupTPSL)
+mnqTpHighVol    = input.float(40.0, "MNQ High-Vol TP",              step=0.25, group=groupTPSL)
+
+// For non-MNQ futures, we still keep generic baselines (used as SL, TP=SL by default)
 pointsLowVol    = input.float(15.0, "Baseline Low vol TP/SL (MNQ pts)",    step=0.25, group=groupTPSL)
-pointsNormalVol = input.float(30.0, "Baseline Normal vol TP/SL (MNQ pts)", step=0.25, group=groupTPSL)
-pointsHighVol   = input.float(40.0, "Baseline High vol TP/SL (MNQ pts)",   step=0.25, group=groupTPSL)
+pointsNormalVol = input.float(20.0, "Baseline Normal vol TP/SL (MNQ pts)", step=0.25, group=groupTPSL)
+pointsHighVol   = input.float(30.0, "Baseline High vol TP/SL (MNQ pts)",   step=0.25, group=groupTPSL)
 
 // Symbol-specific scaling (× MNQ baseline)
 useSymbolScaling   = input.bool(true,  "Use symbol-specific TP/SL scaling", group=groupTPSL)
 mnqScale           = input.float(1.0,  "MNQ scale (× MNQ baseline)", step=0.05, group=groupTPSL)
-mesScale           = input.float(0.30, "MES scale (× MNQ baseline)", step=0.05, group=groupTPSL) // ~4.5/9/15
+mesScale           = input.float(0.30, "MES scale (× MNQ baseline)", step=0.05, group=groupTPSL)
 spxScale           = input.float(1.0,  "SPX scale (× MNQ baseline)", step=0.05, group=groupTPSL)
 esScale            = input.float(1.0,  "ES scale (× MNQ baseline)",  step=0.05, group=groupTPSL)
 otherScale         = input.float(1.0,  "Other symbols scale (× MNQ baseline)", step=0.05, group=groupTPSL)
 
-// New: sizing advisor
+// Sizing advisor
 targetProfit          = input.float(250.0, "Target profit per trade ($)", step=25.0, group=groupTPSL)
 useSizeAdvisor        = input.bool(true,   "Show contracts for target profit", group=groupTPSL)
 dollarsPerPointOverride = input.float(0.0, "Override $/point (0 = auto)", step=0.5, group=groupTPSL)
 
-// New: account & leverage advisor for crypto
+// Account & leverage advisor for crypto
 accountBalance   = input.float(200000.0, "Account balance ($)", step=100.0, group=groupTPSL)
 riskPctBalance   = input.float(1.0, "Risk per trade (% bal)", step=0.25, group=groupTPSL)
 useLevAdvisor    = input.bool(true, "Show leverage advisor (crypto)", group=groupTPSL)
 
+// Display options
 showTPSLOnLabels   = input.bool(false, "Show TP/SL suggestion on FCS labels", group=groupTPSL)
 showTPSLHud        = input.bool(true,  "Show TP/SL HUD (corner table)",       group=groupTPSL)
-show2RLine         = input.bool(true,  "Show TP@2R line on entries",          group=groupTPSL)
+show2RLine         = input.bool(true,  "Show TP line on entries (uses Rec TP)", group=groupTPSL)
 
 // Debug options for ATR regime
 debugAtrSeries = input.bool(false, "Debug: plot ATR & baseline", group=groupTPSL)
@@ -349,20 +361,19 @@ else if isMajorCrypto
     effHigh := 1.40
 // else: Generic → keep base thresholds
 
-// 0 = low, 1 = normal, 2 = high
+// 0 = low (Calm), 1 = normal (Trend), 2 = high (High-Vol)
 volRegime =
      not tpAdvisorEnabled ? 1 :
      atrRatio < effLow  ? 0 :
      atrRatio > effHigh ? 2 :
-     1
+                          1
 
-// Baseline MNQ points by regime
-basePoints =
-     volRegime == 0 ? pointsLowVol :
-     volRegime == 2 ? pointsHighVol :
-                      pointsNormalVol
+volRegimeLabel =
+     volRegime == 0 ? "Low" :
+     volRegime == 2 ? "High" :
+                      "Normal"
 
-// Symbol-specific scaling factor (relative to MNQ)
+// Symbol-specific scaling factor (relative to MNQ baselines)
 symScale =
      not useSymbolScaling ? 1.0 :
      isMNQ ? mnqScale :
@@ -371,26 +382,56 @@ symScale =
      isES  ? esScale  :
              otherScale
 
-// Baseline % TP/SL by regime (for crypto majors)
+// Percent baselines
 basePct =
      volRegime == 0 ? percentLowVol :
      volRegime == 2 ? percentHighVol :
                       percentNormalVol
 
-float recPoints = na
-float recPct    = na
+// === Recs: SL & TP in points (futures) or % (crypto) ===
+float recSlPoints = na
+float recTpPoints = na
+float recPoints   = na   // for backwards-compat (treated as TP distance)
+float recPct      = na
 
 if usePercentMode
-    recPct    := basePct
-    recPoints := close * recPct / 100.0
+    // Crypto majors → SL/TP in percent; here SL=TP by default
+    recPct      := basePct
+    recPoints   := close * recPct / 100.0
+    recSlPoints := recPoints
+    recTpPoints := recPoints
 else
-    recPoints := basePoints * symScale
-    recPct    := close > 0 ? (recPoints / close) * 100.0 : na
+    // FUTURES MODE
+    // 1) Pick baseline SL/TP in points (unscaled)
+    float baseSlPts = na
+    float baseTpPts = na
 
-volRegimeLabel =
-     volRegime == 0 ? "Low" :
-     volRegime == 2 ? "High" :
-                      "Normal"
+    if isMNQ
+        baseSlPts :=
+             volRegime == 0 ? mnqSlLowVol :
+             volRegime == 2 ? mnqSlHighVol :
+                              mnqSlNormalVol
+
+        baseTpPts :=
+             volRegime == 0 ? mnqTpLowVol :
+             volRegime == 2 ? mnqTpHighVol :
+                              mnqTpNormalVol
+    else
+        // Generic futures (MES, ES, SPX, etc) → 1:1 by default
+        float genericBase =
+             volRegime == 0 ? pointsLowVol :
+             volRegime == 2 ? pointsHighVol :
+                              pointsNormalVol
+        baseSlPts := genericBase
+        baseTpPts := genericBase
+
+    // 2) Apply symbol scaling
+    recSlPoints := baseSlPts * symScale
+    recTpPoints := baseTpPts * symScale
+
+    // For legacy downstream logic, treat recPoints as "TP distance"
+    recPoints := recTpPoints
+    recPct    := close > 0 ? (recPoints / close) * 100.0 : na
 
 // === $/point + per-contract PnL & contracts for target ===
 autoDollarsPerPoint =
@@ -403,20 +444,21 @@ autoDollarsPerPoint =
 dollarsPerPoint =
      dollarsPerPointOverride > 0 ? dollarsPerPointOverride : autoDollarsPerPoint
 
-perContractPnL = recPoints * dollarsPerPoint
+// Per contract PnL is based on TP distance
+perContractPnL = not na(recPoints) ? recPoints * dollarsPerPoint : na
 
-contractsForTargetRaw = (useSizeAdvisor and perContractPnL > 0) ? (targetProfit / perContractPnL) : na
+contractsForTargetRaw = (useSizeAdvisor and not na(perContractPnL) and perContractPnL > 0) ? (targetProfit / perContractPnL) : na
 contractsForTarget    = not na(contractsForTargetRaw) ? math.ceil(contractsForTargetRaw) : na
 
 // === MES-specific calculations (auto) ===
 mesTickSize           = syminfo.mintick
-mesTicks              = isMES and mesTickSize > 0 ? recPoints / mesTickSize : na
+mesTicks              = isMES and mesTickSize > 0 and not na(recPoints) ? recPoints / mesTickSize : na
 mesDollarsPerContract = isMES ? perContractPnL : na
 
 // === Crypto leverage & size advisor (for % mode) ===
 riskDollarBal = accountBalance * riskPctBalance / 100.0
-cryptoSlPct = usePercentMode and isMajorCrypto ? recPct : na
-slFrac      = not na(cryptoSlPct) and cryptoSlPct > 0 ? cryptoSlPct / 100.0 : na
+cryptoSlPct   = usePercentMode and isMajorCrypto ? recPct : na
+slFrac        = not na(cryptoSlPct) and cryptoSlPct > 0 ? cryptoSlPct / 100.0 : na
 
 notionalForRisk = not na(slFrac) and riskDollarBal > 0 ? riskDollarBal / slFrac : na
 notionalForTP   = not na(slFrac) and targetProfit > 0 ? targetProfit / slFrac : na
@@ -507,8 +549,13 @@ string fcsDnText = "FCS↓: " + str.tostring(fcsDn)
 string fcsUpText = "FCS↑: " + str.tostring(fcsUp)
 
 if showTPSLOnLabels and tpAdvisorEnabled
-    string tpCore = usePercentMode and not na(recPct) ? str.tostring(recPct, "#.##") + "% (~" + str.tostring(recPoints, format.mintick) + ")" : str.tostring(recPoints, format.mintick) + " pts"
-    string tpLine = "TP/SL: " + tpCore + " (" + volRegimeLabel + ")"
+    string tpLine = ""
+    if usePercentMode and not na(recPct)
+        tpLine := "TP/SL: " + str.tostring(recPct, "#.##") + "% (" + volRegimeLabel + ")"
+    else if not usePercentMode and not na(recSlPoints) and not na(recTpPoints)
+        tpLine := "SL: " + str.tostring(recSlPoints, format.mintick) + " / TP: " + str.tostring(recTpPoints, format.mintick) + " (" + volRegimeLabel + ")"
+    else
+        tpLine := "TP/SL: " + str.tostring(recPoints, format.mintick) + " (" + volRegimeLabel + ")"
     if isMES and not na(mesTicks) and not na(mesDollarsPerContract)
         tpLine += "\nMES≈" + str.tostring(mesTicks, "#") + "t / $" + str.tostring(mesDollarsPerContract, "#")
     else if perContractPnL > 0 and not isMajorCrypto
@@ -759,7 +806,7 @@ var table tpTable = na
 var int   tpRows  = 0
 
 if tpAdvisorEnabled and showTPSLHud and barstate.islast
-    bool showPerCtr  = not isMajorCrypto and perContractPnL > 0
+    bool showPerCtr  = not isMajorCrypto and not na(perContractPnL) and perContractPnL > 0
     bool showSizeRow = not isMajorCrypto and useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
     bool showLevRows = useLevAdvisor and isMajorCrypto and usePercentMode and not na(slFrac)
 
@@ -781,11 +828,17 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     table.cell(tpTable, 0, r, "ATR (curr)", text_color=color.white)
     table.cell(tpTable, 1, r, str.tostring(atrHTF, format.mintick) + " (" + str.tostring(atrRatio, "#.##") + "×)", text_color=color.white)
     r += 1
-    table.cell(tpTable, 0, r, "Rec TP/SL", text_color=color.white)
-    string tpDisplay = usePercentMode and not na(recPct) and not na(recPoints) ? str.tostring(recPct, "#.##") + "% (~" + str.tostring(recPoints, format.mintick) + ")" : not usePercentMode and not na(recPct) ? str.tostring(recPoints, format.mintick) + " pts (~" + str.tostring(recPct, "#.##") + "%)" : str.tostring(recPoints, format.mintick) + " pts"
+    table.cell(tpTable, 0, r, "Rec SL / TP", text_color=color.white)
+    string tpDisplay = ""
+    if usePercentMode and not na(recPct)
+        tpDisplay := str.tostring(recPct, "#.##") + "% (crypto mode)"
+    else if not na(recSlPoints) and not na(recTpPoints)
+        tpDisplay := "SL: " + str.tostring(recSlPoints, format.mintick) + " / TP: " + str.tostring(recTpPoints, format.mintick)
+    else
+        tpDisplay := "TP: " + str.tostring(recPoints, format.mintick)
     table.cell(tpTable, 1, r, tpDisplay, text_color=color.white)
     r += 1
-    table.cell(tpTable, 0, r, "TP@2R", text_color=color.white)
+    table.cell(tpTable, 0, r, "TP x2", text_color=color.white)
     string tp2RDisplay = "n/a"
     if not na(recPoints) and not na(recPct)
         if usePercentMode
