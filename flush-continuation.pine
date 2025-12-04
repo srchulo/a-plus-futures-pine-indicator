@@ -103,6 +103,15 @@ mnqTpLowVol     = input.float(20.0, "MNQ Calm TP (Low ATR)",        step=0.25, g
 mnqTpNormalVol  = input.float(35.0, "MNQ Trend TP (Normal ATR)",    step=0.25, group=groupTPSL)
 mnqTpHighVol    = input.float(40.0, "MNQ High-Vol TP",              step=0.25, group=groupTPSL)
 
+mnqMicroSl1 = input.float(10.0, "MNQ Ultra-Calm SL (pts)",   step=0.25, group=groupTPSL)
+mnqMicroTp1 = input.float(10.0, "MNQ Ultra-Calm TP (pts)",   step=0.25, group=groupTPSL)
+
+mnqMicroSl2 = input.float(12.0, "MNQ Very Calm SL (pts)",    step=0.25, group=groupTPSL)
+mnqMicroTp2 = input.float(12.0, "MNQ Very Calm TP (pts)",    step=0.25, group=groupTPSL)
+
+mnqMicroSl3 = input.float(15.0, "MNQ Calm Scalper SL (pts)", step=0.25, group=groupTPSL)
+mnqMicroTp3 = input.float(15.0, "MNQ Calm Scalper TP (pts)", step=0.25, group=groupTPSL)
+
 // For non-MNQ futures, we still keep generic baselines (used as SL, TP=SL by default)
 pointsLowVol    = input.float(15.0, "Baseline Low vol TP/SL (MNQ pts)",    step=0.25, group=groupTPSL)
 pointsNormalVol = input.float(20.0, "Baseline Normal vol TP/SL (MNQ pts)", step=0.25, group=groupTPSL)
@@ -416,12 +425,17 @@ float recTpPoints = na
 float recPoints   = na   // for backwards-compat (treated as TP distance)
 float recPct      = na
 
+// Tier label for HUD (MNQ micro-tier / generic)
+string tierLabel = "n/a"
+
 if usePercentMode
     // Crypto majors → SL/TP in percent; here SL=TP by default
     recPct      := basePct
     recPoints   := close * recPct / 100.0
     recSlPoints := recPoints
     recTpPoints := recPoints
+    // For crypto we just mirror ATR regime label
+    tierLabel   := volRegimeLabel
 else
     // FUTURES MODE
     // 1) Pick baseline SL/TP in points (unscaled)
@@ -429,15 +443,51 @@ else
     float baseTpPts = na
 
     if isMNQ
-        baseSlPts :=
-             volRegime == 0 ? mnqSlLowVol :
-             volRegime == 2 ? mnqSlHighVol :
-                              mnqSlNormalVol
+        // Use fast ATR as "recent speed" gauge; fallback to atrRatio
+        float microVol = na(fastAtrRatio) ? atrRatio : fastAtrRatio
 
-        baseTpPts :=
-             volRegime == 0 ? mnqTpLowVol :
-             volRegime == 2 ? mnqTpHighVol :
-                              mnqTpNormalVol
+        // MNQ ladder:
+        // - Ultra-Calm → 10/10
+        // - Very Calm → 12/12
+        // - Calm Scalper → 15/15
+        // - Calm → 16/20
+        // - Trend → 22/35
+        // - High-Vol → 28/40
+        if volRegime == 0
+            if microVol <= 0.75
+                baseSlPts := mnqMicroSl1
+                baseTpPts := mnqMicroTp1
+                tierLabel := "Ultra-Calm"
+            else if microVol <= 0.90
+                baseSlPts := mnqMicroSl2
+                baseTpPts := mnqMicroTp2
+                tierLabel := "Very Calm"
+            else if microVol <= 1.05
+                baseSlPts := mnqMicroSl3
+                baseTpPts := mnqMicroTp3
+                tierLabel := "Calm Scalper"
+            else
+                baseSlPts := mnqSlLowVol
+                baseTpPts := mnqTpLowVol
+                tierLabel := "Calm"
+        else if volRegime == 1
+            if microVol <= 0.90
+                // Normal by slow ATR, but tape is quiet → calm scalper
+                baseSlPts := mnqMicroSl3
+                baseTpPts := mnqMicroTp3
+                tierLabel := "Calm Scalper"
+            else if microVol <= 1.30
+                baseSlPts := mnqSlLowVol
+                baseTpPts := mnqTpLowVol
+                tierLabel := "Calm"
+            else
+                baseSlPts := mnqSlNormalVol
+                baseTpPts := mnqTpNormalVol
+                tierLabel := "Trend"
+        else
+            baseSlPts := mnqSlHighVol
+            baseTpPts := mnqTpHighVol
+            tierLabel := "High-Vol"
     else
         // Generic futures (MES, ES, SPX, etc) → 1:1 by default
         float genericBase =
@@ -446,6 +496,7 @@ else
                               pointsNormalVol
         baseSlPts := genericBase
         baseTpPts := genericBase
+        tierLabel := volRegimeLabel
 
     // 2) Apply symbol scaling
     recSlPoints := baseSlPts * symScale
@@ -833,7 +884,7 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     bool showSizeRow = not isMajorCrypto and useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
     bool showLevRows = useLevAdvisor and isMajorCrypto and usePercentMode and not na(slFrac)
 
-    int rowsNeeded = 6
+    int rowsNeeded = 7
     rowsNeeded += showPerCtr  ? 1 : 0
     rowsNeeded += showSizeRow ? 1 : 0
     rowsNeeded += showLevRows ? 2 : 0
@@ -853,6 +904,9 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     r += 1
     table.cell(tpTable, 0, r, "Fast ATR ratio", text_color=color.white)
     table.cell(tpTable, 1, r, str.tostring(fastAtrRatio, "#.##") + "×", text_color=color.white)
+    r += 1
+    table.cell(tpTable, 0, r, "TP/SL Tier", text_color=color.white)
+    table.cell(tpTable, 1, r, tierLabel,    text_color=color.white)
     r += 1
     table.cell(tpTable, 0, r, "Rec SL / TP", text_color=color.white)
     string tpDisplay = ""
