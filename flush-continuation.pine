@@ -93,9 +93,9 @@ percentNormalVol = input.float(0.50, "Baseline Normal vol TP/SL (%)", step=0.05,
 percentHighVol   = input.float(0.80, "Baseline High vol TP/SL (%)",   step=0.05, group=groupTPSL)
 
 // Baseline TP/SL in POINTS for **MNQ**
-pointsLowVol       = input.float(15.0, "Baseline Low vol TP/SL (MNQ pts)",    step=0.25, group=groupTPSL)
-pointsNormalVol    = input.float(30.0, "Baseline Normal vol TP/SL (MNQ pts)", step=0.25, group=groupTPSL)
-pointsHighVol      = input.float(50.0, "Baseline High vol TP/SL (MNQ pts)",   step=0.25, group=groupTPSL)
+pointsLowVol    = input.float(15.0, "Baseline Low vol TP/SL (MNQ pts)",    step=0.25, group=groupTPSL)
+pointsNormalVol = input.float(20.0, "Baseline Normal vol TP/SL (MNQ pts)", step=0.25, group=groupTPSL)
+pointsHighVol   = input.float(30.0, "Baseline High vol TP/SL (MNQ pts)",   step=0.25, group=groupTPSL)
 
 // Symbol-specific scaling (× MNQ baseline)
 useSymbolScaling   = input.bool(true,  "Use symbol-specific TP/SL scaling", group=groupTPSL)
