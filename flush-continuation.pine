@@ -135,6 +135,12 @@ show2RLine         = input.bool(true,  "Show TP line on entries (uses Rec TP)", 
 debugAtrSeries = input.bool(false, "Debug: plot ATR & baseline", group=groupTPSL)
 debugAtrRatio  = input.bool(false, "Debug: plot ATR ratio",      group=groupTPSL)
 
+// --- Fast ATR override (recent-vol sanity check) ---
+useFastAtrOverride = input.bool(true,  "Use fast ATR override (recent vol)", group=groupTPSL)
+fastAtrBaselineLen = input.int(50,     "Fast ATR baseline length (bars)",    minval=10, group=groupTPSL)
+fastHighConfirm    = input.float(1.15, "Fast ratio needed to CONFIRM High",  step=0.05, group=groupTPSL)
+fastLowBlock       = input.float(0.95, "Fast ratio needed to AVOID Low (< blocks Low)", step=0.05, group=groupTPSL)
+
 // --- Display & Logger
 groupDisp = "Display"
 minimalMode   = input.bool(false, "Minimal mode (show only MOX / EARLY / EXIT)", group=groupDisp)
@@ -323,6 +329,10 @@ atrHTF         = request.security(syminfo.tickerid, tpAtrTF, ta.atr(atrLen))
 atrBaselineHTF = request.security(syminfo.tickerid, tpAtrTF, ta.sma(ta.atr(atrLen), atrBaselineLen))
 atrRatio       = atrBaselineHTF > 0 ? atrHTF / atrBaselineHTF : 1.0
 
+// Fast ATR baseline (shorter memory → reacts to recent calm/rip)
+fastAtrBaselineHTF = request.security(syminfo.tickerid, tpAtrTF, ta.sma(ta.atr(atrLen), fastAtrBaselineLen))
+fastAtrRatio = fastAtrBaselineHTF > 0 ? atrHTF / fastAtrBaselineHTF : 1.0
+
 // Instrument detection for ATR profile + scaling
 tickerUpper = str.upper(syminfo.ticker)
 rootUpper   = str.upper(syminfo.root)
@@ -361,12 +371,24 @@ else if isMajorCrypto
     effHigh := 1.40
 // else: Generic → keep base thresholds
 
+// --- Vol regime with fast ATR override ---
 // 0 = low (Calm), 1 = normal (Trend), 2 = high (High-Vol)
-volRegime =
+int volRegimeCore =
      not tpAdvisorEnabled ? 1 :
      atrRatio < effLow  ? 0 :
      atrRatio > effHigh ? 2 :
                           1
+
+if tpAdvisorEnabled and useFastAtrOverride
+    // If slow ATR says HIGH but fast ratio isn't confirming, downgrade to Normal.
+    if volRegimeCore == 2 and fastAtrRatio < fastHighConfirm
+        volRegimeCore := 1
+
+    // If slow ATR says LOW but fast ratio is not that depressed, treat as Normal.
+    if volRegimeCore == 0 and fastAtrRatio > fastLowBlock
+        volRegimeCore := 1
+
+volRegime = volRegimeCore
 
 volRegimeLabel =
      volRegime == 0 ? "Low" :
@@ -473,6 +495,7 @@ sizeCoinsTP   = not na(notionalForTP)   and close > 0 ? notionalForTP   / close 
 plot(debugAtrSeries ? atrHTF         : na, title="ATR (HTF)",          color=color.new(color.orange, 0))
 plot(debugAtrSeries ? atrBaselineHTF : na, title="ATR baseline (HTF)", color=color.new(color.teal,   0))
 plot(debugAtrRatio  ? atrRatio       : na, title="ATR ratio",          color=color.new(color.yellow, 0))
+plot(debugAtrRatio  ? fastAtrRatio   : na, title="Fast ATR ratio",     color=color.new(color.fuchsia, 0))
 hline(lowVolThreshold,  "Low-vol threshold (base)",  color=color.new(color.green, 70))
 hline(highVolThreshold, "High-vol threshold (base)", color=color.new(color.red,   70))
 
@@ -810,7 +833,7 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     bool showSizeRow = not isMajorCrypto and useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
     bool showLevRows = useLevAdvisor and isMajorCrypto and usePercentMode and not na(slFrac)
 
-    int rowsNeeded = 5
+    int rowsNeeded = 6
     rowsNeeded += showPerCtr  ? 1 : 0
     rowsNeeded += showSizeRow ? 1 : 0
     rowsNeeded += showLevRows ? 2 : 0
@@ -827,6 +850,9 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     r += 1
     table.cell(tpTable, 0, r, "ATR (curr)", text_color=color.white)
     table.cell(tpTable, 1, r, str.tostring(atrHTF, format.mintick) + " (" + str.tostring(atrRatio, "#.##") + "×)", text_color=color.white)
+    r += 1
+    table.cell(tpTable, 0, r, "Fast ATR ratio", text_color=color.white)
+    table.cell(tpTable, 1, r, str.tostring(fastAtrRatio, "#.##") + "×", text_color=color.white)
     r += 1
     table.cell(tpTable, 0, r, "Rec SL / TP", text_color=color.white)
     string tpDisplay = ""
