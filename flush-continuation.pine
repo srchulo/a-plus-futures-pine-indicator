@@ -137,9 +137,9 @@ debugAtrRatio  = input.bool(false, "Debug: plot ATR ratio",      group=groupTPSL
 
 // --- Fast ATR override (recent-vol sanity check) ---
 useFastAtrOverride = input.bool(true,  "Use fast ATR override (recent vol)", group=groupTPSL)
-fastAtrBaselineLen = input.int(50,     "Fast ATR baseline length (bars)",    minval=10, group=groupTPSL)
-fastHighConfirm    = input.float(1.15, "Fast ratio needed to CONFIRM High",  step=0.05, group=groupTPSL)
-fastLowBlock       = input.float(0.95, "Fast ratio needed to AVOID Low (< blocks Low)", step=0.05, group=groupTPSL)
+fastAtrBaselineLen = input.int(25,     "Fast ATR baseline length (bars)",    minval=10, group=groupTPSL)
+fastHighConfirm    = input.float(1.25, "Fast ratio needed to CONFIRM High",  step=0.05, group=groupTPSL)
+fastLowBlock       = input.float(0.9, "Fast ratio needed to AVOID Low (< blocks Low)", step=0.05, group=groupTPSL)
 
 // --- Display & Logger
 groupDisp = "Display"
