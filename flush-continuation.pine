@@ -172,6 +172,11 @@ groupLog = "Event Logger"
 logEnabled    = input.bool(false, "Show on-chart event log (table)", group=groupLog)
 logRows       = input.int(8, "Rows to keep", minval=3, maxval=20, group=groupLog)
 
+// --- Data logging for Simons-mode (CSV via alert) ---
+groupData      = "Data Logging (Simons Mode)"
+dataLogEnabled = input.bool(false, "Enable entry CSV alerts", group=groupData, tooltip="ON = one alert() per FCS entry with CSV row for offline analysis. Create a TradingView alert with 'Any alert() function call'.")
+dataLogTag     = input.string("FLUSH", "Log tag prefix", group=groupData)
+
 // ===== Logger vars + function =====
 var table t = na
 var int   logIdx = 0
@@ -576,6 +581,54 @@ bearDiv = (close > close[5]) and (rsi < rsi[5])
 barsSinceDown = ta.barssince(moxieCrossDown)
 barsSinceUp   = ta.barssince(moxieCrossUp)
 
+// === Data logging helper (Simons-mode CSV row) ===
+makeLogRow(_dir, _fcs, _barsSinceCross) =>
+    dirVal = _dir
+    tmin   = hour * 60 + minute
+
+    // Ribbon state: 1 = strong bull, -1 = strong bear, 0 = mixed
+    ribbonState =
+         (ribbonBull and ribbonSlopeUp) ? 1 :
+         (ribbonBear and ribbonSlopeDn) ? -1 : 0
+
+    mSlope = slope(moxieProxy, 3)
+    moxState =
+         moxieProxy > 0 and mSlope > 0  ?  2 :
+         moxieProxy > 0 and mSlope <= 0 ?  1 :
+         moxieProxy < 0 and mSlope < 0  ? -2 : -1
+
+    fmStateVal   = currFmState
+    impVal       = impulse    ? 1 : 0
+    volThrustVal = volThrust  ? 1 : 0
+    vwapAlign    = (dirVal == 1 ? (close > vwapSess) : (close < vwapSess)) ? 1 : 0
+
+    // time = UNIX ms of bar close. We'll parse in Python.
+    tsStr = str.tostring(time)
+
+    // Build CSV row
+    dataLogTag + "," +
+      syminfo.ticker + "," +
+      timeframe.period + "," +
+      tsStr + "," +
+      str.tostring(bar_index) + "," +
+      str.tostring(tmin) + "," +
+      str.tostring(dirVal) + "," +
+      str.tostring(volRegime) + "," +
+      str.tostring(atrRatio, "#.###") + "," +
+      str.tostring(fastAtrRatio, "#.###") + "," +
+      tierLabel + "," +
+      str.tostring(_fcs) + "," +
+      str.tostring(_barsSinceCross) + "," +
+      str.tostring(impVal) + "," +
+      str.tostring(volThrustVal) + "," +
+      str.tostring(ribbonState) + "," +
+      str.tostring(vwapAlign) + "," +
+      str.tostring(moxState) + "," +
+      str.tostring(fmStateVal) + "," +
+      str.tostring(close, format.mintick) + "," +
+      str.tostring(recSlPoints, format.mintick) + "," +
+      str.tostring(recTpPoints, format.mintick)
+
 // ===== Continuation Scores (down & up) =====
 fastDelta = ema21 - ema8
 avgDelta  = ta.sma(fastDelta, 20)
@@ -717,6 +770,10 @@ if (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
         label.new(bar_index, high, "MOX↓ set: " + str.tostring(shortMOX),
                   style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
     logIdx := logDo("SHORT", "ENTRY", close, fcsDn, NAf, NAf, logIdx)
+    // DATA LOG: CSV alert for short entry
+    if dataLogEnabled
+        rowShort = makeLogRow(-1, fcsDn, barsSinceDown)
+        alert(rowShort, alert.freq_once_per_bar_close)
 
 if (barsSinceUp <= 2) and (fcsUp >= entryThresh) and fmGateLong
     inLong  := true
@@ -734,6 +791,10 @@ if (barsSinceUp <= 2) and (fcsUp >= entryThresh) and fmGateLong
         label.new(bar_index, low, "MOX↑ set: " + str.tostring(longMOX),
                   style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
     logIdx := logDo("LONG", "ENTRY", close, fcsUp, NAf, NAf, logIdx)
+    // DATA LOG: CSV alert for long entry
+    if dataLogEnabled
+        rowLong = makeLogRow(1, fcsUp, barsSinceUp)
+        alert(rowLong, alert.freq_once_per_bar_close)
 
 // ===== Reversal Strength & Trend Continuation
 tcsDown = 0
@@ -905,6 +966,7 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     table.cell(tpTable, 0, r, "Fast ATR ratio", text_color=color.white)
     table.cell(tpTable, 1, r, str.tostring(fastAtrRatio, "#.##") + "×", text_color=color.white)
     r += 1
+    // Tier row (Ultra-Calm / Very Calm / Calm Scalper / Calm / Trend / High-Vol / etc)
     table.cell(tpTable, 0, r, "TP/SL Tier", text_color=color.white)
     table.cell(tpTable, 1, r, tierLabel,    text_color=color.white)
     r += 1
