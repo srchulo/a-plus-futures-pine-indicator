@@ -146,7 +146,7 @@ debugAtrRatio  = input.bool(false, "Debug: plot ATR ratio",      group=groupTPSL
 
 // --- Fast ATR override (recent-vol sanity check) ---
 useFastAtrOverride = input.bool(true,  "Use fast ATR override (recent vol)", group=groupTPSL)
-fastAtrBaselineLen = input.int(25,     "Fast ATR baseline length (bars)",    minval=10, group=groupTPSL)
+fastAtrBaselineLen = input.int(15,     "Fast ATR baseline length (bars)",    minval=10, group=groupTPSL)
 fastHighConfirm    = input.float(1.25, "Fast ratio needed to CONFIRM High",  step=0.05, group=groupTPSL)
 fastLowBlock       = input.float(0.9, "Fast ratio needed to AVOID Low (< blocks Low)", step=0.05, group=groupTPSL)
 
@@ -338,6 +338,10 @@ vwapSess  = ta.vwap(close)
 atr       = ta.atr(atrLen)
 atrMed    = ta.sma(atr, 200)
 
+// Local ATR regime on the chart timeframe (for micro-vol sanity check)
+atrBaselineLoc = ta.sma(atr, atrBaselineLen)
+atrRatioLocal  = atrBaselineLoc > 0 ? atr / atrBaselineLoc : 1.0
+
 // ===== ATR regime & TP/SL recommendation (POINTS, fixed TF) =====
 atrHTF         = request.security(syminfo.tickerid, tpAtrTF, ta.atr(atrLen))
 atrBaselineHTF = request.security(syminfo.tickerid, tpAtrTF, ta.sma(ta.atr(atrLen), atrBaselineLen))
@@ -448,17 +452,31 @@ else
     float baseTpPts = na
 
     if isMNQ
-        // Use fast ATR as "recent speed" gauge; fallback to atrRatio
-        float microVol = na(fastAtrRatio) ? atrRatio : fastAtrRatio
+        // 1) ATR-based micro speed (HTF + local)
+        float microVolRaw   = na(fastAtrRatio) ? atrRatio : fastAtrRatio
+        float microVolLocal = na(atrRatioLocal) ? microVolRaw : math.min(microVolRaw, atrRatioLocal)
+        float microVolAtr   = math.max(microVolLocal, 0.01)  // safety floor
 
-        // MNQ ladder:
-        // - Ultra-Calm → 10/10
-        // - Very Calm → 12/12
-        // - Calm Scalper → 15/15
-        // - Calm → 16/20
-        // - Trend → 22/35
-        // - High-Vol → 28/40
-        if volRegime == 0
+        // 2) Range-based micro speed: how big are candles vs Calm Scalper TP (15 pts)
+        float avgRange10 = ta.sma(high - low, 10)
+        float rangeRatio = (not na(avgRange10) and mnqMicroTp3 > 0.0) ? (avgRange10 / mnqMicroTp3) : 1.0
+
+        // Final micro-vol signal: respect BOTH ATR and absolute bar size
+        float microVol = math.min(microVolAtr, rangeRatio)
+
+        // === Unified MNQ ladder ===
+        // If truly high vol, skip straight to High-Vol tier.
+        if volRegime == 2
+            baseSlPts := mnqSlHighVol
+            baseTpPts := mnqTpHighVol
+            tierLabel := "High-Vol"
+        else
+            // Non-high regimes (Low/Normal) → full micro ladder:
+            // - Ultra-Calm    → 10/10   (tiny tape)
+            // - Very Calm     → 12/12
+            // - Calm Scalper  → 15/15
+            // - Calm          → 16/20
+            // - Trend         → 22/35
             if microVol <= 0.75
                 baseSlPts := mnqMicroSl1
                 baseTpPts := mnqMicroTp1
@@ -471,16 +489,6 @@ else
                 baseSlPts := mnqMicroSl3
                 baseTpPts := mnqMicroTp3
                 tierLabel := "Calm Scalper"
-            else
-                baseSlPts := mnqSlLowVol
-                baseTpPts := mnqTpLowVol
-                tierLabel := "Calm"
-        else if volRegime == 1
-            if microVol <= 0.90
-                // Normal by slow ATR, but tape is quiet → calm scalper
-                baseSlPts := mnqMicroSl3
-                baseTpPts := mnqMicroTp3
-                tierLabel := "Calm Scalper"
             else if microVol <= 1.30
                 baseSlPts := mnqSlLowVol
                 baseTpPts := mnqTpLowVol
@@ -489,10 +497,6 @@ else
                 baseSlPts := mnqSlNormalVol
                 baseTpPts := mnqTpNormalVol
                 tierLabel := "Trend"
-        else
-            baseSlPts := mnqSlHighVol
-            baseTpPts := mnqTpHighVol
-            tierLabel := "High-Vol"
     else
         // Generic futures (MES, ES, SPX, etc) → 1:1 by default
         float genericBase =
