@@ -146,6 +146,8 @@ mnqEthMiniSl       = input.float(5.0,  "MNQ ETH mini SL (pts)", step=0.25, group
 mnqEthMiniTp       = input.float(5.0,  "MNQ ETH mini TP (pts)", step=0.25, group=groupSess)
 mnqMinRthTp        = input.float(8.0,  "MNQ min TP (RTH, pts) – block below", step=0.25, group=groupSess)
 mnqMinEthTp        = input.float(6.0,  "MNQ min TP (ETH, pts) – block below", step=0.25, group=groupSess)
+mnqDeadRangePts    = input.float(4.0,  "MNQ dead-tape avg range ≤ (pts)", step=0.25, group=groupSess)
+mnqMiniRangePts    = input.float(7.0,  "MNQ mini-tier avg range ≤ (pts)", step=0.25, group=groupSess)
 
 // Display options
 showTPSLOnLabels   = input.bool(false, "Show TP/SL suggestion on FCS labels", group=groupTPSL)
@@ -485,45 +487,42 @@ else
     float baseTpPts = na
 
     if isMNQ
-        // 1) ATR-based micro speed (HTF + local)
+        // 1) Recent absolute range (last N bars), in points
+        float avgRangeFastPts = ta.sma(high - low, mnqRangeLenFast)
+
+        // 2) ATR-based micro speed (HTF + local)
         float microVolRaw   = na(fastAtrRatio) ? atrRatio : fastAtrRatio
         float microVolLocal = na(atrRatioLocal) ? microVolRaw : math.min(microVolRaw, atrRatioLocal)
         float microVolAtr   = math.max(microVolLocal, 0.01)  // safety floor
 
-        // 2) Range-based micro speed (RECENT candles vs Calm Scalper TP (15 pts))
-        float avgRangeFast  = ta.sma(high - low, mnqRangeLenFast)
-        float rangeRatioFast = (not na(avgRangeFast) and mnqMicroTp3 > 0.0) ? (avgRangeFast / mnqMicroTp3) : 1.0
+        // 3) Relative range vs Calm Scalper TP (15 pts) – still used for normal tiers
+        float rangeRatioFast = (not na(avgRangeFastPts) and mnqMicroTp3 > 0.0) ? (avgRangeFastPts / mnqMicroTp3) : 1.0
 
-        // 3) Build two views:
-        //    - microVolFast = "either ATR OR range says fast"  (for High-Vol promotion)
-        //    - microVolSlow = "both ATR AND recent range say slow" (for tier mapping)
-        float microVolFast = math.max(microVolAtr, rangeRatioFast)
-        float microVolSlow = math.min(microVolAtr, rangeRatioFast)
-
-        // --- DEAD TAPE vs MINI TIER LOGIC ---
-        // Dead tape (≈ 3–4 pt candles): recent range tiny AND ATR quite suppressed.
-        bool deadCandidate = useEthMiniTier and rangeRatioFast <= 0.30 and atrRatioLocal < 0.75
+        // --- DEAD TAPE vs MINI TIER LOGIC (absolute) ---
+        // Dead tape: avg range ≤ mnqDeadRangePts → effectively “3/3 world” → no trades.
+        bool deadCandidate = useEthMiniTier and not na(avgRangeFastPts) and avgRangeFastPts <= mnqDeadRangePts
         isDeadEthTape := deadCandidate
 
-        // Promote very fast tapes to High-Vol regardless of slow ATR regime.
-        bool promoteToHigh = microVolFast >= 1.60
+        // Mini tier: tape very slow but not totally dead (e.g. 4–7 pts avg).
+        bool useEthMiniNow = useEthMiniTier and not isDeadEthTape and not na(avgRangeFastPts) and avgRangeFastPts <= mnqMiniRangePts
 
-        // Use the *slow* view for tier selection so tiny candles don't get a big TP/SL.
-        float microVol = promoteToHigh ? microVolFast : microVolSlow
+        // 4) “Fast” view only for High-Vol promotion
+        float microVolFast = math.max(microVolAtr, rangeRatioFast)
+        bool  promoteToHigh = microVolFast >= 1.60
+
+        // 5) “Slow” view for normal tier mapping
+        float microVolSlow = math.min(microVolAtr, rangeRatioFast)
+        float microVol     = promoteToHigh ? microVolFast : microVolSlow
 
         if volRegime == 2 or promoteToHigh
             baseSlPts := mnqSlHighVol
             baseTpPts := mnqTpHighVol
             tierLabel := "High-Vol"
         else
-            // Mini tier (5/5) when tape is very slow, but not totally dead
-            // rangeRatioFast ≤ 0.45 (~6–7pt avg vs 15pt baseline) AND local ATR depressed.
-            bool useEthMiniNow = useEthMiniTier and not isDeadEthTape and rangeRatioFast <= 0.45 and atrRatioLocal < 0.85
-
             if useEthMiniNow
                 baseSlPts := mnqEthMiniSl
                 baseTpPts := mnqEthMiniTp
-                tierLabel := "Mini"
+                tierLabel := "ETH Mini"
             else if microVol <= 0.55
                 baseSlPts := mnqMicroSl1
                 baseTpPts := mnqMicroTp1
@@ -565,7 +564,7 @@ else
 // --- TP/SL sanity: block trades if recommended TP is below session floor ---
 bool tooSmallPts = false
 if isMNQ and not na(recTpPoints)
-    tooSmallPts :=
+    tooSmallPts := 
          (isRTH     and recTpPoints < mnqMinRthTp) or
          (isETHSess and recTpPoints < mnqMinEthTp)
 
@@ -1196,6 +1195,6 @@ if is_live and isFlushLong and not flushLongAlertFired
     float tpPtsL = na(recTpPoints) ? 0.0 : recTpPoints
     [slPriceLong, tpPriceLong] = getSlTpPrices(1, close, slPtsL, tpPtsL)
 
-    string msgLong = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + "","tf\":\"" + timeframe.period + "\"," + "\"time\":" + str.tostring(time) + ",\"bar_index\":" + str.tostring(bar_index) + ",\"dir\":1,\"price\":" + str.tostring(close, format.mintick) + ",\"sl_points\":" + str.tostring(slPtsL, format.mintick) + ",\"tp_points\":" + str.tostring(tpPtsL, format.mintick) + ",\"sl_price\":" + (na(slPriceLong) ? "null" : str.tostring(slPriceLong, format.mintick)) + ",\"tp_price\":" + (na(tpPriceLong) ? "null" : str.tostring(tpPriceLong, format.mintick)) + ",\"vol_regime\":" + str.tostring(volRegime) + ",\"tier\":\"" + tierLabel + "\",\"atr\":" + str.tostring(atr, format.mintick) + ",\"atr_ratio\":" + str.tostring(atrRatio, "#.###") + ",\"fast_atr_ratio\":" + str.tostring(fastAtrRatio, "#.###") + ",\"fcs\":" + str.tostring(fcsUp) + ",\"bars_since_cross\":" + str.tostring(barsSinceUp) + ",\"mox_val\":" + str.tostring(moxieProxy, format.mintick) + ",\"mox_slope\":" + str.tostring(moxSlope3, format.mintick) + ",\"mox_state\":" + str.tostring(moxStateBot) + ",\"band_pos\":" + str.tostring(bandPos, "#.###") + ",\"fm_state\":" + str.tostring(currFmState) + "}"
+    string msgLong = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","time":' + str.tostring(time) + ',"bar_index":' + str.tostring(bar_index) + ',"dir":1,"price":' + str.tostring(close, format.mintick) + ',"sl_points":' + str.tostring(slPtsL, format.mintick) + ',"tp_points":' + str.tostring(tpPtsL, format.mintick) + ',"sl_price":' + (na(slPriceLong) ? "null" : str.tostring(slPriceLong, format.mintick)) + ',"tp_price":' + (na(tpPriceLong) ? "null" : str.tostring(tpPriceLong, format.mintick)) + ',"vol_regime":' + str.tostring(volRegime) + ',"tier":"' + tierLabel + '","atr":' + str.tostring(atr, format.mintick) + ',"atr_ratio":' + str.tostring(atrRatio, "#.###") + ',"fast_atr_ratio":' + str.tostring(fastAtrRatio, "#.###") + ',"fcs":' + str.tostring(fcsUp) + ',"bars_since_cross":' + str.tostring(barsSinceUp) + ',"mox_val":' + str.tostring(moxieProxy, format.mintick) + ',"mox_slope":' + str.tostring(moxSlope3, format.mintick) + ',"mox_state":' + str.tostring(moxStateBot) + ',"band_pos":' + str.tostring(bandPos, "#.###") + ',"fm_state":' + str.tostring(currFmState) + "}"
     
     alert(msgLong, alert.freq_once_per_bar)
