@@ -88,6 +88,10 @@ profileTPSL        = input.string("Auto", "ATR regime profile", options=["Auto",
 
 mnqRangeLenFast = input.int(5, "MNQ recent range len (bars)", minval=2, maxval=20, group=groupTPSL)
 
+// Range-based TP/SL cap (uses recent candle range)
+useRangeHardCap = input.bool(true, "Use range-based hard cap", group=groupTPSL)
+rangeCapMult    = input.float(2.2, "Cap = N × recent range (avgRangeFast)", step=0.1, group=groupTPSL)
+
 // Mode: percent (crypto) vs points (futures)
 tpMode = input.string("Auto", "TP/SL mode", options=["Auto","Points (futures)","Percent (crypto)"], group=groupTPSL)
 
@@ -582,6 +586,15 @@ else
     // For legacy downstream logic, treat recPoints as "TP distance"
     recPoints := recTpPoints
     recPct    := close > 0 ? (recPoints / close) * 100.0 : na
+
+// --- Range-based hard cap on TP/SL (optional, futures mode only) ---
+if not usePercentMode and useRangeHardCap and not na(avgRangeFast)
+    float cap = avgRangeFast * rangeCapMult
+    if cap > 0
+        recSlPoints := math.min(recSlPoints, cap)
+        recTpPoints := math.min(recTpPoints, cap)
+        recPoints   := recTpPoints
+        recPct      := close > 0 ? (recPoints / close) * 100.0 : na
 
 // --- TP/SL sanity: block trades if recommended TP is below session floor ---
 bool tooSmallPts = false
