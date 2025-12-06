@@ -221,7 +221,7 @@ fmNeutralBand = input.float(1.5,  "Neutral band (|osc| ≤, treated as flat)", g
 fmTrendStrength = input.float(0.5, "History trend fraction (0–1)", minval=0.34, maxval=1.0, step=0.01, group=groupFM)
 fmUseSignGate = input.bool(false, "Require FlushMomentum to be above/below zero", group=groupFM, tooltip="If ON: shorts require osc<0 and longs osc>0. If OFF: use only trend + neutral band.")
 fmSharpMult   = input.float(1.0,  "Sharp turn multiplier on strong threshold", group=groupFM, tooltip="Reserved for future tweaks.")
-minFmStateBars = input.int(1, "Min bars FM state must persist", minval=0, group=groupFM)
+minFmStateBars = input.int(3, "Min bars FM state must persist", minval=0, group=groupFM)
 showFMPlots   = input.bool(false, "Debug: plot FlushMomentum & Moxie proxy", group=groupFM)
 showFMDots    = input.bool(false, "Show FM gate markers on chart", group=groupFM)
 fmMode        = input.string("Strict", "FM mode",
