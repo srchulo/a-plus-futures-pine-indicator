@@ -86,6 +86,8 @@ highVolThreshold   = input.float(1.20, "Base high vol: ATR / baseline >=", step=
 // Profile for tuned MNQ / SPX behaviour
 profileTPSL        = input.string("Auto", "ATR regime profile", options=["Auto","MNQ","SPX","Generic"], group=groupTPSL, tooltip="Auto: detect MNQ/SPX from symbol and use tuned thresholds (MNQ 1.10/2.00, SPX 0.8/1.2). Generic: use base thresholds above.")
 
+mnqRangeLenFast = input.int(5, "MNQ recent range len (bars)", minval=2, maxval=20, group=groupTPSL)
+
 // Mode: percent (crypto) vs points (futures)
 tpMode = input.string("Auto", "TP/SL mode", options=["Auto","Points (futures)","Percent (crypto)"], group=groupTPSL)
 
@@ -488,34 +490,40 @@ else
         float microVolLocal = na(atrRatioLocal) ? microVolRaw : math.min(microVolRaw, atrRatioLocal)
         float microVolAtr   = math.max(microVolLocal, 0.01)  // safety floor
 
-        // 2) Range-based micro speed: how big are candles vs Calm Scalper TP (15 pts)
-        float avgRange10 = ta.sma(high - low, 10)
-        float rangeRatio = (not na(avgRange10) and mnqMicroTp3 > 0.0) ? (avgRange10 / mnqMicroTp3) : 1.0
+        // 2) Range-based micro speed (RECENT candles vs Calm Scalper TP (15 pts))
+        float avgRangeFast  = ta.sma(high - low, mnqRangeLenFast)
+        float rangeRatioFast = (not na(avgRangeFast) and mnqMicroTp3 > 0.0) ? (avgRangeFast / mnqMicroTp3) : 1.0
 
-        // 3) Final micro-vol signal (aggressive: if either ATR OR range says "fast", treat as fast)
-        float microVol = math.max(microVolAtr, rangeRatio)
+        // 3) Build two views:
+        //    - microVolFast = "either ATR OR range says fast"  (for High-Vol promotion)
+        //    - microVolSlow = "both ATR AND recent range say slow" (for tier mapping)
+        float microVolFast = math.max(microVolAtr, rangeRatioFast)
+        float microVolSlow = math.min(microVolAtr, rangeRatioFast)
 
-        // --- ETH tape-dead logic ---
-        // If tape is so dead we'd really want < 5/5, we just BLOCK trades (no mini tier).
-        bool deadCandidate = useEthMiniTier and microVol <= 0.22 and atrRatioLocal < 0.50
+        // --- DEAD TAPE vs MINI TIER LOGIC ---
+        // Dead tape (≈ 3–4 pt candles): recent range tiny AND ATR quite suppressed.
+        bool deadCandidate = useEthMiniTier and rangeRatioFast <= 0.30 and atrRatioLocal < 0.75
         isDeadEthTape := deadCandidate
 
         // Promote very fast tapes to High-Vol regardless of slow ATR regime.
-        bool promoteToHigh = microVol >= 1.60
+        bool promoteToHigh = microVolFast >= 1.60
+
+        // Use the *slow* view for tier selection so tiny candles don't get a big TP/SL.
+        float microVol = promoteToHigh ? microVolFast : microVolSlow
 
         if volRegime == 2 or promoteToHigh
             baseSlPts := mnqSlHighVol
             baseTpPts := mnqTpHighVol
             tierLabel := "High-Vol"
         else
-            // ETH mini tier: only during ETH, not dead, and very slow tape.
-            // microVol ≤ 0.40 AND local ATR ratio < 0.70 → use 5/5.
-            bool useEthMiniNow = useEthMiniTier and not isDeadEthTape and microVol <= 0.40 and atrRatioLocal < 0.70
+            // Mini tier (5/5) when tape is very slow, but not totally dead
+            // rangeRatioFast ≤ 0.45 (~6–7pt avg vs 15pt baseline) AND local ATR depressed.
+            bool useEthMiniNow = useEthMiniTier and not isDeadEthTape and rangeRatioFast <= 0.45 and atrRatioLocal < 0.85
 
             if useEthMiniNow
                 baseSlPts := mnqEthMiniSl
                 baseTpPts := mnqEthMiniTp
-                tierLabel := "ETH Mini"
+                tierLabel := "Mini"
             else if microVol <= 0.55
                 baseSlPts := mnqMicroSl1
                 baseTpPts := mnqMicroTp1
