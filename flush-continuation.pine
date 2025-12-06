@@ -1031,3 +1031,73 @@ plot(showFMPlots ? moxieProxy : na, title="Moxie proxy (EMA close−34)", color=
 
 plotshape(showFMDots and fmGateShort, title="FM Gate Short", style=shape.circle,  location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
 plotshape(showFMDots and fmGateLong,  title="FM Gate Long",  style=shape.circle,  location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
+
+// === Extra features for bot / logging ===
+// Position of close relative to 21 EMA in ATR units (0 = at EMA21, 3 ≈ +3ATR, -3 ≈ -3ATR)
+float bandPos = atr > 0 ? (close - ema21) / atr : 0.0
+
+// Moxie 3-bar slope + state (same idea as makeLogRow)
+float moxSlope3 = slope(moxieProxy, 3)
+int   moxStateBot =
+     moxieProxy > 0 and moxSlope3 > 0  ?  2 :
+     moxieProxy > 0 and moxSlope3 <= 0 ?  1 :
+     moxieProxy < 0 and moxSlope3 < 0  ? -2 : -1
+
+// =====================================================================
+// ============== INTRABAR BOT ALERTS (MNQ FLUSH ENTRIES) ==============
+// =====================================================================
+
+// Signal definitions aligned with your entry logic:
+isFlushShort = (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
+isFlushLong  = (barsSinceUp   <= 2) and (fcsUp >= entryThresh) and fmGateLong
+
+// Only fire on live bars (no historical spam)
+bool is_live = barstate.isrealtime
+
+// Per-bar alert guards so we don't spam multiple times per bar
+var bool flushShortAlertFired = false
+var bool flushLongAlertFired  = false
+
+// Reset once per new bar
+if barstate.isnew
+    flushShortAlertFired := false
+    flushLongAlertFired  := false
+
+// ---- Helper for SL/TP prices based on recSlPoints / recTpPoints ----
+getSlTpPrices(dir, entryPrice, slPts, tpPts) =>
+    float slP = na
+    float tpP = na
+    if not na(entryPrice) and not na(slPts) and not na(tpPts)
+        if dir == -1
+            // Short: SL above, TP below
+            slP := entryPrice + slPts
+            tpP := entryPrice - tpPts
+        else if dir == 1
+            // Long: SL below, TP above
+            slP := entryPrice - slPts
+            tpP := entryPrice + tpPts
+    [slP, tpP]
+
+// ==================== SHORT ALERT ====================
+if is_live and isFlushShort and not flushShortAlertFired
+    flushShortAlertFired := true
+
+    float slPts = na(recSlPoints) ? 0.0 : recSlPoints
+    float tpPts = na(recTpPoints) ? 0.0 : recTpPoints
+    [slPriceShort, tpPriceShort] = getSlTpPrices(-1, close, slPts, tpPts)
+
+    string msgShort = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","time":' + str.tostring(time) + ',"bar_index":' + str.tostring(bar_index) + ',"dir":-1,"price":' + str.tostring(close, format.mintick) + ',"sl_points":' + str.tostring(slPts, format.mintick) + ',"tp_points":' + str.tostring(tpPts, format.mintick) + ',"sl_price":' + (na(slPriceShort) ? "null" : str.tostring(slPriceShort, format.mintick)) + ',"tp_price":' + (na(tpPriceShort) ? "null" : str.tostring(tpPriceShort, format.mintick)) + ',"vol_regime":' + str.tostring(volRegime) + ',"tier":"' + tierLabel + '","atr":' + str.tostring(atr, format.mintick) + ',"atr_ratio":' + str.tostring(atrRatio, "#.###") + ',"fast_atr_ratio":' + str.tostring(fastAtrRatio, "#.###") + ',"fcs":' + str.tostring(fcsDn) + ',"bars_since_cross":' + str.tostring(barsSinceDown) + ',"mox_val":' + str.tostring(moxieProxy, format.mintick) + ',"mox_slope":' + str.tostring(moxSlope3, format.mintick) + ',"mox_state":' + str.tostring(moxStateBot) + ',"band_pos":' + str.tostring(bandPos, "#.###") + ',"fm_state":' + str.tostring(currFmState) + "}"
+
+    alert(msgShort, alert.freq_once_per_bar)
+
+// ==================== LONG ALERT =====================
+if is_live and isFlushLong and not flushLongAlertFired
+    flushLongAlertFired := true
+
+    float slPtsL = na(recSlPoints) ? 0.0 : recSlPoints
+    float tpPtsL = na(recTpPoints) ? 0.0 : recTpPoints
+    [slPriceLong, tpPriceLong] = getSlTpPrices(1, close, slPtsL, tpPtsL)
+
+    string msgLong = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","time":' + str.tostring(time) + ',"bar_index":' + str.tostring(bar_index) + ',"dir":1,"price":' + str.tostring(close, format.mintick) + ',"sl_points":' + str.tostring(slPtsL, format.mintick) + ',"tp_points":' + str.tostring(tpPtsL, format.mintick) + ',"sl_price":' + (na(slPriceLong) ? "null" : str.tostring(slPriceLong, format.mintick)) + ',"tp_price":' + (na(tpPriceLong) ? "null" : str.tostring(tpPriceLong, format.mintick)) + ',"vol_regime":' + str.tostring(volRegime) + ',"tier":"' + tierLabel + '","atr":' + str.tostring(atr, format.mintick) + ',"atr_ratio":' + str.tostring(atrRatio, "#.###") + ',"fast_atr_ratio":' + str.tostring(fastAtrRatio, "#.###") + ',"fcs":' + str.tostring(fcsUp) + ',"bars_since_cross":' + str.tostring(barsSinceUp) + ',"mox_val":' + str.tostring(moxieProxy, format.mintick) + ',"mox_slope":' + str.tostring(moxSlope3, format.mintick) + ',"mox_state":' + str.tostring(moxStateBot) + ',"band_pos":' + str.tostring(bandPos, "#.###") + ',"fm_state":' + str.tostring(currFmState) + "}"
+    
+    alert(msgLong, alert.freq_once_per_bar)
