@@ -216,14 +216,18 @@ pxBarsWinScaled = math.max(1, math.round(pxBarsWin * tfMult))
 // --- Flush Momentum Filter (using recurrent oscillator)
 groupFM       = "Flush Momentum Filter"
 useFMFilter   = input.bool(true,  "Use FlushMomentum filter", group=groupFM)
-fmLookback    = input.int(24,     "Bars for FlushMomentum trend baseline", minval=1, group=groupFM)
-fmNeutralBand = input.float(3.0,  "Neutral band (|osc| ≤, treated as flat)", group=groupFM)
-fmTrendStrength = input.float(0.55, "History trend fraction (0–1)", minval=0.34, maxval=1.0, step=0.01, group=groupFM)
+fmLookback    = input.int(30,     "Bars for FlushMomentum trend baseline", minval=1, group=groupFM)
+fmNeutralBand = input.float(1.5,  "Neutral band (|osc| ≤, treated as flat)", group=groupFM)
+fmTrendStrength = input.float(0.5, "History trend fraction (0–1)", minval=0.34, maxval=1.0, step=0.01, group=groupFM)
 fmUseSignGate = input.bool(false, "Require FlushMomentum to be above/below zero", group=groupFM, tooltip="If ON: shorts require osc<0 and longs osc>0. If OFF: use only trend + neutral band.")
 fmSharpMult   = input.float(1.0,  "Sharp turn multiplier on strong threshold", group=groupFM, tooltip="Reserved for future tweaks.")
 minFmStateBars = input.int(1, "Min bars FM state must persist", minval=0, group=groupFM)
 showFMPlots   = input.bool(false, "Debug: plot FlushMomentum & Moxie proxy", group=groupFM)
 showFMDots    = input.bool(false, "Show FM gate markers on chart", group=groupFM)
+fmMode        = input.string("Strict", "FM mode",
+                   options = ["Strict","Soft","Off"],
+                   group   = groupFM,
+                   tooltip = "Strict = original hard gate (fmGateShort/fmGateLong). Soft = add +1 FCS when FM aligned and only hard-block when FM is strongly opposite. Off = ignore FlushMomentum filter for entries.")
 
 // ===== Recurrent FlushMomentum oscillator (local, no plots) =====
 srcFM  = close
@@ -675,6 +679,44 @@ fcsUp -= (tooLateUp ? wTooLate : 0)
 fcsUp -= ((close >= bandP3up) and (high > bandP3up) and topWickPct > 0.60) ? wTouchWick : 0
 fcsUp -= bearDiv ? wDiv : 0
 
+// === FM integration mode: Strict / Soft / Off ===
+float fcsDnEff = fcsDn
+float fcsUpEff = fcsUp
+
+bool fmOkShort = true
+bool fmOkLong  = true
+
+if useFMFilter
+    if fmMode == "Off"
+        fmOkShort := true
+        fmOkLong  := true
+    else if fmMode == "Strict"
+        // Original behavior: need final FM gates (state + age)
+        fmOkShort := fmGateShort
+        fmOkLong  := fmGateLong
+    else if fmMode == "Soft"
+        // Soft mode:
+        // - Hard block ONLY when FM is strongly opposite
+        // - Add +1 to FCS when FM is aligned in our direction
+        bool fmAlignedShort   = fmGateShortRaw
+        bool fmAlignedLong    = fmGateLongRaw
+        bool fmStrongOppShort = fmGateLongRaw and not fmGateShortRaw
+        bool fmStrongOppLong  = fmGateShortRaw and not fmGateLongRaw
+
+        // Hard blocks only in strong-opposite case
+        fmOkShort := not fmStrongOppShort
+        fmOkLong  := not fmStrongOppLong
+
+        // Bonus FCS when FM is aligned
+        if fmAlignedShort
+            fcsDnEff += 1
+        if fmAlignedLong
+            fcsUpEff += 1
+else
+    // FM filter globally disabled
+    fmOkShort := true
+    fmOkLong  := true
+
 // ===== Entry labels (FCS only; TP/SL is in HUD table)
 string fcsDnText = "FCS↓: " + str.tostring(fcsDn)
 string fcsUpText = "FCS↑: " + str.tostring(fcsUp)
@@ -694,11 +736,11 @@ if showTPSLOnLabels and tpAdvisorEnabled
     fcsDnText += "\n" + tpLine
     fcsUpText += "\n" + tpLine
 
-if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDn >= entryThresh and fmGateShort
+if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDnEff >= entryThresh and fmOkShort
     float fcsShortY = high + atr * fcsLabelOffsetAtr
     label.new(bar_index, fcsShortY, fcsDnText, style = label.style_label_down, textcolor = color.white, color = color.new(color.red, 0))
 
-if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUp >= entryThresh and fmGateLong
+if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUpEff >= entryThresh and fmOkLong
     float fcsLongY = low - atr * fcsLabelOffsetAtr
     label.new(bar_index, fcsLongY, fcsUpText, style = label.style_label_up, textcolor = color.white, color = color.new(color.green, 0))
 
@@ -758,7 +800,7 @@ getMinHoldLong() =>
 
 // Enter states (gated by FlushMomentum)
 // MOX labels back on the candle (high/low), not offset by ATR
-if (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
+if (barsSinceDown <= 2) and (fcsDnEff >= entryThresh) and fmOkShort
     inShort  := true
     barsShort:= 0
     shortMOX := getMinHoldShort()
@@ -779,7 +821,7 @@ if (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
         rowShort = makeLogRow(-1, fcsDn, barsSinceDown)
         alert(rowShort, alert.freq_once_per_bar_close)
 
-if (barsSinceUp <= 2) and (fcsUp >= entryThresh) and fmGateLong
+if (barsSinceUp <= 2) and (fcsUpEff >= entryThresh) and fmOkLong
     inLong  := true
     barsLong:= 0
     longMOX := getMinHoldLong()
@@ -1047,9 +1089,9 @@ int   moxStateBot =
 // ============== INTRABAR BOT ALERTS (MNQ FLUSH ENTRIES) ==============
 // =====================================================================
 
-// Signal definitions aligned with your entry logic:
-isFlushShort = (barsSinceDown <= 2) and (fcsDn >= entryThresh) and fmGateShort
-isFlushLong  = (barsSinceUp   <= 2) and (fcsUp >= entryThresh) and fmGateLong
+// Signal definitions aligned with your entry logic + FM mode:
+isFlushShort = (barsSinceDown <= 2) and (fcsDnEff >= entryThresh) and fmOkShort
+isFlushLong  = (barsSinceUp   <= 2) and (fcsUpEff >= entryThresh) and fmOkLong
 
 // Only fire on live bars (no historical spam)
 bool is_live = barstate.isrealtime
