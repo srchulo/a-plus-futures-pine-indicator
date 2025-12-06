@@ -465,27 +465,38 @@ else
         float avgRange10 = ta.sma(high - low, 10)
         float rangeRatio = (not na(avgRange10) and mnqMicroTp3 > 0.0) ? (avgRange10 / mnqMicroTp3) : 1.0
 
-        // Final micro-vol signal: respect BOTH ATR and absolute bar size
-        float microVol = math.min(microVolAtr, rangeRatio)
+        // 3) Final micro-vol signal:
+        //    OLD: microVol = min(microVolAtr, rangeRatio)
+        //    NEW: be aggressive: if either ATR OR range says "fast", treat as fast.
+        float microVol = math.max(microVolAtr, rangeRatio)
 
-        // === Unified MNQ ladder ===
-        // If truly high vol, skip straight to High-Vol tier.
-        if volRegime == 2
+        // Optional debug (turn on if you want to inspect the 12:58 bar)
+        // plot(debugAtrRatio ? microVol     : na, title="microVol",     color=color.new(color.fuchsia, 0))
+        // plot(debugAtrRatio ? microVolAtr  : na, title="microVolAtr",  color=color.new(color.orange,  0))
+        // plot(debugAtrRatio ? rangeRatio   : na, title="rangeRatio",   color=color.new(color.teal,    0))
+
+        // 4) Promote very fast tapes to High-Vol regardless of slow ATR regime.
+        //    If the tape is ~1.6x+ your Calm Scalper baseline, it's functionally a High-Vol environment
+        //    for flush continuations, so we want the full 28/40 room.
+        bool promoteToHigh = microVol >= 1.60
+
+        if volRegime == 2 or promoteToHigh
             baseSlPts := mnqSlHighVol
             baseTpPts := mnqTpHighVol
             tierLabel := "High-Vol"
         else
             // Non-high regimes (Low/Normal) → full micro ladder:
-            // - Ultra-Calm    → 10/10   (tiny tape)
-            // - Very Calm     → 12/12
-            // - Calm Scalper  → 15/15
-            // - Calm          → 16/20
-            // - Trend         → 22/35
-            if microVol <= 0.75
+            // Tighten thresholds so Ultra-Calm is truly tiny tape
+            // - Ultra-Calm    → 10/10   (microVol ≤ 0.55)
+            // - Very Calm     → 12/12   (≤ 0.80)
+            // - Calm Scalper  → 15/15   (≤ 1.05)
+            // - Calm          → 16/20   (≤ 1.35)
+            // - Trend         → 22/35   (> 1.35)
+            if microVol <= 0.55
                 baseSlPts := mnqMicroSl1
                 baseTpPts := mnqMicroTp1
                 tierLabel := "Ultra-Calm"
-            else if microVol <= 0.90
+            else if microVol <= 0.80
                 baseSlPts := mnqMicroSl2
                 baseTpPts := mnqMicroTp2
                 tierLabel := "Very Calm"
@@ -493,7 +504,7 @@ else
                 baseSlPts := mnqMicroSl3
                 baseTpPts := mnqMicroTp3
                 tierLabel := "Calm Scalper"
-            else if microVol <= 1.30
+            else if microVol <= 1.35
                 baseSlPts := mnqSlLowVol
                 baseTpPts := mnqTpLowVol
                 tierLabel := "Calm"
