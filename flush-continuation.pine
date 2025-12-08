@@ -239,7 +239,7 @@ pxBarsWinScaled = math.max(1, math.round(pxBarsWin * tfMult))
 
 // --- Flush Momentum Filter (using recurrent oscillator)
 groupFM       = "Flush Momentum Filter"
-useFMFilter   = input.bool(true,  "Use FlushMomentum filter", group=groupFM)
+useFMFilter   = input.bool(false,  "Use FlushMomentum filter", group=groupFM)
 fmLookback    = input.int(10,     "Bars for FlushMomentum trend baseline", minval=1, group=groupFM)
 fmNeutralBand = input.float(1.5,  "Neutral band (|osc| ≤, treated as flat)", group=groupFM)
 fmTrendStrength = input.float(0.6, "History trend fraction (0–1)", minval=0.34, maxval=1.0, step=0.01, group=groupFM)
@@ -248,7 +248,7 @@ fmSharpMult   = input.float(1.0,  "Sharp turn multiplier on strong threshold", g
 minFmStateBars = input.int(3, "Min bars FM state must persist", minval=0, group=groupFM)
 showFMPlots   = input.bool(false, "Debug: plot FlushMomentum & Moxie proxy", group=groupFM)
 showFMDots    = input.bool(false, "Show FM gate markers on chart", group=groupFM)
-fmMode        = input.string("Strict", "FM mode",
+fmMode        = input.string("Off", "FM mode",
                    options = ["Strict","Soft","Off"],
                    group   = groupFM,
                    tooltip = "Strict = original hard gate (fmGateShort/fmGateLong). Soft = add +1 FCS when FM aligned and only hard-block when FM is strongly opposite. Off = ignore FlushMomentum filter for entries.")
@@ -1175,6 +1175,11 @@ int   moxStateBot =
      moxieProxy > 0 and moxSlope3 <= 0 ?  1 :
      moxieProxy < 0 and moxSlope3 < 0  ? -2 : -1
 
+// Ribbon state for alerts: 1 = strong bull, -1 = strong bear, 0 = mixed
+int ribbonStateBot =
+     (ribbonBull and ribbonSlopeUp) ? 1 :
+     (ribbonBear and ribbonSlopeDn) ? -1 : 0
+
 // =====================================================================
 // ============== INTRABAR BOT ALERTS (MNQ FLUSH ENTRIES) ==============
 // =====================================================================
@@ -1218,7 +1223,10 @@ if is_live and isFlushShort and not flushShortAlertFired
     float tpPts = na(recTpPoints) ? 0.0 : recTpPoints
     [slPriceShort, tpPriceShort] = getSlTpPrices(-1, close, slPts, tpPts)
 
-    string msgShort = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","time":' + str.tostring(time) + ',"bar_index":' + str.tostring(bar_index) + ',"dir":-1,"price":' + str.tostring(close, format.mintick) + ',"sl_points":' + str.tostring(slPts, format.mintick) + ',"tp_points":' + str.tostring(tpPts, format.mintick) + ',"sl_price":' + (na(slPriceShort) ? "null" : str.tostring(slPriceShort, format.mintick)) + ',"tp_price":' + (na(tpPriceShort) ? "null" : str.tostring(tpPriceShort, format.mintick)) + ',"vol_regime":' + str.tostring(volRegime) + ',"tier":"' + tierLabel + '","atr":' + str.tostring(atr, format.mintick) + ',"atr_ratio":' + str.tostring(atrRatio, "#.###") + ',"fast_atr_ratio":' + str.tostring(fastAtrRatio, "#.###") + ',"fcs":' + str.tostring(fcsDn) + ',"bars_since_cross":' + str.tostring(barsSinceDown) + ',"mox_val":' + str.tostring(moxieProxy, format.mintick) + ',"mox_slope":' + str.tostring(moxSlope3, format.mintick) + ',"mox_state":' + str.tostring(moxStateBot) + ',"band_pos":' + str.tostring(bandPos, "#.###") + ',"fm_state":' + str.tostring(currFmState) + "}"
+    // VWAP alignment for shorts: 1 = price below VWAP (good for shorts), 0 otherwise
+    int vwapAlignShort = close < vwapSess ? 1 : 0
+
+    string msgShort = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","time":' + str.tostring(time) + ',"bar_index":' + str.tostring(bar_index) + ',"dir":-1,"price":' + str.tostring(close, format.mintick) + ',"sl_points":' + str.tostring(slPts, format.mintick) + ',"tp_points":' + str.tostring(tpPts, format.mintick) + ',"sl_price":' + (na(slPriceShort) ? "null" : str.tostring(slPriceShort, format.mintick)) + ',"tp_price":' + (na(tpPriceShort) ? "null" : str.tostring(tpPriceShort, format.mintick)) + ',"vol_regime":' + str.tostring(volRegime) + ',"tier":"' + tierLabel + '","atr":' + str.tostring(atr, format.mintick) + ',"atr_ratio":' + str.tostring(atrRatio, "#.###") + ',"fast_atr_ratio":' + str.tostring(fastAtrRatio, "#.###") + ',"fcs":' + str.tostring(fcsDn) + ',"bars_since_cross":' + str.tostring(barsSinceDown) + ',"mox_val":' + str.tostring(moxieProxy, format.mintick) + ',"mox_slope":' + str.tostring(moxSlope3, format.mintick) + ',"mox_state":' + str.tostring(moxStateBot) + ',"band_pos":' + str.tostring(bandPos, "#.###") + ',"fm_state":' + str.tostring(currFmState) + ',"tmin_session":' + str.tostring(tminSession) + ',"is_rth":' + (isRTH ? "1" : "0") + ',"is_eth":' + (isETHSess ? "1" : "0") + ',"ribbon_state":' + str.tostring(ribbonStateBot) + ',"vwap_align":' + str.tostring(vwapAlignShort) + ',"vol_thrust":' + (volThrust ? "1" : "0") + ',"impulse":' + (impulse ? "1" : "0") + "}"
 
     alert(msgShort, alert.freq_once_per_bar)
 
@@ -1230,6 +1238,9 @@ if is_live and isFlushLong and not flushLongAlertFired
     float tpPtsL = na(recTpPoints) ? 0.0 : recTpPoints
     [slPriceLong, tpPriceLong] = getSlTpPrices(1, close, slPtsL, tpPtsL)
 
-    string msgLong = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + "","tf\":\"" + timeframe.period + "\"," + "\"time\":" + str.tostring(time) + ",\"bar_index\":" + str.tostring(bar_index) + ",\"dir\":1,\"price\":" + str.tostring(close, format.mintick) + ",\"sl_points\":" + str.tostring(slPtsL, format.mintick) + ",\"tp_points\":" + str.tostring(tpPtsL, format.mintick) + ",\"sl_price\":" + (na(slPriceLong) ? "null" : str.tostring(slPriceLong, format.mintick)) + ",\"tp_price\":" + (na(tpPriceLong) ? "null" : str.tostring(tpPriceLong, format.mintick)) + ",\"vol_regime\":" + str.tostring(volRegime) + ",\"tier\":\"" + tierLabel + "\",\"atr\":" + str.tostring(atr, format.mintick) + ",\"atr_ratio\":" + str.tostring(atrRatio, "#.###") + ",\"fast_atr_ratio\":" + str.tostring(fastAtrRatio, "#.###") + ",\"fcs\":" + str.tostring(fcsUp) + ",\"bars_since_cross\":" + str.tostring(barsSinceUp) + ",\"mox_val\":" + str.tostring(moxieProxy, format.mintick) + ",\"mox_slope\":" + str.tostring(moxSlope3, format.mintick) + ",\"mox_state\":" + str.tostring(moxStateBot) + ",\"band_pos\":" + str.tostring(bandPos, "#.###") + ",\"fm_state\":" + str.tostring(currFmState) + "}"
+    // VWAP alignment for longs: 1 = price above VWAP (good for longs), 0 otherwise
+    int vwapAlignLong = close > vwapSess ? 1 : 0
+
+    string msgLong  = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","time":' + str.tostring(time) + ',"bar_index":' + str.tostring(bar_index) + ',"dir":1,"price":' + str.tostring(close, format.mintick) + ',"sl_points":' + str.tostring(slPtsL, format.mintick) + ',"tp_points":' + str.tostring(tpPtsL, format.mintick) + ',"sl_price":' + (na(slPriceLong) ? "null" : str.tostring(slPriceLong, format.mintick)) + ',"tp_price":' + (na(tpPriceLong) ? "null" : str.tostring(tpPriceLong, format.mintick)) + ',"vol_regime":' + str.tostring(volRegime) + ',"tier":"' + tierLabel + '","atr":' + str.tostring(atr, format.mintick) + ',"atr_ratio":' + str.tostring(atrRatio, "#.###") + ',"fast_atr_ratio":' + str.tostring(fastAtrRatio, "#.###") + ',"fcs":' + str.tostring(fcsUp) + ',"bars_since_cross":' + str.tostring(barsSinceUp) + ',"mox_val":' + str.tostring(moxieProxy, format.mintick) + ',"mox_slope":' + str.tostring(moxSlope3, format.mintick) + ',"mox_state":' + str.tostring(moxStateBot) + ',"band_pos":' + str.tostring(bandPos, "#.###") + ',"fm_state":' + str.tostring(currFmState) + ',"tmin_session":' + str.tostring(tminSession) + ',"is_rth":' + (isRTH ? "1" : "0") + ',"is_eth":' + (isETHSess ? "1" : "0") + ',"ribbon_state":' + str.tostring(ribbonStateBot) + ',"vwap_align":' + str.tostring(vwapAlignLong) + ',"vol_thrust":' + (volThrust ? "1" : "0") + ',"impulse":' + (impulse ? "1" : "0") + "}"
     
     alert(msgLong, alert.freq_once_per_bar)
