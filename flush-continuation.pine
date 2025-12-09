@@ -1202,9 +1202,38 @@ inEntryWindowLong  = (barsSinceUp   >= entryMinBars and barsSinceUp   <= entryMa
 isFlushShort = inEntryWindowShort and (fcsDnEff >= entryThresh) and allowShortEntry
 isFlushLong  = inEntryWindowLong  and (fcsUpEff >= entryThresh) and allowLongEntry
 
-// Heads-up intrabar shapes for humans (ignored by bot)
-plotshape(showPreSignal and isFlushShort, title="Pre-Flush Short", style=shape.triangledown, location=location.abovebar, size=size.tiny, color=color.new(color.red, 70))
-plotshape(showPreSignal and isFlushLong,  title="Pre-Flush Long",  style=shape.triangleup,   location=location.belowbar, size=size.tiny, color=color.new(color.green, 70))
+// Heads-up intrabar markers for humans (ignored by bot)
+// Make them big, bright, and obvious so you can't miss a "next bar" setup.
+
+// Big label-style banners at the top/bottom of the chart
+plotshape(
+     showPreSignal and isFlushShort,
+     title     = "Pre-Flush Short",
+     style     = shape.labeldown,
+     location  = location.top,
+     size      = size.large,
+     color     = color.new(color.red, 0),
+     text      = "FLUSH\nNEXT ↓",
+     textcolor = color.white
+)
+
+plotshape(
+     showPreSignal and isFlushLong,
+     title     = "Pre-Flush Long",
+     style     = shape.labelup,
+     location  = location.bottom,
+     size      = size.large,
+     color     = color.new(color.lime, 0),
+     text      = "FLUSH\nNEXT ↑",
+     textcolor = color.white
+)
+
+// Optional: subtle background tint on the bar so the whole candle "glows"
+bgcolor(
+     showPreSignal and isFlushShort ? color.new(color.red, 85) :
+     showPreSignal and isFlushLong  ? color.new(color.lime, 88) :
+     na
+)
 
 // Per-bar alert guards so we don't spam multiple times per bar
 var bool flushShortAlertFired = false
