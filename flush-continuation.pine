@@ -49,6 +49,8 @@ entryThresh  = input.int(5, "Entry score ≥", group=groupSignals)
 exitThresh   = input.int(2, "Exit when continuation score ≤ (after entry)", group=groupSignals)
 holdBarsMax  = input.int(60, "Hard cap bars in trade", group=groupSignals)
 showOnlyOnCross = input.bool(true, "Show entry label only on cross bar", group=groupSignals)
+entryMinBars = input.int(0, "Entry window: min barsSince", minval=0, group=groupSignals)
+entryMaxBars = input.int(2, "Entry window: max barsSince", minval=0, group=groupSignals)
 
 // --- PCX (bottoms after 0↓) / PCT (tops after 0↑)
 groupPX  = "Post-Cross Extremes (PCX/PCT)"
@@ -187,6 +189,9 @@ showEXIT      = input.bool(true,  "Show EXIT labels", group=groupDisp)
 fcsLabelOffsetAtr  = input.float(1.0, "FCS label offset (× ATR)",  minval=0.0, step=0.1, group=groupDisp)
 exitLabelOffsetAtr = input.float(0.8, "EXIT label offset (× ATR)", minval=0.0, step=0.1, group=groupDisp)
 
+// Heads-up markers for humans (intrabar pre-signal)
+showPreSignal = input.bool(true, "Show intrabar pre-signal markers (heads-up only)", group=groupDisp)
+
 // Label rendering window + thin markers
 labelLookbackBars = input.int(50000, "Label lookback (bars)", minval=100, group=groupDisp)
 showAllHistory    = input.bool(false, "Show labels on full history", group=groupDisp, tooltip="ON draws labels across all available bars (uses label budget faster). OFF limits to recent window.")
@@ -232,6 +237,9 @@ if barstate.islast
     _lastIdx := bar_index
 allowLabels = showAllHistory ? true : (na(_lastIdx) ? true : bar_index >= (_lastIdx - labelLookbackBars))
 
+// Helper: only act on fully closed bars (no intrabar flicker for bot/stats)
+bool barConfirmed = barstate.isconfirmed
+
 // ===== Timeframe multiplier (for barsLate / PCX window / MOX scaling)
 tfMult = scaleEnabled and timeframe.isminutes ? (timeframe.multiplier * 1.0) / baselineTFmin : 1.0
 barsLateScaled  = math.max(1, math.round(barsLate * tfMult))
@@ -251,7 +259,7 @@ showFMDots    = input.bool(false, "Show FM gate markers on chart", group=groupFM
 fmMode        = input.string("Strict", "FM mode",
                    options = ["Strict","Soft","Off"],
                    group   = groupFM,
-                   tooltip = "Strict = original hard gate (fmGateShort/fmGateLong). Soft = add +1 FCS when FM aligned and only hard-block when FM is strongly opposite. Off = ignore FlushMomentum filter for entries.")
+                   tooltip = "Strict = original hard gate (fmGateShort/fmGateLong). Soft = add +1 FCS when FM is aligned and only hard-block when FM is strongly opposite. Off = ignore FlushMomentum filter for entries.")
 
 // ===== Recurrent FlushMomentum oscillator (local, no plots) =====
 srcFM  = close
@@ -829,11 +837,12 @@ if showTPSLOnLabels and tpAdvisorEnabled
     fcsDnText += "\n" + tpLine
     fcsUpText += "\n" + tpLine
 
-if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDnEff >= entryThresh and allowShortEntry
+// Big FCS labels only on closed bars (no flicker)
+if barConfirmed and allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossDown : (moxieCrossDown or barsSinceDown <= 1)) and fcsDnEff >= entryThresh and allowShortEntry
     float fcsShortY = high + atr * fcsLabelOffsetAtr
     label.new(bar_index, fcsShortY, fcsDnText, style = label.style_label_down, textcolor = color.white, color = color.new(color.red, 0))
 
-if allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUpEff >= entryThresh and allowLongEntry
+if barConfirmed and allowLabels and _showFCS and (showOnlyOnCross ? moxieCrossUp : (moxieCrossUp or barsSinceUp <= 1)) and fcsUpEff >= entryThresh and allowLongEntry
     float fcsLongY = low - atr * fcsLabelOffsetAtr
     label.new(bar_index, fcsLongY, fcsUpText, style = label.style_label_up, textcolor = color.white, color = color.new(color.green, 0))
 
@@ -893,7 +902,7 @@ getMinHoldLong() =>
 
 // Enter states (gated by FlushMomentum + bandPos + ETH tape-dead filter)
 // MOX labels back on the candle (high/low), not offset by ATR
-if (barsSinceDown <= 2) and (fcsDnEff >= entryThresh) and allowShortEntry
+if barConfirmed and (barsSinceDown >= entryMinBars and barsSinceDown <= entryMaxBars) and (fcsDnEff >= entryThresh) and allowShortEntry
     inShort  := true
     barsShort:= 0
     shortMOX := getMinHoldShort()
@@ -914,7 +923,7 @@ if (barsSinceDown <= 2) and (fcsDnEff >= entryThresh) and allowShortEntry
         rowShort = makeLogRow(-1, fcsDn, barsSinceDown)
         alert(rowShort, alert.freq_once_per_bar_close)
 
-if (barsSinceUp <= 2) and (fcsUpEff >= entryThresh) and allowLongEntry
+if barConfirmed and (barsSinceUp >= entryMinBars and barsSinceUp <= entryMaxBars) and (fcsUpEff >= entryThresh) and allowLongEntry
     inLong  := true
     barsLong:= 0
     longMOX := getMinHoldLong()
@@ -1181,15 +1190,22 @@ int ribbonStateBot =
      (ribbonBear and ribbonSlopeDn) ? -1 : 0
 
 // =====================================================================
-// ============== INTRABAR BOT ALERTS (MNQ FLUSH ENTRIES) ==============
+// ======== BOT ALERTS (CLOSE-CONFIRMED MNQ FLUSH ENTRIES) =============
 // =====================================================================
 
 // Signal definitions aligned with your entry logic + FM mode + bandPos + ETH dead filter:
-isFlushShort = (barsSinceDown <= 2) and (fcsDnEff >= entryThresh) and allowShortEntry
-isFlushLong  = (barsSinceUp   <= 2) and (fcsUpEff >= entryThresh) and allowLongEntry
+inEntryWindowShort = (barsSinceDown >= entryMinBars and barsSinceDown <= entryMaxBars)
+inEntryWindowLong  = (barsSinceUp   >= entryMinBars and barsSinceUp   <= entryMaxBars)
+isFlushShort = inEntryWindowShort and (fcsDnEff >= entryThresh) and allowShortEntry
+isFlushLong  = inEntryWindowLong  and (fcsUpEff >= entryThresh) and allowLongEntry
 
-// Only fire on live bars (no historical spam)
-bool is_live = barstate.isrealtime
+// Heads-up intrabar shapes for humans (ignored by bot)
+plotshape(showPreSignal and isFlushShort, title="Pre-Flush Short", style=shape.triangledown, location=location.abovebar, size=size.tiny, color=color.new(color.red, 70))
+plotshape(showPreSignal and isFlushLong,  title="Pre-Flush Long",  style=shape.triangleup,   location=location.belowbar, size=size.tiny, color=color.new(color.green, 70))
+
+// Only fire on live, confirmed bars (no intrabar flicker for webhooks)
+bool is_live          = barstate.isrealtime
+bool is_liveConfirmed = barstate.isrealtime and barstate.isconfirmed
 
 // Per-bar alert guards so we don't spam multiple times per bar
 var bool flushShortAlertFired = false
@@ -1216,7 +1232,7 @@ getSlTpPrices(dir, entryPrice, slPts, tpPts) =>
     [slP, tpP]
 
 // ==================== SHORT ALERT ====================
-if is_live and isFlushShort and not flushShortAlertFired
+if is_liveConfirmed and isFlushShort and not flushShortAlertFired
     flushShortAlertFired := true
 
     float slPts = na(recSlPoints) ? 0.0 : recSlPoints
@@ -1228,10 +1244,10 @@ if is_live and isFlushShort and not flushShortAlertFired
 
     string msgShort = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","time":' + str.tostring(time) + ',"bar_index":' + str.tostring(bar_index) + ',"dir":-1,"price":' + str.tostring(close, format.mintick) + ',"sl_points":' + str.tostring(slPts, format.mintick) + ',"tp_points":' + str.tostring(tpPts, format.mintick) + ',"sl_price":' + (na(slPriceShort) ? "null" : str.tostring(slPriceShort, format.mintick)) + ',"tp_price":' + (na(tpPriceShort) ? "null" : str.tostring(tpPriceShort, format.mintick)) + ',"vol_regime":' + str.tostring(volRegime) + ',"tier":"' + tierLabel + '","atr":' + str.tostring(atr, format.mintick) + ',"atr_ratio":' + str.tostring(atrRatio, "#.###") + ',"fast_atr_ratio":' + str.tostring(fastAtrRatio, "#.###") + ',"fcs":' + str.tostring(fcsDn) + ',"bars_since_cross":' + str.tostring(barsSinceDown) + ',"mox_val":' + str.tostring(moxieProxy, format.mintick) + ',"mox_slope":' + str.tostring(moxSlope3, format.mintick) + ',"mox_state":' + str.tostring(moxStateBot) + ',"band_pos":' + str.tostring(bandPos, "#.###") + ',"fm_state":' + str.tostring(currFmState) + ',"tmin_session":' + str.tostring(tminSession) + ',"is_rth":' + (isRTH ? "1" : "0") + ',"is_eth":' + (isETHSess ? "1" : "0") + ',"ribbon_state":' + str.tostring(ribbonStateBot) + ',"vwap_align":' + str.tostring(vwapAlignShort) + ',"vol_thrust":' + (volThrust ? "1" : "0") + ',"impulse":' + (impulse ? "1" : "0") + "}"
 
-    alert(msgShort, alert.freq_once_per_bar)
+    alert(msgShort, alert.freq_once_per_bar_close)
 
 // ==================== LONG ALERT =====================
-if is_live and isFlushLong and not flushLongAlertFired
+if is_liveConfirmed and isFlushLong and not flushLongAlertFired
     flushLongAlertFired := true
 
     float slPtsL = na(recSlPoints) ? 0.0 : recSlPoints
@@ -1243,4 +1259,4 @@ if is_live and isFlushLong and not flushLongAlertFired
 
     string msgLong  = "{" + '"tag":"' + dataLogTag + '","v":1,"symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","time":' + str.tostring(time) + ',"bar_index":' + str.tostring(bar_index) + ',"dir":1,"price":' + str.tostring(close, format.mintick) + ',"sl_points":' + str.tostring(slPtsL, format.mintick) + ',"tp_points":' + str.tostring(tpPtsL, format.mintick) + ',"sl_price":' + (na(slPriceLong) ? "null" : str.tostring(slPriceLong, format.mintick)) + ',"tp_price":' + (na(tpPriceLong) ? "null" : str.tostring(tpPriceLong, format.mintick)) + ',"vol_regime":' + str.tostring(volRegime) + ',"tier":"' + tierLabel + '","atr":' + str.tostring(atr, format.mintick) + ',"atr_ratio":' + str.tostring(atrRatio, "#.###") + ',"fast_atr_ratio":' + str.tostring(fastAtrRatio, "#.###") + ',"fcs":' + str.tostring(fcsUp) + ',"bars_since_cross":' + str.tostring(barsSinceUp) + ',"mox_val":' + str.tostring(moxieProxy, format.mintick) + ',"mox_slope":' + str.tostring(moxSlope3, format.mintick) + ',"mox_state":' + str.tostring(moxStateBot) + ',"band_pos":' + str.tostring(bandPos, "#.###") + ',"fm_state":' + str.tostring(currFmState) + ',"tmin_session":' + str.tostring(tminSession) + ',"is_rth":' + (isRTH ? "1" : "0") + ',"is_eth":' + (isETHSess ? "1" : "0") + ',"ribbon_state":' + str.tostring(ribbonStateBot) + ',"vwap_align":' + str.tostring(vwapAlignLong) + ',"vol_thrust":' + (volThrust ? "1" : "0") + ',"impulse":' + (impulse ? "1" : "0") + "}"
     
-    alert(msgLong, alert.freq_once_per_bar)
+    alert(msgLong, alert.freq_once_per_bar_close)
