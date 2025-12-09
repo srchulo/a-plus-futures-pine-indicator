@@ -1189,6 +1189,9 @@ int ribbonStateBot =
      (ribbonBull and ribbonSlopeUp) ? 1 :
      (ribbonBear and ribbonSlopeDn) ? -1 : 0
 
+// Separate alias for alert robustness (bar-close only, no isrealtime gating)
+bool is_closeConfirmed = barConfirmed
+
 // =====================================================================
 // ======== BOT ALERTS (CLOSE-CONFIRMED MNQ FLUSH ENTRIES) =============
 // =====================================================================
@@ -1202,10 +1205,6 @@ isFlushLong  = inEntryWindowLong  and (fcsUpEff >= entryThresh) and allowLongEnt
 // Heads-up intrabar shapes for humans (ignored by bot)
 plotshape(showPreSignal and isFlushShort, title="Pre-Flush Short", style=shape.triangledown, location=location.abovebar, size=size.tiny, color=color.new(color.red, 70))
 plotshape(showPreSignal and isFlushLong,  title="Pre-Flush Long",  style=shape.triangleup,   location=location.belowbar, size=size.tiny, color=color.new(color.green, 70))
-
-// Only fire on live, confirmed bars (no intrabar flicker for webhooks)
-bool is_live          = barstate.isrealtime
-bool is_liveConfirmed = barstate.isrealtime and barstate.isconfirmed
 
 // Per-bar alert guards so we don't spam multiple times per bar
 var bool flushShortAlertFired = false
@@ -1232,7 +1231,7 @@ getSlTpPrices(dir, entryPrice, slPts, tpPts) =>
     [slP, tpP]
 
 // ==================== SHORT ALERT ====================
-if is_liveConfirmed and isFlushShort and not flushShortAlertFired
+if is_closeConfirmed and isFlushShort and not flushShortAlertFired
     flushShortAlertFired := true
 
     float slPts = na(recSlPoints) ? 0.0 : recSlPoints
@@ -1247,7 +1246,7 @@ if is_liveConfirmed and isFlushShort and not flushShortAlertFired
     alert(msgShort, alert.freq_once_per_bar_close)
 
 // ==================== LONG ALERT =====================
-if is_liveConfirmed and isFlushLong and not flushLongAlertFired
+if is_closeConfirmed and isFlushLong and not flushLongAlertFired
     flushLongAlertFired := true
 
     float slPtsL = na(recSlPoints) ? 0.0 : recSlPoints
