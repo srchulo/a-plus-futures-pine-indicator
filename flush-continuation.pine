@@ -1203,37 +1203,45 @@ isFlushShort = inEntryWindowShort and (fcsDnEff >= entryThresh) and allowShortEn
 isFlushLong  = inEntryWindowLong  and (fcsUpEff >= entryThresh) and allowLongEntry
 
 // Heads-up intrabar markers for humans (ignored by bot)
-// Make them big, bright, and obvious so you can't miss a "next bar" setup.
+// We manage them via label handles so they vanish intrabar when the condition clears.
+var label preShortLbl = na
+var label preLongLbl  = na
+var int   preShortBar = na
+var int   preLongBar  = na
 
-// Big label-style banners at the top/bottom of the chart
-plotshape(
-     showPreSignal and isFlushShort,
-     title     = "Pre-Flush Short",
-     style     = shape.labeldown,
-     location  = location.top,
-     size      = size.large,
-     color     = color.new(color.red, 0),
-     text      = "FLUSH\nNEXT ↓",
-     textcolor = color.white
-)
+bool showShortPre = showPreSignal and isFlushShort
+bool showLongPre  = showPreSignal and isFlushLong
 
-plotshape(
-     showPreSignal and isFlushLong,
-     title     = "Pre-Flush Long",
-     style     = shape.labelup,
-     location  = location.bottom,
-     size      = size.large,
-     color     = color.new(color.lime, 0),
-     text      = "FLUSH\nNEXT ↑",
-     textcolor = color.white
-)
+// SHORT heads-up
+if showShortPre
+    // New bar or first time → (re)create label
+    if na(preShortLbl) or preShortBar != bar_index
+        if not na(preShortLbl)
+            label.delete(preShortLbl)
+        preShortLbl := label.new(bar_index, high + atr * 0.5, "FLUSH\nNEXT ↓", style     = label.style_label_down, textcolor = color.white, color     = color.new(color.red, 0))
+        preShortBar := bar_index
+else
+    // Condition turned off → delete label immediately
+    if not na(preShortLbl)
+        label.delete(preShortLbl)
+        preShortLbl := na
+        preShortBar := na
 
-// Optional: subtle background tint on the bar so the whole candle "glows"
-bgcolor(
-     showPreSignal and isFlushShort ? color.new(color.red, 85) :
-     showPreSignal and isFlushLong  ? color.new(color.lime, 88) :
-     na
-)
+// LONG heads-up
+if showLongPre
+    if na(preLongLbl) or preLongBar != bar_index
+        if not na(preLongLbl)
+            label.delete(preLongLbl)
+        preLongLbl := label.new(bar_index, low - atr * 0.5, "FLUSH\nNEXT ↑", style     = label.style_label_up, textcolor = color.white, color     = color.new(color.lime, 0))
+        preLongBar := bar_index
+else
+    if not na(preLongLbl)
+        label.delete(preLongLbl)
+        preLongLbl := na
+        preLongBar := na
+
+// Background tint stays perfectly in sync with the same conditions
+bgcolor(showShortPre ? color.new(color.red, 85) : showLongPre  ? color.new(color.lime, 88) : na)
 
 // Per-bar alert guards so we don't spam multiple times per bar
 var bool flushShortAlertFired = false
