@@ -104,11 +104,11 @@ percentHighVol   = input.float(0.80, "Baseline High vol TP/SL (%)",   step=0.05,
 
 // MNQ Dynamic SL/TP 2.0 baselines (UPDATED: Calm 16/20, Trend 22/35, High-Vol 28/40)
 mnqSlLowVol     = input.float(16.0, "MNQ Calm SL (Low ATR)",        step=0.25, group=groupTPSL)
-mnqSlNormalVol  = input.float(22.0, "MNQ Trend SL (Normal ATR)",    step=0.25, group=groupTPSL)
+mnqSlNormalVol  = input.float(16.0, "MNQ Trend SL (Normal ATR)",    step=0.25, group=groupTPSL)
 mnqSlHighVol    = input.float(28.0, "MNQ High-Vol SL",              step=0.25, group=groupTPSL)
 
-mnqTpLowVol     = input.float(20.0, "MNQ Calm TP (Low ATR)",        step=0.25, group=groupTPSL)
-mnqTpNormalVol  = input.float(35.0, "MNQ Trend TP (Normal ATR)",    step=0.25, group=groupTPSL)
+mnqTpLowVol     = input.float(16.0, "MNQ Calm TP (Low ATR)",        step=0.25, group=groupTPSL)
+mnqTpNormalVol  = input.float(16.0, "MNQ Trend TP (Normal ATR)",    step=0.25, group=groupTPSL)
 mnqTpHighVol    = input.float(40.0, "MNQ High-Vol TP",              step=0.25, group=groupTPSL)
 
 // NEW: extra tiny tiers (primarily for ETH; optional for RTH via toggle)
