@@ -109,7 +109,7 @@ mnqSlHighVol    = input.float(28.0, "MNQ High-Vol SL",              step=0.25, g
 
 mnqTpLowVol     = input.float(16.0, "MNQ Calm TP (Low ATR)",        step=0.25, group=groupTPSL)
 mnqTpNormalVol  = input.float(16.0, "MNQ Trend TP (Normal ATR)",    step=0.25, group=groupTPSL)
-mnqTpHighVol    = input.float(40.0, "MNQ High-Vol TP",              step=0.25, group=groupTPSL)
+mnqTpHighVol    = input.float(50.0, "MNQ High-Vol TP",              step=0.25, group=groupTPSL)
 
 // NEW: extra tiny tiers (primarily for ETH; optional for RTH via toggle)
 mnqMicroSl0  = input.float(6.0,  "MNQ Ultra-Micro SL (pts)", step=0.25, group=groupTPSL)
