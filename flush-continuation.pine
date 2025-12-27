@@ -140,6 +140,18 @@ spxScale           = input.float(1.0,  "SPX scale (× MNQ baseline)", step=0.05,
 esScale            = input.float(1.0,  "ES scale (× MNQ baseline)",  step=0.05, group=groupTPSL)
 otherScale         = input.float(1.0,  "Other symbols scale (× MNQ baseline)", step=0.05, group=groupTPSL)
 
+// --- Equity % baselines (stocks/ETFs) ---
+eqPercentLowVol    = input.float(0.80, "Equity Low vol TP/SL (%)",    step=0.05, group=groupTPSL)
+eqPercentNormalVol = input.float(1.20, "Equity Normal vol TP/SL (%)", step=0.05, group=groupTPSL)
+eqPercentHighVol   = input.float(1.80, "Equity High vol TP/SL (%)",   step=0.05, group=groupTPSL)
+
+// NVDL adjustment: express TP/SL in *NVDL terms* (divide % by leverage)
+adjustLeveragedEtf = input.bool(true, "Adjust leveraged ETF TP/SL (e.g., NVDL ÷2)", group=groupTPSL)
+
+// Use underlying for TP/SL reference (recommended for leveraged ETFs like NVDL)
+useUnderlyingForTPSL = input.bool(true, "Use NVDA as TP/SL reference when on NVDL", group=groupTPSL)
+underlyingSymbol     = input.string("NASDAQ:NVDA", "Underlying symbol (for NVDL)", group=groupTPSL)
+
 // Sizing advisor
 targetProfit          = input.float(250.0, "Target profit per trade ($)", step=25.0, group=groupTPSL)
 useSizeAdvisor        = input.bool(true,   "Show contracts for target profit", group=groupTPSL)
@@ -393,18 +405,26 @@ int  tminSession = hour * 60 + minute
 bool isRTH       = tminSession >= rthStartMin and tminSession < rthEndMin
 bool isETHSess   = not isRTH
 
-// ===== ATR regime & TP/SL recommendation (POINTS, fixed TF) =====
-atrHTF         = request.security(syminfo.tickerid, tpAtrTF, ta.atr(atrLen))
-atrBaselineHTF = request.security(syminfo.tickerid, tpAtrTF, ta.sma(ta.atr(atrLen), atrBaselineLen))
-atrRatio       = atrBaselineHTF > 0 ? atrHTF / atrBaselineHTF : 1.0
-
-// Fast ATR baseline (shorter memory → reacts to recent calm/rip)
-fastAtrBaselineHTF = request.security(syminfo.tickerid, tpAtrTF, ta.sma(ta.atr(atrLen), fastAtrBaselineLen))
-fastAtrRatio = fastAtrBaselineHTF > 0 ? atrHTF / fastAtrBaselineHTF : 1.0
-
 // Instrument detection for ATR profile + scaling
 tickerUpper = str.upper(syminfo.ticker)
 rootUpper   = str.upper(syminfo.root)
+
+isStock = syminfo.type == "stock" or syminfo.type == "fund"
+isNVDA  = str.contains(tickerUpper, "NVDA")
+isNVDL  = str.contains(tickerUpper, "NVDL")
+
+string tpslRef = (useUnderlyingForTPSL and isNVDL) ? underlyingSymbol : syminfo.tickerid
+
+atrHTF         = request.security(tpslRef, tpAtrTF, ta.atr(atrLen))
+atrBaselineHTF = request.security(tpslRef, tpAtrTF, ta.sma(ta.atr(atrLen), atrBaselineLen))
+atrRatio       = atrBaselineHTF > 0 ? atrHTF / atrBaselineHTF : 1.0
+
+// Fast ATR baseline (shorter memory → reacts to recent calm/rip)
+fastAtrBaselineHTF = request.security(tpslRef, tpAtrTF, ta.sma(ta.atr(atrLen), fastAtrBaselineLen))
+fastAtrRatio = fastAtrBaselineHTF > 0 ? atrHTF / fastAtrBaselineHTF : 1.0
+
+// Leverage multiplier for execution vehicle (NVDL is 2x long daily)
+float eqLevMult = isNVDL ? 2.0 : 1.0
 
 isMNQ = str.contains(tickerUpper, "MNQ") or rootUpper == "MNQ"
 isSPX = str.contains(tickerUpper, "SPX") or rootUpper == "SPX"
@@ -420,10 +440,13 @@ isSOL = baseUpper == "SOL"
 // Treat only BTC/ETH/SOL as major crypto AND never treat MES as crypto
 isMajorCrypto = (syminfo.type == "crypto") and (isBTC or isETH or isSOL) and not isMES
 
-// Percent mode only if instrument is actually major crypto
+// Percent mode:
+// - ALWAYS for major crypto in Auto
+// - ALSO for equities (NVDA/NVDL) in Auto
 usePercentMode =
      (tpMode == "Percent (crypto)" and isMajorCrypto) or
-     (tpMode == "Auto"             and isMajorCrypto)
+     (tpMode == "Auto" and (isMajorCrypto or isStock))
+
 
 // Effective ATR thresholds
 float effLow  = lowVolThreshold
@@ -473,11 +496,19 @@ symScale =
      isES  ? esScale  :
              otherScale
 
-// Percent baselines
+// Percent baselines: crypto uses existing %, equities use equity %
 basePct =
-     volRegime == 0 ? percentLowVol :
-     volRegime == 2 ? percentHighVol :
-                      percentNormalVol
+     isMajorCrypto ? (
+         volRegime == 0 ? percentLowVol :
+         volRegime == 2 ? percentHighVol :
+                          percentNormalVol
+     ) :
+     isStock ? (
+         volRegime == 0 ? eqPercentLowVol :
+         volRegime == 2 ? eqPercentHighVol :
+                          eqPercentNormalVol
+     ) :
+     na
 
 // Global recent range (for micro / capping)
 float avgRangeFast = ta.sma(high - low, mnqRangeLenFast)
@@ -495,13 +526,17 @@ string tierLabel = "n/a"
 bool isDeadEthTape = false
 
 if usePercentMode
-    // Crypto majors → SL/TP in percent; here SL=TP by default
-    recPct      := basePct
+    float pctEff = basePct
+
+    // If it's a leveraged ETF like NVDL, reduce % distances so the *underlying* move is comparable.
+    if adjustLeveragedEtf and isNVDL and eqLevMult > 0
+        pctEff := pctEff / eqLevMult
+
+    recPct      := pctEff
     recPoints   := close * recPct / 100.0
     recSlPoints := recPoints
     recTpPoints := recPoints
-    // For crypto we just mirror ATR regime label
-    tierLabel   := volRegimeLabel
+    tierLabel   := volRegimeLabel + (isStock ? " (Equity)" : "")
 else
     // FUTURES MODE
     float baseSlPts = na
@@ -617,6 +652,7 @@ autoDollarsPerPoint =
      isMES ? 5.0 :
      isES  ? 50.0 :
      isSPX ? 50.0 :
+     isStock ? 1.0 :
              1.0
 
 dollarsPerPoint =
@@ -1089,8 +1125,8 @@ var table tpTable = na
 var int   tpRows  = 0
 
 if tpAdvisorEnabled and showTPSLHud and barstate.islast
-    bool showPerCtr  = not isMajorCrypto and not na(perContractPnL) and perContractPnL > 0
-    bool showSizeRow = not isMajorCrypto and useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
+    bool showPerCtr  = (not isMajorCrypto and not isStock) and not na(perContractPnL) and perContractPnL > 0
+    bool showSizeRow = (not isMajorCrypto and not isStock) and useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
     bool showLevRows = useLevAdvisor and isMajorCrypto and usePercentMode and not na(slFrac)
 
     // ===== Candle ranges for HUD =====
@@ -1172,7 +1208,8 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     table.cell(tpTable, 0, r, "Rec SL / TP", text_color=color.white)
     string tpDisplay = ""
     if usePercentMode and not na(recPct)
-        tpDisplay := str.tostring(recPct, "#.##") + "% (crypto mode)"
+        string pctModeLabel = isMajorCrypto ? "crypto" : (isStock ? "equity" : "percent")
+        tpDisplay := str.tostring(recPct, "#.##") + "% (" + pctModeLabel + " mode)"
     else if not na(recSlPoints) and not na(recTpPoints)
         tpDisplay := "SL: " + str.tostring(recSlPoints, format.mintick) + " / TP: " + str.tostring(recTpPoints, format.mintick)
     else
