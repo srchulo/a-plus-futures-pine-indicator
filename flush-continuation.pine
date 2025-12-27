@@ -1110,12 +1110,35 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     float r1Atr = atr > 0 ? r1 / atr : na
     float r2Atr = atr > 0 ? r2 / atr : na
 
+    float rAvg3 = (r0 + r1 + r2) / 3.0
+    float rMax3 = math.max(r0, math.max(r1, r2))
+
+    // TP/SL expressed in "bars" using Avg3 range
+    float tpBars = (not usePercentMode and not na(recTpPoints) and rAvg3 > 0) ? (recTpPoints / rAvg3) : na
+    float slBars = (not usePercentMode and not na(recSlPoints) and rAvg3 > 0) ? (recSlPoints / rAvg3) : na
+
+    // Optional: percent-mode equivalents
+    float rAvg3Pct = (r0Pct + r1Pct + r2Pct) / 3.0
+    float tpBarsPct = (usePercentMode and not na(recPct) and rAvg3Pct > 0) ? (recPct / rAvg3Pct) : na
+
+    // Mismatch flag thresholds
+    tpVsTapeHi = input.float(4.0, "Flag if TP > Avg3 ×", step=0.25, group=groupTPSL)
+    tpVsTapeLo = input.float(1.0, "Flag if TP < Avg3 ×", step=0.25, group=groupTPSL)
+
+    bool tpMismatch = false
+    if not usePercentMode and not na(recTpPoints) and rAvg3 > 0
+        tpMismatch := (recTpPoints > rAvg3 * tpVsTapeHi) or (recTpPoints < rAvg3 * tpVsTapeLo)
+    else if usePercentMode and not na(recPct) and rAvg3Pct > 0
+        tpMismatch := (recPct > rAvg3Pct * tpVsTapeHi) or (recPct < rAvg3Pct * tpVsTapeLo)
+
     int rowsNeeded = 7
     rowsNeeded += showPerCtr  ? 1 : 0
     rowsNeeded += showSizeRow ? 1 : 0
     rowsNeeded += showLevRows ? 2 : 0
     rowsNeeded += (showCandleSizesHud ? 1 : 0)
     rowsNeeded += (showCandleSizesHud and showCandleAsAtr ? 1 : 0)
+    rowsNeeded += (showCandleSizesHud ? 2 : 0)          // Avg/Max row + TP/SL bars row
+    rowsNeeded += (showCandleSizesHud ? 1 : 0)          // mismatch flag row (optional but useful)
 
     if na(tpTable) or tpRows != rowsNeeded
         tpTable := table.new(position.top_right, 2, rowsNeeded)
@@ -1159,6 +1182,24 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
         table.cell(tpTable, 0, r, "Last 3 ranges", text_color=color.white)
         string rangeStr = usePercentMode ? str.tostring(r0Pct, "#.##") + "%, " + str.tostring(r1Pct, "#.##") + "%, " + str.tostring(r2Pct, "#.##") + "%" : str.tostring(r0, format.mintick) + ", " + str.tostring(r1, format.mintick) + ", " + str.tostring(r2, format.mintick)
         table.cell(tpTable, 1, r, rangeStr, text_color=color.white)
+        r += 1
+
+        // Avg/Max row
+        table.cell(tpTable, 0, r, "Avg/Max (3)", text_color=color.white)
+        string avgMaxStr = usePercentMode ? "Avg " + str.tostring(rAvg3Pct, "#.##") + "% / Max " + str.tostring(math.max(r0Pct, math.max(r1Pct, r2Pct)), "#.##") + "%" : "Avg " + str.tostring(rAvg3, format.mintick) + " / Max " + str.tostring(rMax3, format.mintick)
+        table.cell(tpTable, 1, r, avgMaxStr, text_color=color.white)
+        r += 1
+
+        // TP/SL in "bars"
+        table.cell(tpTable, 0, r, "TP/SL in bars", text_color=color.white)
+        string barsStr = usePercentMode ? "TP≈" + str.tostring(tpBarsPct, "#.##") + " bars" : "TP≈" + str.tostring(tpBars, "#.##") + " / SL≈" + str.tostring(slBars, "#.##")
+        table.cell(tpTable, 1, r, barsStr, text_color=color.white)
+        r += 1
+
+        // Mismatch flag
+        table.cell(tpTable, 0, r, "TP vs tape", text_color=color.white)
+        string flagStr = tpMismatch ? "⚠ mismatch" : "OK"
+        table.cell(tpTable, 1, r, flagStr, text_color=color.white)
         r += 1
 
     if showCandleSizesHud and showCandleAsAtr
