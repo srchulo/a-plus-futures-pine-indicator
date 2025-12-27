@@ -1093,32 +1093,40 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     bool showSizeRow = not isMajorCrypto and useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
     bool showLevRows = useLevAdvisor and isMajorCrypto and usePercentMode and not na(slFrac)
 
-    // ===== Last 3 candle size (range) =====
-    showCandleSizesHud = input.bool(true, "Show last 3 candle sizes (HUD)", group=groupTPSL)
-    showCandleAsAtr    = input.bool(true, "Show candle sizes as ATR (HUD)", group=groupTPSL)
+    // ===== Candle ranges for HUD =====
+    showCandleSizesHud = input.bool(true, "Show candle ranges (HUD)", group=groupTPSL)
+    showCandleAsAtr    = input.bool(true, "Show candle ranges as ATR (HUD)", group=groupTPSL)
+    showCurrentRange   = input.bool(true, "Show CURRENT candle range (HUD)", group=groupTPSL)
 
-    float r0 = high - low
-    float r1 = (high[1] - low[1])
-    float r2 = (high[2] - low[2])
+    // Current (live) bar range
+    float curR = high - low
 
-    // In percent mode, show % ranges too (optional)
-    float r0Pct = close > 0 ? (r0 / close) * 100.0 : na
+    // Last 3 CLOSED ranges (exclude current bar)
+    float r1 = high[1] - low[1]
+    float r2 = high[2] - low[2]
+    float r3 = high[3] - low[3]
+
+    float rAvg3 = (r1 + r2 + r3) / 3.0
+    float rMax3 = math.max(r1, math.max(r2, r3))
+
+    // Percent versions
+    float curRPct = close > 0 ? (curR / close) * 100.0 : na
+
     float r1Pct = close[1] > 0 ? (r1 / close[1]) * 100.0 : na
     float r2Pct = close[2] > 0 ? (r2 / close[2]) * 100.0 : na
+    float r3Pct = close[3] > 0 ? (r3 / close[3]) * 100.0 : na
+    float rAvg3Pct = (r1Pct + r2Pct + r3Pct) / 3.0
+    float rMax3Pct = math.max(r1Pct, math.max(r2Pct, r3Pct))
 
-    float r0Atr = atr > 0 ? r0 / atr : na
-    float r1Atr = atr > 0 ? r1 / atr : na
-    float r2Atr = atr > 0 ? r2 / atr : na
+    // ATR-normalized versions (use chart ATR; that's fine for a tape sanity check)
+    float curRAtr = atr > 0 ? curR / atr : na
+    float r1Atr   = atr > 0 ? r1 / atr   : na
+    float r2Atr   = atr > 0 ? r2 / atr   : na
+    float r3Atr   = atr > 0 ? r3 / atr   : na
 
-    float rAvg3 = (r0 + r1 + r2) / 3.0
-    float rMax3 = math.max(r0, math.max(r1, r2))
-
-    // TP/SL expressed in "bars" using Avg3 range
+    // TP/SL expressed in "bars" using Avg of last 3 CLOSED ranges
     float tpBars = (not usePercentMode and not na(recTpPoints) and rAvg3 > 0) ? (recTpPoints / rAvg3) : na
     float slBars = (not usePercentMode and not na(recSlPoints) and rAvg3 > 0) ? (recSlPoints / rAvg3) : na
-
-    // Optional: percent-mode equivalents
-    float rAvg3Pct = (r0Pct + r1Pct + r2Pct) / 3.0
     float tpBarsPct = (usePercentMode and not na(recPct) and rAvg3Pct > 0) ? (recPct / rAvg3Pct) : na
 
     // Mismatch flag thresholds
@@ -1139,6 +1147,7 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     rowsNeeded += (showCandleSizesHud and showCandleAsAtr ? 1 : 0)
     rowsNeeded += (showCandleSizesHud ? 2 : 0)          // Avg/Max row + TP/SL bars row
     rowsNeeded += (showCandleSizesHud ? 1 : 0)          // mismatch flag row (optional but useful)
+    rowsNeeded += (showCandleSizesHud and showCurrentRange ? 1 : 0)
 
     if na(tpTable) or tpRows != rowsNeeded
         tpTable := table.new(position.top_right, 2, rowsNeeded)
@@ -1179,34 +1188,38 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
             tp2RDisplay := str.tostring(recPoints * 2.0, format.mintick) + " pts (~" + str.tostring(recPct * 2.0, "#.##") + "%)"
 
     if showCandleSizesHud
-        table.cell(tpTable, 0, r, "Last 3 ranges", text_color=color.white)
-        string rangeStr = usePercentMode ? str.tostring(r0Pct, "#.##") + "%, " + str.tostring(r1Pct, "#.##") + "%, " + str.tostring(r2Pct, "#.##") + "%" : str.tostring(r0, format.mintick) + ", " + str.tostring(r1, format.mintick) + ", " + str.tostring(r2, format.mintick)
-        table.cell(tpTable, 1, r, rangeStr, text_color=color.white)
+        // Last 3 CLOSED
+        table.cell(tpTable, 0, r, "Last 3 (closed)", text_color=color.white)
+        string last3Str = usePercentMode ? str.tostring(r1Pct, "#.##") + "%, " + str.tostring(r2Pct, "#.##") + "%, " + str.tostring(r3Pct, "#.##") + "%" : str.tostring(r1, format.mintick) + ", " + str.tostring(r2, format.mintick) + ", " + str.tostring(r3, format.mintick)
+        table.cell(tpTable, 1, r, last3Str, text_color=color.white)
         r += 1
 
-        // Avg/Max row
+        // Current (live)
+        if showCurrentRange
+            table.cell(tpTable, 0, r, "Current (live)", text_color=color.white)
+            string curStr = usePercentMode ? str.tostring(curRPct, "#.##") + "%" : str.tostring(curR, format.mintick)
+            table.cell(tpTable, 1, r, curStr, text_color=color.white)
+            r += 1
+
+        // Avg/Max of last 3 CLOSED
         table.cell(tpTable, 0, r, "Avg/Max (3)", text_color=color.white)
-        string avgMaxStr = usePercentMode ? "Avg " + str.tostring(rAvg3Pct, "#.##") + "% / Max " + str.tostring(math.max(r0Pct, math.max(r1Pct, r2Pct)), "#.##") + "%" : "Avg " + str.tostring(rAvg3, format.mintick) + " / Max " + str.tostring(rMax3, format.mintick)
+        string avgMaxStr = usePercentMode ? "Avg " + str.tostring(rAvg3Pct, "#.##") + "% / Max " + str.tostring(rMax3Pct, "#.##") + "%" : "Avg " + str.tostring(rAvg3, format.mintick) + " / Max " + str.tostring(rMax3, format.mintick)
         table.cell(tpTable, 1, r, avgMaxStr, text_color=color.white)
         r += 1
 
-        // TP/SL in "bars"
+        // TP/SL in bars (based on last 3 CLOSED)
         table.cell(tpTable, 0, r, "TP/SL in bars", text_color=color.white)
         string barsStr = usePercentMode ? "TP≈" + str.tostring(tpBarsPct, "#.##") + " bars" : "TP≈" + str.tostring(tpBars, "#.##") + " / SL≈" + str.tostring(slBars, "#.##")
         table.cell(tpTable, 1, r, barsStr, text_color=color.white)
         r += 1
 
-        // Mismatch flag
-        table.cell(tpTable, 0, r, "TP vs tape", text_color=color.white)
-        string flagStr = tpMismatch ? "⚠ mismatch" : "OK"
-        table.cell(tpTable, 1, r, flagStr, text_color=color.white)
-        r += 1
-
     if showCandleSizesHud and showCandleAsAtr
         table.cell(tpTable, 0, r, "Ranges / ATR", text_color=color.white)
-        string atrStr = "R0 " + str.tostring(r0Atr, "#.##") + "×, " + "R1 " + str.tostring(r1Atr, "#.##") + "×, " + "R2 " + str.tostring(r2Atr, "#.##") + "×"
+        // show last 3 CLOSED + current
+        string atrStr = "C " + str.tostring(curRAtr, "#.##") + "× | 1 " + str.tostring(r1Atr, "#.##") + "×, 2 " + str.tostring(r2Atr, "#.##") + "×, 3 " + str.tostring(r3Atr, "#.##") + "×"
         table.cell(tpTable, 1, r, atrStr, text_color=color.white)
         r += 1
+
 
     table.cell(tpTable, 1, r, tp2RDisplay, text_color=color.white)
     r += 1
