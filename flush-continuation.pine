@@ -1093,10 +1093,29 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     bool showSizeRow = not isMajorCrypto and useSizeAdvisor and not na(contractsForTarget) and perContractPnL > 0
     bool showLevRows = useLevAdvisor and isMajorCrypto and usePercentMode and not na(slFrac)
 
+    // ===== Last 3 candle size (range) =====
+    showCandleSizesHud = input.bool(true, "Show last 3 candle sizes (HUD)", group=groupTPSL)
+    showCandleAsAtr    = input.bool(true, "Show candle sizes as ATR (HUD)", group=groupTPSL)
+
+    float r0 = high - low
+    float r1 = (high[1] - low[1])
+    float r2 = (high[2] - low[2])
+
+    // In percent mode, show % ranges too (optional)
+    float r0Pct = close > 0 ? (r0 / close) * 100.0 : na
+    float r1Pct = close[1] > 0 ? (r1 / close[1]) * 100.0 : na
+    float r2Pct = close[2] > 0 ? (r2 / close[2]) * 100.0 : na
+
+    float r0Atr = atr > 0 ? r0 / atr : na
+    float r1Atr = atr > 0 ? r1 / atr : na
+    float r2Atr = atr > 0 ? r2 / atr : na
+
     int rowsNeeded = 7
     rowsNeeded += showPerCtr  ? 1 : 0
     rowsNeeded += showSizeRow ? 1 : 0
     rowsNeeded += showLevRows ? 2 : 0
+    rowsNeeded += (showCandleSizesHud ? 1 : 0)
+    rowsNeeded += (showCandleSizesHud and showCandleAsAtr ? 1 : 0)
 
     if na(tpTable) or tpRows != rowsNeeded
         tpTable := table.new(position.top_right, 2, rowsNeeded)
@@ -1135,6 +1154,19 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
             tp2RDisplay := str.tostring(recPct * 2.0, "#.##") + "% (~" + str.tostring(recPoints * 2.0, format.mintick) + ")"
         else
             tp2RDisplay := str.tostring(recPoints * 2.0, format.mintick) + " pts (~" + str.tostring(recPct * 2.0, "#.##") + "%)"
+
+    if showCandleSizesHud
+        table.cell(tpTable, 0, r, "Last 3 ranges", text_color=color.white)
+        string rangeStr = usePercentMode ? str.tostring(r0Pct, "#.##") + "%, " + str.tostring(r1Pct, "#.##") + "%, " + str.tostring(r2Pct, "#.##") + "%" : str.tostring(r0, format.mintick) + ", " + str.tostring(r1, format.mintick) + ", " + str.tostring(r2, format.mintick)
+        table.cell(tpTable, 1, r, rangeStr, text_color=color.white)
+        r += 1
+
+    if showCandleSizesHud and showCandleAsAtr
+        table.cell(tpTable, 0, r, "Ranges / ATR", text_color=color.white)
+        string atrStr = "R0 " + str.tostring(r0Atr, "#.##") + "×, " + "R1 " + str.tostring(r1Atr, "#.##") + "×, " + "R2 " + str.tostring(r2Atr, "#.##") + "×"
+        table.cell(tpTable, 1, r, atrStr, text_color=color.white)
+        r += 1
+
     table.cell(tpTable, 1, r, tp2RDisplay, text_color=color.white)
     r += 1
 
