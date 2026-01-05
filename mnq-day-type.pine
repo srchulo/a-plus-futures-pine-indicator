@@ -1,0 +1,130 @@
+//@version=5
+indicator("MNQ Day Type: 20/10 vs 10/5 (Classifier)", overlay=true, max_labels_count=500)
+
+// ---------- Inputs ----------
+sessionRTH   = input.session("0930-1600", "Session (ET)")
+orMinutes    = input.int(45, "Opening Window (minutes)", minval=15, maxval=120)
+atrLen       = input.int(14, "ATR Length", minval=5, maxval=50)
+
+orToAtrExp   = input.float(0.35, "Expansion OR/ATR Threshold", step=0.05)
+orToAtrRot   = input.float(0.22, "Rotation OR/ATR Threshold", step=0.05)
+
+vwapCrossRot = input.int(6, "VWAP Crosses (Rotation if >=)", minval=1, maxval=30)
+netToAtrExp  = input.float(0.18, "Net Move/ATR (Expansion if >=)", step=0.02)
+
+showTable    = input.bool(true, "Show Mini Dashboard")
+
+// ---------- Helpers ----------
+inSess  = not na(time(timeframe.period, sessionRTH))
+newSess = inSess and not inSess[1]
+
+// ATR (points)
+atr = ta.atr(atrLen)
+
+// VWAP (intraday)
+vwap = ta.vwap(hlc3)
+
+// ---------- Track Opening Window ----------
+var float sessOpen = na
+var float orHigh   = na
+var float orLow    = na
+var int   endTs    = na
+
+var int  vwapCrosses = 0
+var bool wasAbove    = na
+
+if newSess
+    sessOpen    := open
+    orHigh      := high
+    orLow       := low
+    endTs       := time + orMinutes * 60 * 1000
+    vwapCrosses := 0
+    wasAbove    := close > vwap
+
+if inSess and not na(endTs)
+    if time <= endTs
+        orHigh := math.max(orHigh, high)
+        orLow  := math.min(orLow, low)
+
+        bool nowAbove = close > vwap
+        if not na(wasAbove) and nowAbove != wasAbove
+            vwapCrosses += 1
+        wasAbove := nowAbove
+
+// Compute stats once we’re past the opening window
+orDone = inSess and not na(endTs) and time > endTs
+
+orRange  = (orHigh - orLow)
+orToAtr  = atr > 0 ? orRange / atr : na
+netMove  = not na(sessOpen) ? math.abs(close - sessOpen) : na
+netToAtr = atr > 0 ? netMove / atr : na
+
+// ---------- Scoring ----------
+int expScore = 0
+int rotScore = 0
+
+if orDone
+    expScore += orToAtr >= orToAtrExp ? 1 : 0
+    rotScore += orToAtr <= orToAtrRot ? 1 : 0
+    rotScore += vwapCrosses >= vwapCrossRot ? 1 : 0
+    expScore += netToAtr >= netToAtrExp ? 1 : 0
+
+// Decision
+string dayType   = "Classifying…"
+color  colorType = color.new(color.gray, 0)
+
+if orDone
+    if expScore >= 2 and rotScore == 0
+        dayType   := "20/10 (Expansion)"
+        colorType := color.new(color.lime, 0)
+    else if rotScore >= 2 and expScore == 0
+        dayType   := "10/5 (Rotation)"
+        colorType := color.new(color.orange, 0)
+    else if expScore >= 2 and rotScore >= 1
+        dayType   := "Mixed (Choppy Expansion)"
+        colorType := color.new(color.yellow, 0)
+    else
+        dayType   := "Unclear / Stand Down"
+        colorType := color.new(color.gray, 0)
+
+// ---------- Plot label ----------
+var label lbl = na
+if newSess
+    if not na(lbl)
+        label.delete(lbl)
+    lbl := label.new(bar_index, high, "Classifying…", style=label.style_label_down, textcolor=color.white, color=color.new(color.gray, 0))
+
+if inSess and not na(lbl)
+    string txt = dayType +
+      "\nOR/ATR: " + str.tostring(orToAtr, "#.##") +
+      "\nVWAP crosses: " + str.tostring(vwapCrosses) +
+      "\nNet/ATR: " + str.tostring(netToAtr, "#.##")
+    label.set_text(lbl, txt)
+    label.set_color(lbl, colorType)
+
+// ---------- Optional mini dashboard ----------
+int TABLE_COLS = 2
+int TABLE_ROWS = 5
+
+var table t = table.new(position.top_right, TABLE_COLS, TABLE_ROWS, border_width=1)
+
+if showTable
+    if newSess
+        // IMPORTANT: table.clear uses END INDEXES, not counts
+        table.clear(t, 0, 0, TABLE_COLS - 1, TABLE_ROWS - 1)
+
+    if inSess
+        table.cell(t, 0, 0, "Day Type", text_color=color.white, bgcolor=color.black)
+        table.cell(t, 1, 0, orDone ? dayType : "Classifying…", text_color=color.white, bgcolor=colorType)
+
+        table.cell(t, 0, 1, "OR/ATR", text_color=color.white, bgcolor=color.black)
+        table.cell(t, 1, 1, str.tostring(orToAtr, "#.##"), text_color=color.white)
+
+        table.cell(t, 0, 2, "VWAP Crosses", text_color=color.white, bgcolor=color.black)
+        table.cell(t, 1, 2, str.tostring(vwapCrosses), text_color=color.white)
+
+        table.cell(t, 0, 3, "Net/ATR", text_color=color.white, bgcolor=color.black)
+        table.cell(t, 1, 3, str.tostring(netToAtr, "#.##"), text_color=color.white)
+
+        table.cell(t, 0, 4, "Rule of thumb", text_color=color.white, bgcolor=color.black)
+        table.cell(t, 1, 4, orDone ? (dayType == "20/10 (Expansion)" ? "Use 20/10" : dayType == "10/5 (Rotation)" ? "Use 10/5" : "Trade small / skip") : "Wait for OR", text_color=color.white)
