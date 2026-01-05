@@ -1120,6 +1120,43 @@ if logEnabled and na(t)
     table.cell(t, 5, 0, "PCX/PCT",text_color=color.white, bgcolor=color.new(color.silver, 25))
     table.cell(t, 6, 0, "TCS/RSS",text_color=color.white, bgcolor=color.new(color.silver, 25))
 
+// ===============================
+// === BACKTEST TAGS FOR HUD =====
+// ===============================
+
+// Moxie 3-bar slope + state (USED by HUD + alerts)
+float moxSlope3 = slope(moxieProxy, 3)
+int   moxStateBot =
+     moxieProxy > 0 and moxSlope3 > 0  ?  2 :
+     moxieProxy > 0 and moxSlope3 <= 0 ?  1 :
+     moxieProxy < 0 and moxSlope3 < 0  ? -2 : -1
+
+// Ribbon state: 1 = strong bull, -1 = strong bear, 0 = mixed
+int ribbonStateBot =
+     (ribbonBull and ribbonSlopeUp) ? 1 :
+     (ribbonBear and ribbonSlopeDn) ? -1 : 0
+
+// Market Regime strings
+string mrVol    = volRegimeLabel  // Low / Normal / High
+string mrRibbon = ribbonStateBot == 1 ? "Bull" : ribbonStateBot == -1 ? "Bear" : "Mixed"
+
+// Trend Context strings (direction-aware)
+string trendCtxLong =
+     (ribbonStateBot == 1 and moxStateBot >= 1) ? "Aligned" :
+     (ribbonStateBot == -1 or  moxStateBot <= -1) ? "Counter" :
+     "Mixed"
+
+string trendCtxShort =
+     (ribbonStateBot == -1 and moxStateBot <= -1) ? "Aligned" :
+     (ribbonStateBot == 1  or  moxStateBot >= 1) ? "Counter" :
+     "Mixed"
+
+// BandPos display + zone flag (your 2nd ATR filter in plain English)
+string bandPosZone =
+     inBadLongZone  ? "BadLong" :
+     inBadShortZone ? "BadShort" :
+                      "OK"
+
 // ===== TP/SL HUD table (top-right) =====
 var table tpTable = na
 var int   tpRows  = 0
@@ -1175,7 +1212,7 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
     else if usePercentMode and not na(recPct) and rAvg3Pct > 0
         tpMismatch := (recPct > rAvg3Pct * tpVsTapeHi) or (recPct < rAvg3Pct * tpVsTapeLo)
 
-    int rowsNeeded = 7
+    int rowsNeeded = 10
     rowsNeeded += showPerCtr  ? 1 : 0
     rowsNeeded += showSizeRow ? 1 : 0
     rowsNeeded += showLevRows ? 2 : 0
@@ -1192,15 +1229,31 @@ if tpAdvisorEnabled and showTPSLHud and barstate.islast
         table.cell(tpTable, 1, 0, "Value",  text_color=color.white, bgcolor=color.new(color.silver, 25))
 
     int r = 1
+
     table.cell(tpTable, 0, r, "ATR regime", text_color=color.white)
     table.cell(tpTable, 1, r, volRegimeLabel + " (" + profileTPSL + ")", text_color=color.white)
     r += 1
+
+    table.cell(tpTable, 0, r, "Market Regime", text_color=color.white)
+    table.cell(tpTable, 1, r, mrVol + " / " + mrRibbon, text_color=color.white)
+    r += 1
+
+    table.cell(tpTable, 0, r, "TrendCtx (L / S)", text_color=color.white)
+    table.cell(tpTable, 1, r, trendCtxLong + " / " + trendCtxShort, text_color=color.white)
+    r += 1
+
+    table.cell(tpTable, 0, r, "BandPos (ATR)", text_color=color.white)
+    table.cell(tpTable, 1, r, str.tostring(bandPos, "#.##") + " (" + bandPosZone + ")", text_color=color.white)
+    r += 1
+
     table.cell(tpTable, 0, r, "ATR (curr)", text_color=color.white)
     table.cell(tpTable, 1, r, str.tostring(atrHTF, format.mintick) + " (" + str.tostring(atrRatio, "#.##") + "×)", text_color=color.white)
     r += 1
+
     table.cell(tpTable, 0, r, "Fast ATR ratio", text_color=color.white)
     table.cell(tpTable, 1, r, str.tostring(fastAtrRatio, "#.##") + "×", text_color=color.white)
     r += 1
+
     // Tier row (Ultra-Calm / Very Calm / Calm Scalper / Calm / Trend / High-Vol / etc)
     table.cell(tpTable, 0, r, "TP/SL Tier", text_color=color.white)
     table.cell(tpTable, 1, r, tierLabel,    text_color=color.white)
@@ -1298,19 +1351,6 @@ plot(showFMPlots ? moxieProxy : na, title="Moxie proxy (EMA close−34)", color=
 
 plotshape(showFMDots and fmGateShort, title="FM Gate Short", style=shape.circle,  location=location.abovebar, size=size.tiny, color=color.new(color.red, 0))
 plotshape(showFMDots and fmGateLong,  title="FM Gate Long",  style=shape.circle,  location=location.belowbar, size=size.tiny, color=color.new(color.lime, 0))
-
-// === Extra features for bot / logging ===
-// Moxie 3-bar slope + state (same idea as makeLogRow)
-float moxSlope3 = slope(moxieProxy, 3)
-int   moxStateBot =
-     moxieProxy > 0 and moxSlope3 > 0  ?  2 :
-     moxieProxy > 0 and moxSlope3 <= 0 ?  1 :
-     moxieProxy < 0 and moxSlope3 < 0  ? -2 : -1
-
-// Ribbon state for alerts: 1 = strong bull, -1 = strong bear, 0 = mixed
-int ribbonStateBot =
-     (ribbonBull and ribbonSlopeUp) ? 1 :
-     (ribbonBear and ribbonSlopeDn) ? -1 : 0
 
 // Separate alias for alert robustness (bar-close only, no isrealtime gating)
 bool is_closeConfirmed = barConfirmed
