@@ -39,6 +39,11 @@ useTimeExit   = input.bool(true, "Time Exit On", group=groupTimeExit)
 maxBarsInTrade = input.int(12, "Max Bars In Trade", minval=1, maxval=500, group=groupTimeExit)
 timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExit)
 
+groupEOD = "End Of Day Close"
+useEodClose = input.bool(true, "EOD Close On", group=groupEOD)
+eodHour     = input.int(15, "EOD Hour", minval=0, maxval=23, group=groupEOD)
+eodMinute   = input.int(55, "EOD Minute", minval=0, maxval=59, group=groupEOD)
+
 groupDisplay = "Display"
 showORBLevels = input.bool(true, "Show ORB Levels", group=groupDisplay)
 showLabels    = input.bool(true, "Show Entry Labels", group=groupDisplay)
@@ -236,21 +241,49 @@ validLong  = strategy.position_size > 0 and not na(posEntry) and not na(posRisk)
 validShort = strategy.position_size < 0 and not na(posEntry) and not na(posRisk) and posRisk > 0 and not na(posStopRef)
 
 // =========================
+// Helper state for trail activation
+// =========================
+longRunupR  = validLong  ? math.floor((highestSinceEntry - posEntry) / posRisk) : na
+shortRunupR = validShort ? math.floor((posEntry - lowestSinceEntry) / posRisk) : na
+
+trailActiveLong  = validLong and tradeMode == "1R Step Trail" and longRunupR >= 1
+trailActiveShort = validShort and tradeMode == "1R Step Trail" and shortRunupR >= 1
+
+// =========================
 // Time Exit Logic
+// Fixed RR: normal time exit logic
+// 1R Trail: time exit only BEFORE trail activates
 // =========================
 barsInTrade = not na(entryBarIndex) ? (bar_index - entryBarIndex) : na
 
 longInProfit  = validLong and close > posEntry
 shortInProfit = validShort and close < posEntry
 
-timeExitLong = useTimeExit and validLong and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and longInProfit))
-timeExitShort = useTimeExit and validShort and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and shortInProfit))
+timeExitEligibleLong = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveLong)
+
+timeExitEligibleShort = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveShort)
+
+timeExitLong = useTimeExit and validLong and timeExitEligibleLong and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and longInProfit))
+
+timeExitShort = useTimeExit and validShort and timeExitEligibleShort and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and shortInProfit))
+
+// =========================
+// End-of-day close logic
+// =========================
+int curHour = hour(time, sessionTZ)
+int curMinute = minute(time, sessionTZ)
+int curMinuteOfDay = curHour * 60 + curMinute
+int eodMinuteOfDay = eodHour * 60 + eodMinute
+
+eodCloseNow = useEodClose and curMinuteOfDay >= eodMinuteOfDay
 
 // =========================
 // Exit Logic
-// - Before +1R: stop stays at original SL
-// - At +1R: stop moves to BE
-// - At +2R: stop moves to +1R, etc.
+// - Fixed RR: fixed stop + limit
+// - 1R Trail:
+//   Before +1R: stop stays at original SL
+//   At +1R: stop moves to BE
+//   At +2R: stop moves to +1R, etc.
 // =========================
 if validLong
     float stopPrice  = na
@@ -260,11 +293,10 @@ if validLong
         stopPrice  := posStopRef
         limitPrice := posEntry + posRisk * rrMultiple
     else
-        int runupR = math.floor((highestSinceEntry - posEntry) / posRisk)
-        if runupR < 1
+        if longRunupR < 1
             stopPrice := posStopRef
         else
-            stopPrice := posEntry + (runupR - 1) * posRisk
+            stopPrice := posEntry + (longRunupR - 1) * posRisk
 
     strategy.exit("Long Exit", from_entry="Long", stop=stopPrice, limit=limitPrice)
 
@@ -276,11 +308,10 @@ if validShort
         stopPrice  := posStopRef
         limitPrice := posEntry - posRisk * rrMultiple
     else
-        int runupR = math.floor((posEntry - lowestSinceEntry) / posRisk)
-        if runupR < 1
+        if shortRunupR < 1
             stopPrice := posStopRef
         else
-            stopPrice := posEntry - (runupR - 1) * posRisk
+            stopPrice := posEntry - (shortRunupR - 1) * posRisk
 
     strategy.exit("Short Exit", from_entry="Short", stop=stopPrice, limit=limitPrice)
 
@@ -290,6 +321,13 @@ if timeExitLong
 
 if timeExitShort
     strategy.close("Short", comment="Time Exit")
+
+// EOD forced close
+if eodCloseNow and strategy.position_size > 0
+    strategy.close("Long", comment="EOD Close")
+
+if eodCloseNow and strategy.position_size < 0
+    strategy.close("Short", comment="EOD Close")
 
 // =========================
 // Plot ORB levels
