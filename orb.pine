@@ -1,5 +1,5 @@
 //@version=5
-strategy("15m ORB Backtest - NY / London (Robust ORB)", overlay=true, pyramiding=0,
+strategy("15m ORB Backtest - NY / London (5m-safe entries)", overlay=true, pyramiding=0,
      initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0,
      process_orders_on_close=true)
 
@@ -30,20 +30,10 @@ showORBLevels = input.bool(true, "Show ORB Levels", group=groupDisplay)
 showLabels    = input.bool(true, "Show Entry Labels", group=groupDisplay)
 
 // =========================
-// Entry rules
+// ORB + LATCHED signal engine on 1m
+// Returns sigState that persists after first breakout.
 // =========================
-bodyCloseLong(orbHigh) =>
-    close > orbHigh and close > open and (not noWickStrict or low >= orbHigh)
-
-bodyCloseShort(orbLow) =>
-    close < orbLow and close < open and (not noWickStrict or high <= orbLow)
-
-// =========================
-// ORB Engine (runs on 1m data) using hour/minute logic
-// This avoids timestamp/session weirdness.
-// =========================
-orbEngineHM(startH, startM, durM) =>
-    // Local time pieces in the chosen timezone
+orbAndLatchedSignal1m(startH, startM, durM) =>
     int y  = year(time, sessionTZ)
     int mo = month(time, sessionTZ)
     int d  = dayofmonth(time, sessionTZ)
@@ -56,46 +46,69 @@ orbEngineHM(startH, startM, durM) =>
     int startMin = startH * 60 + startM
     int endMin   = startMin + durM
 
-    // ORB window: [startMin, endMin)
-    bool inSess = curMin >= startMin and curMin < endMin
+    bool inOrb = curMin >= startMin and curMin < endMin
 
     var float hi = na
     var float lo = na
     var bool  ready = false
     var int   lastDayId = na
 
-    // Hard reset on each new day
+    // LATCHED signal state: 0 none, +1 long triggered, -1 short triggered
+    var int sigState = 0
+
+    // Reset on new day
     if na(lastDayId) or dayId != lastDayId
         hi := na
         lo := na
         ready := false
+        sigState := 0
         lastDayId := dayId
 
-    bool startBar = inSess and not inSess[1]
-    bool ended    = not inSess and inSess[1]
+    bool startBar = inOrb and not inOrb[1]
+    bool ended    = not inOrb and inOrb[1]
 
     if startBar
         hi := high
         lo := low
-    else if inSess
+        ready := false
+        sigState := 0
+    else if inOrb
         hi := na(hi) ? high : math.max(hi, high)
         lo := na(lo) ? low  : math.min(lo, low)
 
     if ended
         ready := true
 
-    // Only publish levels while building OR after ready.
-    float outHi = (inSess or ready) ? hi : na
-    float outLo = (inSess or ready) ? lo : na
+    float outHi = (inOrb or ready) ? hi : na
+    float outLo = (inOrb or ready) ? lo : na
 
-    [outHi, outLo, ready, dayId]
+    // Trigger only once, after ORB is ready
+    if ready and sigState == 0
+        bool longOk  = close > outHi and close > open and (not noWickStrict or low >= outHi)
+        bool shortOk = close < outLo and close < open and (not noWickStrict or high <= outLo)
 
-// Pull ORBs from 1m bars
-[nyHigh, nyLow, nyReady, nyDayId]     = request.security(syminfo.tickerid, "1", orbEngineHM(nyStartH,  nyStartM,  nyDurM),  barmerge.gaps_off, barmerge.lookahead_off)
-[ldnHigh, ldnLow, ldnReady, ldnDayId] = request.security(syminfo.tickerid, "1", orbEngineHM(ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
+        if longOk
+            sigState := 1
+        else if shortOk
+            sigState := -1
+
+    [outHi, outLo, ready, dayId, sigState]
+
+// Request NY + London from 1m
+[nyHigh, nyLow, nyReady, nyDayId, nySigState] =
+     request.security(syminfo.tickerid, "1", orbAndLatchedSignal1m(nyStartH, nyStartM, nyDurM), barmerge.gaps_off, barmerge.lookahead_off)
+
+[ldnHigh, ldnLow, ldnReady, ldnDayId, ldnSigState] =
+     request.security(syminfo.tickerid, "1", orbAndLatchedSignal1m(ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Detect the moment the latched signal first appears on THIS timeframe
+nyLongFlip  = nySigState == 1 and nz(nySigState[1]) != 1
+nyShortFlip = nySigState == -1 and nz(nySigState[1]) != -1
+ldnLongFlip  = ldnSigState == 1 and nz(ldnSigState[1]) != 1
+ldnShortFlip = ldnSigState == -1 and nz(ldnSigState[1]) != -1
 
 // =========================
-// One trade per session per day gating
+// One trade per day gating
 // =========================
 var int lastDay = na
 var bool nyTraded = false
@@ -114,13 +127,12 @@ bool longSignal = false
 bool shortSignal = false
 float entryStop = na
 
-nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseLong(nyHigh)
-nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseShort(nyLow)
+nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and nyLongFlip
+nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and nyShortFlip
 
-ldnLongSignal  = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and bodyCloseLong(ldnHigh)
-ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and bodyCloseShort(ldnLow)
+ldnLongSignal  = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and ldnLongFlip
+ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and ldnShortFlip
 
-// Prefer NY if both trigger same bar
 if nyLongSignal
     longSignal := true
     activeORB := "NY"
@@ -145,12 +157,14 @@ else if ldnShortSignal
 if longSignal
     strategy.entry("Long", strategy.long)
     if showLabels
-        label.new(bar_index, low, activeORB + " Long", style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
+        label.new(bar_index, low, activeORB + " Long", style=label.style_label_up,
+          textcolor=color.white, color=color.new(color.green, 0))
 
 if shortSignal
     strategy.entry("Short", strategy.short)
     if showLabels
-        label.new(bar_index, high, activeORB + " Short", style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
+        label.new(bar_index, high, activeORB + " Short", style=label.style_label_down,
+          textcolor=color.white, color=color.new(color.red, 0))
 
 // =========================
 // Exit tracking
