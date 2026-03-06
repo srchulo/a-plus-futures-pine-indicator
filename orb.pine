@@ -1,5 +1,5 @@
 //@version=5
-strategy("15m ORB Backtest - NY / London (ORB 1m, Entry TF)", overlay=true, pyramiding=0,
+strategy("15m ORB Backtest - NY / London (ORB 1m, Entry TF) - SL=Breakout Candle", overlay=true, pyramiding=0,
      initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0,
      process_orders_on_close=true)
 
@@ -25,6 +25,10 @@ tradeMode    = input.string("Fixed RR", "Exit Mode", options=["Fixed RR", "1R St
 rrMultiple   = input.float(2.0, "Fixed RR Multiple", minval=0.5, step=0.5, group=groupTrade)
 noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTrade)
 
+// optional tiny buffer so stops/targets aren’t exactly on a level
+useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTrade)
+bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=groupTrade)
+
 groupDisplay = "Display"
 showORBLevels = input.bool(true, "Show ORB Levels", group=groupDisplay)
 showLabels    = input.bool(true, "Show Entry Labels", group=groupDisplay)
@@ -32,9 +36,6 @@ showLabels    = input.bool(true, "Show Entry Labels", group=groupDisplay)
 // =========================
 // Entry rules (evaluated on CURRENT CHART timeframe)
 // =========================
-// Long: close > ORB high AND bullish candle (close > open).
-// Short: close < ORB low  AND bearish candle (close < open).
-// Optional strict: wick cannot re-enter ORB.
 bodyCloseLong(orbHigh) =>
     close > orbHigh and close > open and (not noWickStrict or low >= orbHigh)
 
@@ -64,7 +65,6 @@ orbLevels1m(startH, startM, durM) =>
     var bool  ready = false
     var int   lastDayId = na
 
-    // Reset on new day
     if na(lastDayId) or dayId != lastDayId
         hi := na
         lo := na
@@ -85,7 +85,6 @@ orbLevels1m(startH, startM, durM) =>
     if ended
         ready := true
 
-    // Publish levels only while building OR after ready
     float outHi = (inOrb or ready) ? hi : na
     float outLo = (inOrb or ready) ? lo : na
 
@@ -112,11 +111,15 @@ if na(lastDay) or nyDayId != lastDay
 
 // =========================
 // Entry Logic (FIRST CHART-TF candle to close outside ORB)
+// Stop = breakout candle low/high (what you want)
 // =========================
+float tick = syminfo.mintick
+float buf  = useBufferTicks ? bufferTicks * tick : 0.0
+
 var string activeORB = ""
 bool longSignal = false
 bool shortSignal = false
-float entryStop = na
+float intendedStop = na  // stop based on breakout candle
 
 nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseLong(nyHigh)
 nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseShort(nyLow)
@@ -128,22 +131,22 @@ ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_
 if nyLongSignal
     longSignal := true
     activeORB := "NY"
-    entryStop := nyLow
+    intendedStop := low - buf          // <-- breakout candle low
     nyTraded := true
 else if nyShortSignal
     shortSignal := true
     activeORB := "NY"
-    entryStop := nyHigh
+    intendedStop := high + buf         // <-- breakout candle high
     nyTraded := true
 else if ldnLongSignal
     longSignal := true
     activeORB := "London"
-    entryStop := ldnLow
+    intendedStop := low - buf
     ldnTraded := true
 else if ldnShortSignal
     shortSignal := true
     activeORB := "London"
-    entryStop := ldnHigh
+    intendedStop := high + buf
     ldnTraded := true
 
 if longSignal
@@ -159,62 +162,77 @@ if shortSignal
           textcolor=color.white, color=color.new(color.red, 0))
 
 // =========================
-// Exit tracking
+// Freeze entry/stop/risk on actual fill bar
 // =========================
-var float currentStopRef = na
-var float currentRisk = na
+var float posStopRef = na
+var float posEntry   = na
+var float posRisk    = na
 var float highestSinceEntry = na
-var float lowestSinceEntry = na
+var float lowestSinceEntry  = na
 
+// capture stop reference on signal bar
 if longSignal or shortSignal
-    currentStopRef := entryStop
+    posStopRef := intendedStop
 
-if strategy.position_size == 0
-    currentRisk := na
+newLong  = strategy.position_size > 0 and strategy.position_size[1] == 0
+newShort = strategy.position_size < 0 and strategy.position_size[1] == 0
+flatNow  = strategy.position_size == 0 and strategy.position_size[1] != 0
+
+if flatNow or strategy.position_size == 0
+    posEntry := na
+    posRisk := na
     highestSinceEntry := na
     lowestSinceEntry := na
 
+if newLong
+    posEntry := strategy.position_avg_price
+    posRisk  := posEntry - posStopRef
+    highestSinceEntry := high
+
+if newShort
+    posEntry := strategy.position_avg_price
+    posRisk  := posStopRef - posEntry
+    lowestSinceEntry := low
+
 if strategy.position_size > 0
     highestSinceEntry := na(highestSinceEntry) ? high : math.max(highestSinceEntry, high)
-    currentRisk := na(currentRisk) ? (strategy.position_avg_price - currentStopRef) : currentRisk
 
 if strategy.position_size < 0
     lowestSinceEntry := na(lowestSinceEntry) ? low : math.min(lowestSinceEntry, low)
-    currentRisk := na(currentRisk) ? (currentStopRef - strategy.position_avg_price) : currentRisk
 
-validRiskLong  = strategy.position_size > 0 and not na(currentRisk) and currentRisk > 0
-validRiskShort = strategy.position_size < 0 and not na(currentRisk) and currentRisk > 0
+validLong  = strategy.position_size > 0 and not na(posEntry) and not na(posRisk) and posRisk > 0 and not na(posStopRef)
+validShort = strategy.position_size < 0 and not na(posEntry) and not na(posRisk) and posRisk > 0 and not na(posStopRef)
 
 // =========================
 // Exit Logic
 // =========================
-if validRiskLong
-    float longEntry = strategy.position_avg_price
-    float longStop  = na
-    float longLimit = na
+if validLong
+    float stopPrice  = na
+    float limitPrice = na
 
     if tradeMode == "Fixed RR"
-        longStop  := currentStopRef
-        longLimit := longEntry + currentRisk * rrMultiple
+        stopPrice  := posStopRef
+        limitPrice := posEntry + posRisk * rrMultiple
     else
-        int longRunupR = math.floor((highestSinceEntry - longEntry) / currentRisk)
-        longStop := longEntry + (longRunupR - 1) * currentRisk
+        int runupR = math.floor((highestSinceEntry - posEntry) / posRisk)
+        int stopR  = math.max(runupR - 1, 0)
+        stopPrice  := posEntry + stopR * posRisk
 
-    strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longLimit)
+    strategy.exit("Long Exit", from_entry="Long", stop=stopPrice, limit=limitPrice)
 
-if validRiskShort
-    float shortEntry = strategy.position_avg_price
-    float shortStop  = na
-    float shortLimit = na
+if validShort
+    float stopPrice  = na
+    float limitPrice = na
 
     if tradeMode == "Fixed RR"
-        shortStop  := currentStopRef
-        shortLimit := shortEntry - currentRisk * rrMultiple
+        stopPrice  := posStopRef
+        limitPrice := posEntry - posRisk * rrMultiple
     else
-        int shortRunupR = math.floor((shortEntry - lowestSinceEntry) / currentRisk)
-        shortStop := shortEntry - (shortRunupR - 1) * currentRisk
+        int runupR = math.floor((posEntry - lowestSinceEntry) / posRisk)
+        int stopR  = math.max(runupR - 1, 0)
+        stopPrice  := posEntry - stopR * posRisk
 
-    strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortLimit)
+    strategy.exit("Short Exit", from_entry="Short", stop=stopPrice, limit=limitPrice)
 
 // =========================
 // Plot ORB levels
