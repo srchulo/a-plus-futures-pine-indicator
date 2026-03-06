@@ -29,6 +29,11 @@ noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTra
 useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTrade)
 bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=groupTrade)
 
+groupTimeExit = "Time Exit"
+useTimeExit   = input.bool(true, "Time Exit On", group=groupTimeExit)
+maxBarsInTrade = input.int(12, "Max Bars In Trade", minval=1, maxval=500, group=groupTimeExit)
+timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExit)
+
 groupDisplay = "Display"
 showORBLevels = input.bool(true, "Show ORB Levels", group=groupDisplay)
 showLabels    = input.bool(true, "Show Entry Labels", group=groupDisplay)
@@ -119,7 +124,7 @@ float buf  = useBufferTicks ? bufferTicks * tick : 0.0
 var string activeORB = ""
 bool longSignal = false
 bool shortSignal = false
-float intendedStop = na  // stop based on breakout candle
+float intendedStop = na
 
 nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseLong(nyHigh)
 nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseShort(nyLow)
@@ -169,6 +174,7 @@ var float posEntry   = na
 var float posRisk    = na
 var float highestSinceEntry = na
 var float lowestSinceEntry  = na
+var int   entryBarIndex = na
 
 if longSignal or shortSignal
     posStopRef := intendedStop
@@ -182,16 +188,19 @@ if flatNow or strategy.position_size == 0
     posRisk := na
     highestSinceEntry := na
     lowestSinceEntry := na
+    entryBarIndex := na
 
 if newLong
     posEntry := strategy.position_avg_price
     posRisk  := posEntry - posStopRef
     highestSinceEntry := high
+    entryBarIndex := bar_index
 
 if newShort
     posEntry := strategy.position_avg_price
     posRisk  := posStopRef - posEntry
     lowestSinceEntry := low
+    entryBarIndex := bar_index
 
 if strategy.position_size > 0
     highestSinceEntry := na(highestSinceEntry) ? high : math.max(highestSinceEntry, high)
@@ -203,8 +212,20 @@ validLong  = strategy.position_size > 0 and not na(posEntry) and not na(posRisk)
 validShort = strategy.position_size < 0 and not na(posEntry) and not na(posRisk) and posRisk > 0 and not na(posStopRef)
 
 // =========================
-// Exit Logic (FIXED TRAIL BEHAVIOR)
-// - Before +1R: stop stays at original SL (posStopRef)
+// Time Exit Logic
+// =========================
+barsInTrade = not na(entryBarIndex) ? (bar_index - entryBarIndex) : na
+
+longInProfit  = validLong and close > posEntry
+shortInProfit = validShort and close < posEntry
+
+timeExitLong = useTimeExit and validLong and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and longInProfit))
+
+timeExitShort = useTimeExit and validShort and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and shortInProfit))
+
+// =========================
+// Exit Logic
+// - Before +1R: stop stays at original SL
 // - At +1R: stop moves to BE
 // - At +2R: stop moves to +1R, etc.
 // =========================
@@ -239,6 +260,13 @@ if validShort
             stopPrice := posEntry - (runupR - 1) * posRisk
 
     strategy.exit("Short Exit", from_entry="Short", stop=stopPrice, limit=limitPrice)
+
+// Time-based close
+if timeExitLong
+    strategy.close("Long", comment="Time Exit")
+
+if timeExitShort
+    strategy.close("Short", comment="Time Exit")
 
 // =========================
 // Plot ORB levels
