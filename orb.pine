@@ -29,6 +29,11 @@ noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTra
 useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTrade)
 bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=groupTrade)
 
+groupDisp = "Displacement Filter"
+useDisplacementFilter = input.bool(true, "Displacement Filter On", group=groupDisp)
+minCloseBeyondPct     = input.float(0.10, "Min Close Beyond ORB (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
+maxBreakoutWickPct    = input.float(0.35, "Max Breakout Wick (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
+
 groupTimeExit = "Time Exit"
 useTimeExit   = input.bool(true, "Time Exit On", group=groupTimeExit)
 maxBarsInTrade = input.int(12, "Max Bars In Trade", minval=1, maxval=500, group=groupTimeExit)
@@ -46,6 +51,25 @@ bodyCloseLong(orbHigh) =>
 
 bodyCloseShort(orbLow) =>
     close < orbLow and close < open and (not noWickStrict or high <= orbLow)
+
+// Displacement / momentum filter
+displacementLong(orbHigh) =>
+    candleRange = high - low
+    breakoutWick = high - close
+    closeBeyond = close - orbHigh
+    candleRange > 0 and closeBeyond >= candleRange * minCloseBeyondPct and breakoutWick <= candleRange * maxBreakoutWickPct
+
+displacementShort(orbLow) =>
+    candleRange = high - low
+    breakoutWick = close - low
+    closeBeyond = orbLow - close
+    candleRange > 0 and closeBeyond >= candleRange * minCloseBeyondPct and breakoutWick <= candleRange * maxBreakoutWickPct
+
+entryLongOk(orbHigh) =>
+    bodyCloseLong(orbHigh) and (not useDisplacementFilter or displacementLong(orbHigh))
+
+entryShortOk(orbLow) =>
+    bodyCloseShort(orbLow) and (not useDisplacementFilter or displacementShort(orbLow))
 
 // =========================
 // ORB engine on 1m (range accuracy)
@@ -126,11 +150,11 @@ bool longSignal = false
 bool shortSignal = false
 float intendedStop = na
 
-nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseLong(nyHigh)
-nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseShort(nyLow)
+nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and entryLongOk(nyHigh)
+nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and entryShortOk(nyLow)
 
-ldnLongSignal  = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and bodyCloseLong(ldnHigh)
-ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and bodyCloseShort(ldnLow)
+ldnLongSignal  = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and entryLongOk(ldnHigh)
+ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and entryShortOk(ldnLow)
 
 // Prefer NY if both trigger same bar
 if nyLongSignal
@@ -220,7 +244,6 @@ longInProfit  = validLong and close > posEntry
 shortInProfit = validShort and close < posEntry
 
 timeExitLong = useTimeExit and validLong and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and longInProfit))
-
 timeExitShort = useTimeExit and validShort and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and shortInProfit))
 
 // =========================
