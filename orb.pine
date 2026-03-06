@@ -1,5 +1,7 @@
 //@version=5
-strategy("15m ORB Backtest - NY / London", overlay=true, pyramiding=0, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0, process_orders_on_close=true)
+strategy("15m ORB Backtest - NY / London (Robust ORB)", overlay=true, pyramiding=0,
+     initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0,
+     process_orders_on_close=true)
 
 // =========================
 // Inputs
@@ -9,14 +11,18 @@ useNY      = input.bool(true,  "NY Open On", group=groupSessions)
 useLondon  = input.bool(false, "London Open On", group=groupSessions)
 sessionTZ  = input.string("America/New_York", "Session Timezone", group=groupSessions)
 
-nySession      = input.session("0930-0945", "NY ORB Window", group=groupSessions)
-londonSession  = input.session("0300-0315", "London ORB Window", group=groupSessions)
+// ORB windows by clock time + duration (minutes)
+nyStartH   = input.int(9,  "NY Start Hour",   minval=0, maxval=23, group=groupSessions)
+nyStartM   = input.int(30, "NY Start Minute", minval=0, maxval=59, group=groupSessions)
+nyDurM     = input.int(15, "NY ORB Minutes",  minval=1, maxval=120, group=groupSessions)
+
+ldnStartH  = input.int(3,  "London Start Hour",   minval=0, maxval=23, group=groupSessions)
+ldnStartM  = input.int(0,  "London Start Minute", minval=0, maxval=59, group=groupSessions)
+ldnDurM    = input.int(15, "London ORB Minutes",  minval=1, maxval=120, group=groupSessions)
 
 groupTrade = "Trade Logic"
-tradeMode   = input.string("Fixed RR", "Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTrade)
-rrMultiple  = input.float(2.0, "Fixed RR Multiple", minval=0.5, step=0.5, group=groupTrade)
-// Optional stricter interpretation: require NO wick to dip back into ORB after closing outside.
-// Default off, since you didn't ask for strict mode as required behavior.
+tradeMode    = input.string("Fixed RR", "Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTrade)
+rrMultiple   = input.float(2.0, "Fixed RR Multiple", minval=0.5, step=0.5, group=groupTrade)
 noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTrade)
 
 groupDisplay = "Display"
@@ -24,21 +30,8 @@ showORBLevels = input.bool(true, "Show ORB Levels", group=groupDisplay)
 showLabels    = input.bool(true, "Show Entry Labels", group=groupDisplay)
 
 // =========================
-// Helpers
+// Entry rules
 // =========================
-inSession(sess) =>
-    not na(time(timeframe.period, sess, sessionTZ))
-
-newSessionStart(sess) =>
-    inSession(sess) and not inSession(sess)[1]
-
-sessionEnd(sess) =>
-    not inSession(sess) and inSession(sess)[1]
-
-// Body-close breakout rules (what you want):
-// Long: close above ORB high with bullish body (close > open). Not just a wick.
-// Short: close below ORB low with bearish body (close < open). Not just a wick.
-// Optional strict mode: also require the wick does not dip back into the ORB.
 bodyCloseLong(orbHigh) =>
     close > orbHigh and close > open and (not noWickStrict or low >= orbHigh)
 
@@ -46,64 +39,88 @@ bodyCloseShort(orbLow) =>
     close < orbLow and close < open and (not noWickStrict or high <= orbLow)
 
 // =========================
-// ORB tracking for NY
+// ORB Engine (runs on 1m data) using hour/minute logic
+// This avoids timestamp/session weirdness.
 // =========================
-var float nyHigh = na
-var float nyLow = na
-var bool nyRangeReady = false
+orbEngineHM(startH, startM, durM) =>
+    // Local time pieces in the chosen timezone
+    int y  = year(time, sessionTZ)
+    int mo = month(time, sessionTZ)
+    int d  = dayofmonth(time, sessionTZ)
+    int h  = hour(time, sessionTZ)
+    int m  = minute(time, sessionTZ)
+
+    int dayId = y * 10000 + mo * 100 + d
+
+    int curMin   = h * 60 + m
+    int startMin = startH * 60 + startM
+    int endMin   = startMin + durM
+
+    // ORB window: [startMin, endMin)
+    bool inSess = curMin >= startMin and curMin < endMin
+
+    var float hi = na
+    var float lo = na
+    var bool  ready = false
+    var int   lastDayId = na
+
+    // Hard reset on each new day
+    if na(lastDayId) or dayId != lastDayId
+        hi := na
+        lo := na
+        ready := false
+        lastDayId := dayId
+
+    bool startBar = inSess and not inSess[1]
+    bool ended    = not inSess and inSess[1]
+
+    if startBar
+        hi := high
+        lo := low
+    else if inSess
+        hi := na(hi) ? high : math.max(hi, high)
+        lo := na(lo) ? low  : math.min(lo, low)
+
+    if ended
+        ready := true
+
+    // Only publish levels while building OR after ready.
+    float outHi = (inSess or ready) ? hi : na
+    float outLo = (inSess or ready) ? lo : na
+
+    [outHi, outLo, ready, dayId]
+
+// Pull ORBs from 1m bars
+[nyHigh, nyLow, nyReady, nyDayId]     = request.security(syminfo.tickerid, "1", orbEngineHM(nyStartH,  nyStartM,  nyDurM),  barmerge.gaps_off, barmerge.lookahead_off)
+[ldnHigh, ldnLow, ldnReady, ldnDayId] = request.security(syminfo.tickerid, "1", orbEngineHM(ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
+
+// =========================
+// One trade per session per day gating
+// =========================
+var int lastDay = na
 var bool nyTraded = false
+var bool ldnTraded = false
 
-if newSessionStart(nySession)
-    nyHigh := high
-    nyLow := low
-    nyRangeReady := false
+if na(lastDay) or nyDayId != lastDay
     nyTraded := false
-else if inSession(nySession)
-    nyHigh := na(nyHigh) ? high : math.max(nyHigh, high)
-    nyLow := na(nyLow) ? low : math.min(nyLow, low)
-
-if sessionEnd(nySession)
-    nyRangeReady := true
+    ldnTraded := false
+    lastDay := nyDayId
 
 // =========================
-// ORB tracking for London
-// =========================
-var float londonHigh = na
-var float londonLow = na
-var bool londonRangeReady = false
-var bool londonTraded = false
-
-if newSessionStart(londonSession)
-    londonHigh := high
-    londonLow := low
-    londonRangeReady := false
-    londonTraded := false
-else if inSession(londonSession)
-    londonHigh := na(londonHigh) ? high : math.max(londonHigh, high)
-    londonLow := na(londonLow) ? low : math.min(londonLow, low)
-
-if sessionEnd(londonSession)
-    londonRangeReady := true
-
-// =========================
-// Entry Logic
-// Priority: NY first, then London
-// One trade per enabled session
+// Entry Logic (NY priority, then London)
 // =========================
 var string activeORB = ""
-longSignal = false
-shortSignal = false
+bool longSignal = false
+bool shortSignal = false
 float entryStop = na
 
-// NY setup
-nyLongSignal  = useNY and nyRangeReady and not nyTraded and strategy.position_size == 0 and bodyCloseLong(nyHigh)
-nyShortSignal = useNY and nyRangeReady and not nyTraded and strategy.position_size == 0 and bodyCloseShort(nyLow)
+nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseLong(nyHigh)
+nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseShort(nyLow)
 
-// London setup
-londonLongSignal  = useLondon and londonRangeReady and not londonTraded and strategy.position_size == 0 and bodyCloseLong(londonHigh)
-londonShortSignal = useLondon and londonRangeReady and not londonTraded and strategy.position_size == 0 and bodyCloseShort(londonLow)
+ldnLongSignal  = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and bodyCloseLong(ldnHigh)
+ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and bodyCloseShort(ldnLow)
 
-// Prefer NY if both somehow trigger on same bar
+// Prefer NY if both trigger same bar
 if nyLongSignal
     longSignal := true
     activeORB := "NY"
@@ -114,16 +131,16 @@ else if nyShortSignal
     activeORB := "NY"
     entryStop := nyHigh
     nyTraded := true
-else if londonLongSignal
+else if ldnLongSignal
     longSignal := true
     activeORB := "London"
-    entryStop := londonLow
-    londonTraded := true
-else if londonShortSignal
+    entryStop := ldnLow
+    ldnTraded := true
+else if ldnShortSignal
     shortSignal := true
     activeORB := "London"
-    entryStop := londonHigh
-    londonTraded := true
+    entryStop := ldnHigh
+    ldnTraded := true
 
 if longSignal
     strategy.entry("Long", strategy.long)
@@ -136,24 +153,21 @@ if shortSignal
         label.new(bar_index, high, activeORB + " Short", style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
 
 // =========================
-// Track stop source from actual active setup
+// Exit tracking
 // =========================
 var float currentStopRef = na
 var float currentRisk = na
 var float highestSinceEntry = na
 var float lowestSinceEntry = na
 
-// On signal bar, save intended stop reference
 if longSignal or shortSignal
     currentStopRef := entryStop
 
-// Reset tracking when flat
 if strategy.position_size == 0
     currentRisk := na
     highestSinceEntry := na
     lowestSinceEntry := na
 
-// Initialize tracking once in a position
 if strategy.position_size > 0
     highestSinceEntry := na(highestSinceEntry) ? high : math.max(highestSinceEntry, high)
     currentRisk := na(currentRisk) ? (strategy.position_avg_price - currentStopRef) : currentRisk
@@ -162,7 +176,6 @@ if strategy.position_size < 0
     lowestSinceEntry := na(lowestSinceEntry) ? low : math.min(lowestSinceEntry, low)
     currentRisk := na(currentRisk) ? (currentStopRef - strategy.position_avg_price) : currentRisk
 
-// Safety check: do nothing if risk is invalid
 validRiskLong  = strategy.position_size > 0 and not na(currentRisk) and currentRisk > 0
 validRiskShort = strategy.position_size < 0 and not na(currentRisk) and currentRisk > 0
 
@@ -170,7 +183,7 @@ validRiskShort = strategy.position_size < 0 and not na(currentRisk) and currentR
 // Exit Logic
 // =========================
 if validRiskLong
-    longEntry = strategy.position_avg_price
+    float longEntry = strategy.position_avg_price
     float longStop  = na
     float longLimit = na
 
@@ -178,16 +191,13 @@ if validRiskLong
         longStop  := currentStopRef
         longLimit := longEntry + currentRisk * rrMultiple
     else
-        // Trail by 1R each time another 1R is achieved.
-        // Example: once price reaches +1R, stop moves to entry (0R).
-        // once price reaches +2R, stop moves to +1R, etc.
-        longRunupR = math.floor((highestSinceEntry - longEntry) / currentRisk)
-        longStop   := longEntry + (longRunupR - 1) * currentRisk
+        int longRunupR = math.floor((highestSinceEntry - longEntry) / currentRisk)
+        longStop := longEntry + (longRunupR - 1) * currentRisk
 
     strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longLimit)
 
 if validRiskShort
-    shortEntry = strategy.position_avg_price
+    float shortEntry = strategy.position_avg_price
     float shortStop  = na
     float shortLimit = na
 
@@ -195,11 +205,8 @@ if validRiskShort
         shortStop  := currentStopRef
         shortLimit := shortEntry - currentRisk * rrMultiple
     else
-        // Trail by 1R each time another 1R is achieved.
-        // Example: once price reaches +1R (in your favor), stop moves to entry (0R).
-        // once price reaches +2R, stop moves to +1R, etc.
-        shortRunupR = math.floor((shortEntry - lowestSinceEntry) / currentRisk)
-        shortStop   := shortEntry - (shortRunupR - 1) * currentRisk
+        int shortRunupR = math.floor((shortEntry - lowestSinceEntry) / currentRisk)
+        shortStop := shortEntry - (shortRunupR - 1) * currentRisk
 
     strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortLimit)
 
@@ -209,5 +216,5 @@ if validRiskShort
 plot(showORBLevels and useNY ? nyHigh : na, "NY ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
 plot(showORBLevels and useNY ? nyLow  : na, "NY ORB Low",  color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
 
-plot(showORBLevels and useLondon ? londonHigh : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and useLondon ? londonLow  : na, "London ORB Low",  color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and useLondon ? ldnHigh : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and useLondon ? ldnLow  : na, "London ORB Low",  color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
