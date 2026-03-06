@@ -1,5 +1,5 @@
 //@version=5
-strategy("15m ORB Backtest - NY / London (5m-safe entries)", overlay=true, pyramiding=0,
+strategy("15m ORB Backtest - NY / London (ORB 1m, Entry TF)", overlay=true, pyramiding=0,
      initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0,
      process_orders_on_close=true)
 
@@ -30,10 +30,21 @@ showORBLevels = input.bool(true, "Show ORB Levels", group=groupDisplay)
 showLabels    = input.bool(true, "Show Entry Labels", group=groupDisplay)
 
 // =========================
-// ORB + LATCHED signal engine on 1m
-// Returns sigState that persists after first breakout.
+// Entry rules (evaluated on CURRENT CHART timeframe)
 // =========================
-orbAndLatchedSignal1m(startH, startM, durM) =>
+// Long: close > ORB high AND bullish candle (close > open).
+// Short: close < ORB low  AND bearish candle (close < open).
+// Optional strict: wick cannot re-enter ORB.
+bodyCloseLong(orbHigh) =>
+    close > orbHigh and close > open and (not noWickStrict or low >= orbHigh)
+
+bodyCloseShort(orbLow) =>
+    close < orbLow and close < open and (not noWickStrict or high <= orbLow)
+
+// =========================
+// ORB engine on 1m (range accuracy)
+// =========================
+orbLevels1m(startH, startM, durM) =>
     int y  = year(time, sessionTZ)
     int mo = month(time, sessionTZ)
     int d  = dayofmonth(time, sessionTZ)
@@ -53,15 +64,11 @@ orbAndLatchedSignal1m(startH, startM, durM) =>
     var bool  ready = false
     var int   lastDayId = na
 
-    // LATCHED signal state: 0 none, +1 long triggered, -1 short triggered
-    var int sigState = 0
-
     // Reset on new day
     if na(lastDayId) or dayId != lastDayId
         hi := na
         lo := na
         ready := false
-        sigState := 0
         lastDayId := dayId
 
     bool startBar = inOrb and not inOrb[1]
@@ -71,7 +78,6 @@ orbAndLatchedSignal1m(startH, startM, durM) =>
         hi := high
         lo := low
         ready := false
-        sigState := 0
     else if inOrb
         hi := na(hi) ? high : math.max(hi, high)
         lo := na(lo) ? low  : math.min(lo, low)
@@ -79,36 +85,21 @@ orbAndLatchedSignal1m(startH, startM, durM) =>
     if ended
         ready := true
 
+    // Publish levels only while building OR after ready
     float outHi = (inOrb or ready) ? hi : na
     float outLo = (inOrb or ready) ? lo : na
 
-    // Trigger only once, after ORB is ready
-    if ready and sigState == 0
-        bool longOk  = close > outHi and close > open and (not noWickStrict or low >= outHi)
-        bool shortOk = close < outLo and close < open and (not noWickStrict or high <= outLo)
+    [outHi, outLo, ready, dayId]
 
-        if longOk
-            sigState := 1
-        else if shortOk
-            sigState := -1
+// Pull ORBs from 1m
+[nyHigh, nyLow, nyReady, nyDayId] =
+     request.security(syminfo.tickerid, "1", orbLevels1m(nyStartH, nyStartM, nyDurM), barmerge.gaps_off, barmerge.lookahead_off)
 
-    [outHi, outLo, ready, dayId, sigState]
-
-// Request NY + London from 1m
-[nyHigh, nyLow, nyReady, nyDayId, nySigState] =
-     request.security(syminfo.tickerid, "1", orbAndLatchedSignal1m(nyStartH, nyStartM, nyDurM), barmerge.gaps_off, barmerge.lookahead_off)
-
-[ldnHigh, ldnLow, ldnReady, ldnDayId, ldnSigState] =
-     request.security(syminfo.tickerid, "1", orbAndLatchedSignal1m(ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
-
-// Detect the moment the latched signal first appears on THIS timeframe
-nyLongFlip  = nySigState == 1 and nz(nySigState[1]) != 1
-nyShortFlip = nySigState == -1 and nz(nySigState[1]) != -1
-ldnLongFlip  = ldnSigState == 1 and nz(ldnSigState[1]) != 1
-ldnShortFlip = ldnSigState == -1 and nz(ldnSigState[1]) != -1
+[ldnHigh, ldnLow, ldnReady, ldnDayId] =
+     request.security(syminfo.tickerid, "1", orbLevels1m(ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
 
 // =========================
-// One trade per day gating
+// One trade per session per day gating
 // =========================
 var int lastDay = na
 var bool nyTraded = false
@@ -120,19 +111,20 @@ if na(lastDay) or nyDayId != lastDay
     lastDay := nyDayId
 
 // =========================
-// Entry Logic (NY priority, then London)
+// Entry Logic (FIRST CHART-TF candle to close outside ORB)
 // =========================
 var string activeORB = ""
 bool longSignal = false
 bool shortSignal = false
 float entryStop = na
 
-nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and nyLongFlip
-nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and nyShortFlip
+nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseLong(nyHigh)
+nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and bodyCloseShort(nyLow)
 
-ldnLongSignal  = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and ldnLongFlip
-ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and ldnShortFlip
+ldnLongSignal  = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and bodyCloseLong(ldnHigh)
+ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and bodyCloseShort(ldnLow)
 
+// Prefer NY if both trigger same bar
 if nyLongSignal
     longSignal := true
     activeORB := "NY"
