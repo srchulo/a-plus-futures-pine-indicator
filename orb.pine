@@ -111,7 +111,7 @@ if na(lastDay) or nyDayId != lastDay
 
 // =========================
 // Entry Logic (FIRST CHART-TF candle to close outside ORB)
-// Stop = breakout candle low/high (what you want)
+// Stop = breakout candle low/high
 // =========================
 float tick = syminfo.mintick
 float buf  = useBufferTicks ? bufferTicks * tick : 0.0
@@ -131,12 +131,12 @@ ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_
 if nyLongSignal
     longSignal := true
     activeORB := "NY"
-    intendedStop := low - buf          // <-- breakout candle low
+    intendedStop := low - buf
     nyTraded := true
 else if nyShortSignal
     shortSignal := true
     activeORB := "NY"
-    intendedStop := high + buf         // <-- breakout candle high
+    intendedStop := high + buf
     nyTraded := true
 else if ldnLongSignal
     longSignal := true
@@ -170,7 +170,6 @@ var float posRisk    = na
 var float highestSinceEntry = na
 var float lowestSinceEntry  = na
 
-// capture stop reference on signal bar
 if longSignal or shortSignal
     posStopRef := intendedStop
 
@@ -204,7 +203,10 @@ validLong  = strategy.position_size > 0 and not na(posEntry) and not na(posRisk)
 validShort = strategy.position_size < 0 and not na(posEntry) and not na(posRisk) and posRisk > 0 and not na(posStopRef)
 
 // =========================
-// Exit Logic
+// Exit Logic (FIXED TRAIL BEHAVIOR)
+// - Before +1R: stop stays at original SL (posStopRef)
+// - At +1R: stop moves to BE
+// - At +2R: stop moves to +1R, etc.
 // =========================
 if validLong
     float stopPrice  = na
@@ -215,8 +217,10 @@ if validLong
         limitPrice := posEntry + posRisk * rrMultiple
     else
         int runupR = math.floor((highestSinceEntry - posEntry) / posRisk)
-        int stopR  = math.max(runupR - 1, 0)
-        stopPrice  := posEntry + stopR * posRisk
+        if runupR < 1
+            stopPrice := posStopRef
+        else
+            stopPrice := posEntry + (runupR - 1) * posRisk
 
     strategy.exit("Long Exit", from_entry="Long", stop=stopPrice, limit=limitPrice)
 
@@ -229,8 +233,10 @@ if validShort
         limitPrice := posEntry - posRisk * rrMultiple
     else
         int runupR = math.floor((posEntry - lowestSinceEntry) / posRisk)
-        int stopR  = math.max(runupR - 1, 0)
-        stopPrice  := posEntry - stopR * posRisk
+        if runupR < 1
+            stopPrice := posStopRef
+        else
+            stopPrice := posEntry - (runupR - 1) * posRisk
 
     strategy.exit("Short Exit", from_entry="Short", stop=stopPrice, limit=limitPrice)
 
