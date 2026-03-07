@@ -1,5 +1,5 @@
 //@version=5
-strategy("15m ORB Backtest - NY / London (ORB 1m, Entry TF) - SL=Breakout Candle", overlay=true, pyramiding=0,
+strategy("15m ORB Backtest - NY / London / Asian (ORB 1m, Entry TF) - SL=Breakout Candle", overlay=true, pyramiding=0,
      initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0,
      process_orders_on_close=true)
 
@@ -9,6 +9,7 @@ strategy("15m ORB Backtest - NY / London (ORB 1m, Entry TF) - SL=Breakout Candle
 groupSessions = "Sessions"
 useNY      = input.bool(true,  "NY Open On", group=groupSessions)
 useLondon  = input.bool(false, "London Open On", group=groupSessions)
+useAsia    = input.bool(false, "Asian Open On", group=groupSessions)
 sessionTZ  = input.string("America/New_York", "Session Timezone", group=groupSessions)
 
 // ORB windows by clock time + duration (minutes)
@@ -19,6 +20,10 @@ nyDurM     = input.int(15, "NY ORB Minutes",  minval=1, maxval=120, group=groupS
 ldnStartH  = input.int(3,  "London Start Hour",   minval=0, maxval=23, group=groupSessions)
 ldnStartM  = input.int(0,  "London Start Minute", minval=0, maxval=59, group=groupSessions)
 ldnDurM    = input.int(15, "London ORB Minutes",  minval=1, maxval=120, group=groupSessions)
+
+asiaStartH = input.int(19, "Asian Start Hour",   minval=0, maxval=23, group=groupSessions)
+asiaStartM = input.int(0,  "Asian Start Minute", minval=0, maxval=59, group=groupSessions)
+asiaDurM   = input.int(15, "Asian ORB Minutes",  minval=1, maxval=120, group=groupSessions)
 
 groupTrade = "Trade Logic"
 tradeMode    = input.string("Fixed RR", "Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTrade)
@@ -131,17 +136,24 @@ orbLevels1m(startH, startM, durM) =>
 [ldnHigh, ldnLow, ldnReady, ldnDayId] =
      request.security(syminfo.tickerid, "1", orbLevels1m(ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
 
+[asiaHigh, asiaLow, asiaReady, asiaDayId] =
+     request.security(syminfo.tickerid, "1", orbLevels1m(asiaStartH, asiaStartM, asiaDurM), barmerge.gaps_off, barmerge.lookahead_off)
+
 // =========================
 // One trade per session per day gating
 // =========================
 var int lastDay = na
 var bool nyTraded = false
 var bool ldnTraded = false
+var bool asiaTraded = false
 
-if na(lastDay) or nyDayId != lastDay
+curDay = year(time, sessionTZ) * 10000 + month(time, sessionTZ) * 100 + dayofmonth(time, sessionTZ)
+
+if na(lastDay) or curDay != lastDay
     nyTraded := false
     ldnTraded := false
-    lastDay := nyDayId
+    asiaTraded := false
+    lastDay := curDay
 
 // =========================
 // Entry Logic (FIRST CHART-TF candle to close outside ORB)
@@ -155,13 +167,16 @@ bool longSignal = false
 bool shortSignal = false
 float intendedStop = na
 
-nyLongSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and entryLongOk(nyHigh)
-nyShortSignal = useNY and nyReady and not nyTraded and strategy.position_size == 0 and entryShortOk(nyLow)
+nyLongSignal   = useNY and nyReady and not nyTraded and strategy.position_size == 0 and entryLongOk(nyHigh)
+nyShortSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and entryShortOk(nyLow)
 
 ldnLongSignal  = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and entryLongOk(ldnHigh)
 ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and entryShortOk(ldnLow)
 
-// Prefer NY if both trigger same bar
+asiaLongSignal  = useAsia and asiaReady and not asiaTraded and strategy.position_size == 0 and entryLongOk(asiaHigh)
+asiaShortSignal = useAsia and asiaReady and not asiaTraded and strategy.position_size == 0 and entryShortOk(asiaLow)
+
+// Priority: NY > London > Asia if multiple somehow trigger on same bar
 if nyLongSignal
     longSignal := true
     activeORB := "NY"
@@ -182,6 +197,16 @@ else if ldnShortSignal
     activeORB := "London"
     intendedStop := high + buf
     ldnTraded := true
+else if asiaLongSignal
+    longSignal := true
+    activeORB := "Asia"
+    intendedStop := low - buf
+    asiaTraded := true
+else if asiaShortSignal
+    shortSignal := true
+    activeORB := "Asia"
+    intendedStop := high + buf
+    asiaTraded := true
 
 if longSignal
     strategy.entry("Long", strategy.long)
@@ -337,3 +362,6 @@ plot(showORBLevels and useNY ? nyLow  : na, "NY ORB Low",  color=color.new(color
 
 plot(showORBLevels and useLondon ? ldnHigh : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
 plot(showORBLevels and useLondon ? ldnLow  : na, "London ORB Low",  color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+
+plot(showORBLevels and useAsia ? asiaHigh : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and useAsia ? asiaLow  : na, "Asia ORB Low",  color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
