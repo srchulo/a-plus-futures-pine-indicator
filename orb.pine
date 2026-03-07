@@ -369,8 +369,5 @@ plot(showORBLevels and useAsia ? asiaLow  : na, "Asia ORB Low",  color=color.new
 // =========================
 // Plot active stop / target
 // =========================
-plot(showActiveStop and strategy.position_size > 0 ? activeLongStop : na, "Long Active Stop", color=color.new(color.yellow, 0), linewidth=2, style=plot.style_stepline)
-plot(showActiveStop and strategy.position_size < 0 ? activeShortStop : na, "Short Active Stop", color=color.new(color.yellow, 0), linewidth=2, style=plot.style_stepline)
-
-plot(showActiveStop and strategy.position_size > 0 ? activeLongStop : na, "Long Active Stop Dots", color=color.new(color.yellow, 0), linewidth=3, style=plot.style_circles)
-plot(showActiveStop and strategy.position_size < 0 ? activeShortStop : na, "Short Active Stop Dots", color=color.new(color.yellow, 0), linewidth=3, style=plot.style_circles)
+plot(showActiveStop and strategy.position_size > 0 ? activeLongStop : na, "Long Active Stop", color=color.new(color.blue, 0), linewidth=3, style=plot.style_circles)
+plot(showActiveStop and strategy.position_size < 0 ? activeShortStop : na, "Short Active Stop", color=color.new(color.blue, 0), linewidth=3, style=plot.style_circles)
