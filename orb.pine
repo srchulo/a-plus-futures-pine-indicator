@@ -1,5 +1,5 @@
 //@version=5
-strategy("15m ORB Backtest - NY / London / Asian (ORB 1m, Entry TF) - SL=Breakout Candle", overlay=true, pyramiding=0,
+strategy("Session Break Pro", overlay=true, pyramiding=0,
      initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0,
      process_orders_on_close=true)
 
