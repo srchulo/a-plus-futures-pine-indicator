@@ -1,5 +1,5 @@
 //@version=5
-strategy("Session Break Pro", overlay=true, pyramiding=0,
+strategy("ORB Precision", overlay=true, pyramiding=0,
      initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.0,
      process_orders_on_close=true)
 
