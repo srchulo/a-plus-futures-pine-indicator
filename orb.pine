@@ -144,6 +144,12 @@ isManualSkipDate(dateList, ymd) =>
             match := true
     match
 
+getSessionCloseTs(sessionName) =>
+    int y = year(time, sessionTZ)
+    int mo = month(time, sessionTZ)
+    int d = dayofmonth(time, sessionTZ)
+    sessionName == "NY" ? timestamp(sessionTZ, y, mo, d, nyEndH, nyEndM) : sessionName == "London" ? timestamp(sessionTZ, y, mo, d, ldnEndH, ldnEndM) : sessionName == "Asia" ? timestamp(sessionTZ, y, mo, d, asiaEndH, asiaEndM) : na
+
 // =========================
 // ORB engine on 1m (range accuracy)
 // =========================
@@ -335,9 +341,11 @@ float tick = syminfo.mintick
 float buf  = useBufferTicks ? bufferTicks * tick : 0.0
 
 var string activeORB = ""
+var string pendingORB = ""
 bool longSignal = false
 bool shortSignal = false
 float intendedStop = na
+var int pendingSessionCloseTs = na
 
 nyLongCandidate   = nyTradeWindowActive and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
 nyShortCandidate  = nyTradeWindowActive and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
@@ -420,6 +428,8 @@ if strategy.position_size == 0
 if nyLongSignal
     longSignal := true
     activeORB := "NY"
+    pendingORB := "NY"
+    pendingSessionCloseTs := getSessionCloseTs("NY")
     intendedStop := low - buf
     nyTraded := true
     nyLongNeedsReset := false
@@ -427,6 +437,8 @@ if nyLongSignal
 else if nyShortSignal
     shortSignal := true
     activeORB := "NY"
+    pendingORB := "NY"
+    pendingSessionCloseTs := getSessionCloseTs("NY")
     intendedStop := high + buf
     nyTraded := true
     nyShortNeedsReset := false
@@ -434,6 +446,8 @@ else if nyShortSignal
 else if ldnLongSignal
     longSignal := true
     activeORB := "London"
+    pendingORB := "London"
+    pendingSessionCloseTs := getSessionCloseTs("London")
     intendedStop := low - buf
     ldnTraded := true
     ldnLongNeedsReset := false
@@ -441,6 +455,8 @@ else if ldnLongSignal
 else if ldnShortSignal
     shortSignal := true
     activeORB := "London"
+    pendingORB := "London"
+    pendingSessionCloseTs := getSessionCloseTs("London")
     intendedStop := high + buf
     ldnTraded := true
     ldnShortNeedsReset := false
@@ -448,6 +464,8 @@ else if ldnShortSignal
 else if asiaLongSignal
     longSignal := true
     activeORB := "Asia"
+    pendingORB := "Asia"
+    pendingSessionCloseTs := getSessionCloseTs("Asia")
     intendedStop := low - buf
     asiaTraded := true
     asiaLongNeedsReset := false
@@ -455,6 +473,8 @@ else if asiaLongSignal
 else if asiaShortSignal
     shortSignal := true
     activeORB := "Asia"
+    pendingORB := "Asia"
+    pendingSessionCloseTs := getSessionCloseTs("Asia")
     intendedStop := high + buf
     asiaTraded := true
     asiaShortNeedsReset := false
@@ -479,6 +499,7 @@ var float posRisk    = na
 var float highestSinceEntry = na
 var float lowestSinceEntry  = na
 var int   entryBarIndex = na
+var int   activeSessionCloseTs = na
 
 if longSignal or shortSignal
     posStopRef := intendedStop
@@ -487,25 +508,40 @@ newLong  = strategy.position_size > 0 and strategy.position_size[1] == 0
 newShort = strategy.position_size < 0 and strategy.position_size[1] == 0
 flatNow  = strategy.position_size == 0 and strategy.position_size[1] != 0
 
-if flatNow or strategy.position_size == 0
+if flatNow
     posEntry := na
     posRisk := na
     highestSinceEntry := na
     lowestSinceEntry := na
     entryBarIndex := na
     activeORB := ""
+    pendingORB := ""
+    activeSessionCloseTs := na
+    pendingSessionCloseTs := na
+else if strategy.position_size == 0
+    posEntry := na
+    posRisk := na
+    highestSinceEntry := na
+    lowestSinceEntry := na
+    entryBarIndex := na
+    activeORB := ""
+    activeSessionCloseTs := na
 
 if newLong
     posEntry := strategy.position_avg_price
     posRisk  := posEntry - posStopRef
     highestSinceEntry := high
     entryBarIndex := bar_index
+    activeORB := pendingORB
+    activeSessionCloseTs := pendingSessionCloseTs
 
 if newShort
     posEntry := strategy.position_avg_price
     posRisk  := posStopRef - posEntry
     lowestSinceEntry := low
     entryBarIndex := bar_index
+    activeORB := pendingORB
+    activeSessionCloseTs := pendingSessionCloseTs
 
 if strategy.position_size > 0
     highestSinceEntry := na(highestSinceEntry) ? high : math.max(highestSinceEntry, high)
@@ -543,14 +579,7 @@ timeExitShort = useTimeExit and validShort and timeExitEligibleShort and not na(
 // =========================
 // Session-specific forced close logic
 // =========================
-int curHour = hour(time, sessionTZ)
-int curMinute = minute(time, sessionTZ)
-int curMinuteOfDay = curHour * 60 + curMinute
-int nyEndMinuteOfDay   = nyEndH * 60 + nyEndM
-int ldnEndMinuteOfDay  = ldnEndH * 60 + ldnEndM
-int asiaEndMinuteOfDay = asiaEndH * 60 + asiaEndM
-
-sessionCloseNow = useEodClose and ((activeORB == "NY" and curMinuteOfDay >= nyEndMinuteOfDay) or (activeORB == "London" and curMinuteOfDay >= ldnEndMinuteOfDay) or (activeORB == "Asia" and curMinuteOfDay >= asiaEndMinuteOfDay))
+sessionCloseNow = useEodClose and strategy.position_size != 0 and not na(activeSessionCloseTs) and time_close >= activeSessionCloseTs
 
 // =========================
 // Visible active stop / target levels
