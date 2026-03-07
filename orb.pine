@@ -51,7 +51,7 @@ maxBreakoutWickPct    = input.float(0.20, "Max Breakout Wick (% of candle range)
 groupAtr = "ATR Filter"
 useAtrOrbFilter = input.bool(false, "ATR ORB Filter On", group=groupAtr)
 atrLen = input.int(14, "ATR Length", minval=1, group=groupAtr)
-minOrbAtrPct = input.float(0.15, "Min ORB / ATR", minval=0.0, step=0.01, group=groupAtr)
+minOrbAtrPct = input.float(0.17, "Min ORB / ATR", minval=0.0, step=0.01, group=groupAtr)
 maxOrbAtrPct = input.float(1.20, "Max ORB / ATR", minval=0.0, step=0.01, group=groupAtr)
 
 groupTimeExit = "Time Exit"
