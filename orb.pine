@@ -25,6 +25,16 @@ asiaStartH = input.int(19, "Asian Start Hour",   minval=0, maxval=23, group=grou
 asiaStartM = input.int(0,  "Asian Start Minute", minval=0, maxval=59, group=groupSessions)
 asiaDurM   = input.int(15, "Asian ORB Minutes",  minval=1, maxval=120, group=groupSessions)
 
+// Trade windows / session cutoffs
+nyEndH     = input.int(16, "NY End Hour", minval=0, maxval=23, group=groupSessions)
+nyEndM     = input.int(0,  "NY End Minute", minval=0, maxval=59, group=groupSessions)
+
+ldnEndH    = input.int(6,  "London End Hour", minval=0, maxval=23, group=groupSessions)
+ldnEndM    = input.int(0,  "London End Minute", minval=0, maxval=59, group=groupSessions)
+
+asiaEndH   = input.int(23, "Asian End Hour", minval=0, maxval=23, group=groupSessions)
+asiaEndM   = input.int(0,  "Asian End Minute", minval=0, maxval=59, group=groupSessions)
+
 groupTrade = "Trade Logic"
 tradeMode    = input.string("Fixed RR", "Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTrade)
 rrMultiple   = input.float(2.0, "Fixed RR Multiple", minval=0.5, step=0.5, group=groupTrade)
@@ -42,7 +52,7 @@ minCloseBeyondPct     = input.float(0.25, "Min Close Beyond ORB (% of candle ran
 maxBreakoutWickPct    = input.float(0.20, "Max Breakout Wick (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
 
 groupTimeExit = "Time Exit"
-useTimeExit   = input.bool(true, "Time Exit On", group=groupTimeExit)
+useTimeExit    = input.bool(true, "Time Exit On", group=groupTimeExit)
 maxBarsInTrade = input.int(12, "Max Bars In Trade", minval=1, maxval=500, group=groupTimeExit)
 timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExit)
 
@@ -52,10 +62,11 @@ eodHour     = input.int(15, "EOD Hour", minval=0, maxval=23, group=groupEOD)
 eodMinute   = input.int(55, "EOD Minute", minval=0, maxval=59, group=groupEOD)
 
 groupDisplay = "Display"
-showORBLevels   = input.bool(true, "Show ORB Levels", group=groupDisplay)
-showLabels      = input.bool(true, "Show Entry Labels", group=groupDisplay)
-showActiveStop  = input.bool(true, "Show Active Stop", group=groupDisplay)
-showActiveTarget = input.bool(true, "Show Active Target", group=groupDisplay)
+showORBLevels                = input.bool(true, "Show ORB Levels", group=groupDisplay)
+showLabels                   = input.bool(true, "Show Entry Labels", group=groupDisplay)
+showActiveStop               = input.bool(true, "Show Active Stop", group=groupDisplay)
+showActiveTarget             = input.bool(true, "Show Active Target", group=groupDisplay)
+showORBOnlyDuringTradeWindow = input.bool(true, "Show ORB Only During Trade Window", group=groupDisplay)
 
 // =========================
 // Entry rules (evaluated on CURRENT CHART timeframe)
@@ -93,6 +104,24 @@ closeAboveOrb(orbHigh) =>
 
 closeBelowOrb(orbLow) =>
     close < orbLow
+
+minuteOfDay(h, m) =>
+    h * 60 + m
+
+inWindow(curMin, startMin, endMin) =>
+    startMin <= endMin ? (curMin >= startMin and curMin <= endMin) : (curMin >= startMin or curMin <= endMin)
+
+tradeWindowActive(startH, startM, durM, endH, endM) =>
+    int curH = hour(time, sessionTZ)
+    int curM = minute(time, sessionTZ)
+    int curMin = minuteOfDay(curH, curM)
+
+    int orbEndMin = minuteOfDay(startH, startM) + durM
+    int endMin    = minuteOfDay(endH, endM)
+
+    orbEndMin := orbEndMin % 1440
+
+    inWindow(curMin, orbEndMin, endMin)
 
 // =========================
 // ORB engine on 1m (range accuracy)
@@ -151,6 +180,11 @@ orbLevels1m(startH, startM, durM) =>
 
 [asiaHigh, asiaLow, asiaReady, asiaDayId] =
      request.security(syminfo.tickerid, "1", orbLevels1m(asiaStartH, asiaStartM, asiaDurM), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Session trade windows
+nyTradeWindowActive   = useNY and nyReady and tradeWindowActive(nyStartH, nyStartM, nyDurM, nyEndH, nyEndM)
+ldnTradeWindowActive  = useLondon and ldnReady and tradeWindowActive(ldnStartH, ldnStartM, ldnDurM, ldnEndH, ldnEndM)
+asiaTradeWindowActive = useAsia and asiaReady and tradeWindowActive(asiaStartH, asiaStartM, asiaDurM, asiaEndH, asiaEndM)
 
 // =========================
 // One trade per session per day gating
@@ -217,7 +251,7 @@ if na(lastDay) or curDay != lastDay
 // =========================
 if strategy.position_size == 0
     // NY long side
-    if useNY and nyReady and not nyTraded and not nyLongDead
+    if nyTradeWindowActive and not nyTraded and not nyLongDead
         if closeInsideOrb(nyHigh, nyLow)
             nyLongNeedsReset := false
             nyLongOutsideCount := 0
@@ -228,7 +262,7 @@ if strategy.position_size == 0
                     nyLongDead := true
 
     // NY short side
-    if useNY and nyReady and not nyTraded and not nyShortDead
+    if nyTradeWindowActive and not nyTraded and not nyShortDead
         if closeInsideOrb(nyHigh, nyLow)
             nyShortNeedsReset := false
             nyShortOutsideCount := 0
@@ -239,7 +273,7 @@ if strategy.position_size == 0
                     nyShortDead := true
 
     // London long side
-    if useLondon and ldnReady and not ldnTraded and not ldnLongDead
+    if ldnTradeWindowActive and not ldnTraded and not ldnLongDead
         if closeInsideOrb(ldnHigh, ldnLow)
             ldnLongNeedsReset := false
             ldnLongOutsideCount := 0
@@ -250,7 +284,7 @@ if strategy.position_size == 0
                     ldnLongDead := true
 
     // London short side
-    if useLondon and ldnReady and not ldnTraded and not ldnShortDead
+    if ldnTradeWindowActive and not ldnTraded and not ldnShortDead
         if closeInsideOrb(ldnHigh, ldnLow)
             ldnShortNeedsReset := false
             ldnShortOutsideCount := 0
@@ -261,7 +295,7 @@ if strategy.position_size == 0
                     ldnShortDead := true
 
     // Asia long side
-    if useAsia and asiaReady and not asiaTraded and not asiaLongDead
+    if asiaTradeWindowActive and not asiaTraded and not asiaLongDead
         if closeInsideOrb(asiaHigh, asiaLow)
             asiaLongNeedsReset := false
             asiaLongOutsideCount := 0
@@ -272,7 +306,7 @@ if strategy.position_size == 0
                     asiaLongDead := true
 
     // Asia short side
-    if useAsia and asiaReady and not asiaTraded and not asiaShortDead
+    if asiaTradeWindowActive and not asiaTraded and not asiaShortDead
         if closeInsideOrb(asiaHigh, asiaLow)
             asiaShortNeedsReset := false
             asiaShortOutsideCount := 0
@@ -285,11 +319,9 @@ if strategy.position_size == 0
 // =========================
 // Entry permission logic by mode
 // =========================
-canConsiderLong(ready, traded, dead, needsReset, orbHigh) =>
-    ready and not traded and strategy.position_size == 0 and (breakoutMode == "Current Behavior" ? closeAboveOrb(orbHigh) : breakoutMode == "First Qualified Close Only" ? closeAboveOrb(orbHigh) and not needsReset and not dead : breakoutMode == "Reset Inside Then Requalify" ? closeAboveOrb(orbHigh) and not needsReset and not dead : breakoutMode == "One-Bar Grace Then Reset" ? closeAboveOrb(orbHigh) and not dead : false)
+canConsiderLong(ready, traded, dead, needsReset, orbHigh) => ready and not traded and strategy.position_size == 0 and (breakoutMode == "Current Behavior" ? closeAboveOrb(orbHigh) : breakoutMode == "First Qualified Close Only" ? closeAboveOrb(orbHigh) and not needsReset and not dead : breakoutMode == "Reset Inside Then Requalify" ? closeAboveOrb(orbHigh) and not needsReset and not dead : breakoutMode == "One-Bar Grace Then Reset" ? closeAboveOrb(orbHigh) and not dead : false)
 
-canConsiderShort(ready, traded, dead, needsReset, orbLow) =>
-    ready and not traded and strategy.position_size == 0 and (breakoutMode == "Current Behavior" ? closeBelowOrb(orbLow) : breakoutMode == "First Qualified Close Only" ? closeBelowOrb(orbLow) and not needsReset and not dead : breakoutMode == "Reset Inside Then Requalify" ? closeBelowOrb(orbLow) and not needsReset and not dead : breakoutMode == "One-Bar Grace Then Reset" ? closeBelowOrb(orbLow) and not dead : false)
+canConsiderShort(ready, traded, dead, needsReset, orbLow) => ready and not traded and strategy.position_size == 0 and (breakoutMode == "Current Behavior" ? closeBelowOrb(orbLow) : breakoutMode == "First Qualified Close Only" ? closeBelowOrb(orbLow) and not needsReset and not dead : breakoutMode == "Reset Inside Then Requalify" ? closeBelowOrb(orbLow) and not needsReset and not dead : breakoutMode == "One-Bar Grace Then Reset" ? closeBelowOrb(orbLow) and not dead : false)
 
 // =========================
 // Entry Logic (FIRST / QUALIFIED CHART-TF candle outside ORB per mode)
@@ -303,14 +335,14 @@ bool longSignal = false
 bool shortSignal = false
 float intendedStop = na
 
-nyLongCandidate   = useNY and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
-nyShortCandidate  = useNY and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
+nyLongCandidate   = nyTradeWindowActive and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
+nyShortCandidate  = nyTradeWindowActive and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
 
-ldnLongCandidate  = useLondon and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
-ldnShortCandidate = useLondon and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
+ldnLongCandidate  = ldnTradeWindowActive and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
+ldnShortCandidate = ldnTradeWindowActive and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
 
-asiaLongCandidate  = useAsia and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
-asiaShortCandidate = useAsia and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow)
+asiaLongCandidate  = asiaTradeWindowActive and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
+asiaShortCandidate = asiaTradeWindowActive and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow)
 
 nyLongSignal   = nyLongCandidate and entryLongOk(nyHigh)
 nyShortSignal  = nyShortCandidate and entryShortOk(nyLow)
@@ -579,14 +611,14 @@ if eodCloseNow and strategy.position_size < 0
 // =========================
 // Plot ORB levels
 // =========================
-plot(showORBLevels and useNY ? nyHigh : na, "NY ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and useNY ? nyLow  : na, "NY ORB Low",  color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and useNY and (not showORBOnlyDuringTradeWindow or nyTradeWindowActive) ? nyHigh : na, "NY ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and useNY and (not showORBOnlyDuringTradeWindow or nyTradeWindowActive) ? nyLow  : na, "NY ORB Low",  color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
 
-plot(showORBLevels and useLondon ? ldnHigh : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and useLondon ? ldnLow  : na, "London ORB Low",  color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and useLondon and (not showORBOnlyDuringTradeWindow or ldnTradeWindowActive) ? ldnHigh : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and useLondon and (not showORBOnlyDuringTradeWindow or ldnTradeWindowActive) ? ldnLow  : na, "London ORB Low",  color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
 
-plot(showORBLevels and useAsia ? asiaHigh : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and useAsia ? asiaLow  : na, "Asia ORB Low",  color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive) ? asiaHigh : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive) ? asiaLow  : na, "Asia ORB Low",  color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
 
 // =========================
 // Plot active stop / target
