@@ -56,6 +56,17 @@ timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In 
 groupEOD = "End Of Day Close"
 useEodClose = input.bool(true, "Session Close On", group=groupEOD)
 
+groupFilters = "Trade Filters"
+skipDecember = input.bool(false, "Skip December", group=groupFilters)
+skipThanksgivingWeek = input.bool(false, "Skip Thanksgiving Week", group=groupFilters)
+skipUSHalfDays = input.bool(false, "Skip US Half Days (Approximation)", group=groupFilters)
+skipMondays = input.bool(false, "Skip Mondays", group=groupFilters)
+skipTuesdays = input.bool(false, "Skip Tuesdays", group=groupFilters)
+skipWednesdays = input.bool(false, "Skip Wednesdays", group=groupFilters)
+skipThursdays = input.bool(false, "Skip Thursdays", group=groupFilters)
+skipFridays = input.bool(false, "Skip Fridays", group=groupFilters)
+skipManualDates = input.string("", "Skip Dates (YYYY-MM-DD, comma-separated)", group=groupFilters)
+
 groupDisplay = "Display"
 showORBLevels                = input.bool(true, "Show ORB Levels", group=groupDisplay)
 showLabels                   = input.bool(true, "Show Entry Labels", group=groupDisplay)
@@ -72,7 +83,6 @@ bodyCloseLong(orbHigh) =>
 bodyCloseShort(orbLow) =>
     close < orbLow and close < open and (not noWickStrict or high <= orbLow)
 
-// Displacement / momentum filter
 displacementLong(orbHigh) =>
     candleRange = high - low
     breakoutWick = high - close
@@ -114,6 +124,25 @@ tradeWindowActive(startH, startM, durM, endH, endM) =>
     int endMin = minuteOfDay(endH, endM)
     orbEndMin := orbEndMin % 1440
     inWindow(curMin, orbEndMin, endMin)
+
+dateToInt(y, mo, d) =>
+    y * 10000 + mo * 100 + d
+
+nthWeekdayDom(y, mo, targetDow, nth) =>
+    int firstDow = dayofweek(timestamp(sessionTZ, y, mo, 1, 0, 0))
+    int offset = (targetDow - firstDow + 7) % 7
+    1 + offset + (nth - 1) * 7
+
+isManualSkipDate(dateList, ymd) =>
+    bool match = false
+    arr = str.split(dateList, ",")
+    for i = 0 to array.size(arr) - 1
+        raw = array.get(arr, i)
+        cleaned = str.replace_all(str.replace_all(raw, "-", ""), " ", "")
+        val = str.tonumber(cleaned)
+        if not na(val) and int(val) == ymd
+            match := true
+    match
 
 // =========================
 // ORB engine on 1m (range accuracy)
@@ -158,10 +187,28 @@ orbLevels1m(startH, startM, durM) =>
 [ldnHigh, ldnLow, ldnReady, ldnDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
 [asiaHigh, asiaLow, asiaReady, asiaDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(asiaStartH, asiaStartM, asiaDurM), barmerge.gaps_off, barmerge.lookahead_off)
 
+// Calendar / trade filters
+int curY = year(time, sessionTZ)
+int curMo = month(time, sessionTZ)
+int curD = dayofmonth(time, sessionTZ)
+int curDow = dayofweek(time, sessionTZ)
+int curYmd = dateToInt(curY, curMo, curD)
+int thanksgivingDom = nthWeekdayDom(curY, 11, dayofweek.thursday, 4)
+bool isDecember = curMo == 12
+bool isThanksgivingWeek = curMo == 11 and curD >= thanksgivingDom - 3 and curD <= thanksgivingDom + 1
+bool isDayAfterThanksgiving = curMo == 11 and curD == thanksgivingDom + 1
+bool isChristmasEveHalfDay = curMo == 12 and curD == 24 and curDow >= dayofweek.monday and curDow <= dayofweek.friday
+bool isJuly3HalfDay = curMo == 7 and curD == 3 and curDow >= dayofweek.monday and curDow <= dayofweek.friday
+bool isUSHalfDay = isDayAfterThanksgiving or isChristmasEveHalfDay or isJuly3HalfDay
+bool isSkippedWeekday = (skipMondays and curDow == dayofweek.monday) or (skipTuesdays and curDow == dayofweek.tuesday) or (skipWednesdays and curDow == dayofweek.wednesday) or (skipThursdays and curDow == dayofweek.thursday) or (skipFridays and curDow == dayofweek.friday)
+bool isManualSkip = str.length(str.replace_all(skipManualDates, " ", "")) > 0 and isManualSkipDate(skipManualDates, curYmd)
+bool skipToday = (skipDecember and isDecember) or (skipThanksgivingWeek and isThanksgivingWeek) or (skipUSHalfDays and isUSHalfDay) or isSkippedWeekday or isManualSkip
+bool tradeDayAllowed = not skipToday
+
 // Session trade windows
-nyTradeWindowActive   = useNY and nyReady and tradeWindowActive(nyStartH, nyStartM, nyDurM, nyEndH, nyEndM)
-ldnTradeWindowActive  = useLondon and ldnReady and tradeWindowActive(ldnStartH, ldnStartM, ldnDurM, ldnEndH, ldnEndM)
-asiaTradeWindowActive = useAsia and asiaReady and tradeWindowActive(asiaStartH, asiaStartM, asiaDurM, asiaEndH, asiaEndM)
+nyTradeWindowActive   = tradeDayAllowed and useNY and nyReady and tradeWindowActive(nyStartH, nyStartM, nyDurM, nyEndH, nyEndM)
+ldnTradeWindowActive  = tradeDayAllowed and useLondon and ldnReady and tradeWindowActive(ldnStartH, ldnStartM, ldnDurM, ldnEndH, ldnEndM)
+asiaTradeWindowActive = tradeDayAllowed and useAsia and asiaReady and tradeWindowActive(asiaStartH, asiaStartM, asiaDurM, asiaEndH, asiaEndM)
 
 // =========================
 // One trade per session per day gating
@@ -170,22 +217,18 @@ var int lastDay = na
 var bool nyTraded = false
 var bool ldnTraded = false
 var bool asiaTraded = false
-
-// Directional breakout state per session
 var bool nyLongNeedsReset = false
 var bool nyShortNeedsReset = false
 var bool ldnLongNeedsReset = false
 var bool ldnShortNeedsReset = false
 var bool asiaLongNeedsReset = false
 var bool asiaShortNeedsReset = false
-
 var bool nyLongDead = false
 var bool nyShortDead = false
 var bool ldnLongDead = false
 var bool ldnShortDead = false
 var bool asiaLongDead = false
 var bool asiaShortDead = false
-
 var int nyLongOutsideCount = 0
 var int nyShortOutsideCount = 0
 var int ldnLongOutsideCount = 0
@@ -300,14 +343,14 @@ nyLongCandidate   = nyTradeWindowActive and canConsiderLong(nyReady, nyTraded, n
 nyShortCandidate  = nyTradeWindowActive and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
 ldnLongCandidate  = ldnTradeWindowActive and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
 ldnShortCandidate = ldnTradeWindowActive and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
-asiaLongCandidate  = asiaTradeWindowActive and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
+asiaLongCandidate = asiaTradeWindowActive and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
 asiaShortCandidate = asiaTradeWindowActive and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow)
 
 nyLongSignal   = nyLongCandidate and entryLongOk(nyHigh)
 nyShortSignal  = nyShortCandidate and entryShortOk(nyLow)
 ldnLongSignal  = ldnLongCandidate and entryLongOk(ldnHigh)
 ldnShortSignal = ldnShortCandidate and entryShortOk(ldnLow)
-asiaLongSignal  = asiaLongCandidate and entryLongOk(asiaHigh)
+asiaLongSignal = asiaLongCandidate and entryLongOk(asiaHigh)
 asiaShortSignal = asiaShortCandidate and entryShortOk(asiaLow)
 
 // Mark failed breakout attempts based on mode
@@ -476,7 +519,7 @@ validShort = strategy.position_size < 0 and not na(posEntry) and not na(posRisk)
 // =========================
 // Helper state for trail activation
 // =========================
-longRunupR  = validLong  ? math.floor((highestSinceEntry - posEntry) / posRisk) : na
+longRunupR  = validLong ? math.floor((highestSinceEntry - posEntry) / posRisk) : na
 shortRunupR = validShort ? math.floor((posEntry - lowestSinceEntry) / posRisk) : na
 
 trailActiveLong  = validLong and tradeMode == "1R Step Trail" and longRunupR >= 1
@@ -488,7 +531,6 @@ trailActiveShort = validShort and tradeMode == "1R Step Trail" and shortRunupR >
 // 1R Trail: time exit only BEFORE trail activates
 // =========================
 barsInTrade = not na(entryBarIndex) ? (bar_index - entryBarIndex) : na
-
 longInProfit  = validLong and close > posEntry
 shortInProfit = validShort and close < posEntry
 
@@ -556,12 +598,12 @@ if sessionCloseNow and strategy.position_size < 0
 // =========================
 // Plot ORB levels
 // =========================
-plot(showORBLevels and useNY and (not showORBOnlyDuringTradeWindow or nyTradeWindowActive) ? nyHigh : na, "NY ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and useNY and (not showORBOnlyDuringTradeWindow or nyTradeWindowActive) ? nyLow  : na, "NY ORB Low",  color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and useLondon and (not showORBOnlyDuringTradeWindow or ldnTradeWindowActive) ? ldnHigh : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and useLondon and (not showORBOnlyDuringTradeWindow or ldnTradeWindowActive) ? ldnLow  : na, "London ORB Low",  color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive) ? asiaHigh : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive) ? asiaLow  : na, "Asia ORB Low",  color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useNY and (not showORBOnlyDuringTradeWindow or nyTradeWindowActive) ? nyHigh : na, "NY ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useNY and (not showORBOnlyDuringTradeWindow or nyTradeWindowActive) ? nyLow  : na, "NY ORB Low", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useLondon and (not showORBOnlyDuringTradeWindow or ldnTradeWindowActive) ? ldnHigh : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useLondon and (not showORBOnlyDuringTradeWindow or ldnTradeWindowActive) ? ldnLow  : na, "London ORB Low", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive) ? asiaHigh : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive) ? asiaLow  : na, "Asia ORB Low", color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
 
 // =========================
 // Plot active stop / target
