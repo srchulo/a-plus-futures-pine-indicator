@@ -52,6 +52,8 @@ eodMinute   = input.int(55, "EOD Minute", minval=0, maxval=59, group=groupEOD)
 groupDisplay = "Display"
 showORBLevels = input.bool(true, "Show ORB Levels", group=groupDisplay)
 showLabels    = input.bool(true, "Show Entry Labels", group=groupDisplay)
+showActiveStop   = input.bool(true, "Show Active Stop", group=groupDisplay)
+showActiveTarget = input.bool(true, "Show Active Target", group=groupDisplay)
 
 // =========================
 // Entry rules (evaluated on CURRENT CHART timeframe)
@@ -303,6 +305,28 @@ int eodMinuteOfDay = eodHour * 60 + eodMinute
 eodCloseNow = useEodClose and curMinuteOfDay >= eodMinuteOfDay
 
 // =========================
+// Visible active stop / target levels
+// =========================
+float activeLongStop  = na
+float activeShortStop = na
+float activeLongTarget  = na
+float activeShortTarget = na
+
+if validLong
+    if tradeMode == "Fixed RR"
+        activeLongStop   := posStopRef
+        activeLongTarget := posEntry + posRisk * rrMultiple
+    else
+        activeLongStop := longRunupR < 1 ? posStopRef : posEntry + (longRunupR - 1) * posRisk
+
+if validShort
+    if tradeMode == "Fixed RR"
+        activeShortStop   := posStopRef
+        activeShortTarget := posEntry - posRisk * rrMultiple
+    else
+        activeShortStop := shortRunupR < 1 ? posStopRef : posEntry - (shortRunupR - 1) * posRisk
+
+// =========================
 // Exit Logic
 // - Fixed RR: fixed stop + limit
 // - 1R Trail:
@@ -311,34 +335,10 @@ eodCloseNow = useEodClose and curMinuteOfDay >= eodMinuteOfDay
 //   At +2R: stop moves to +1R, etc.
 // =========================
 if validLong
-    float stopPrice  = na
-    float limitPrice = na
-
-    if tradeMode == "Fixed RR"
-        stopPrice  := posStopRef
-        limitPrice := posEntry + posRisk * rrMultiple
-    else
-        if longRunupR < 1
-            stopPrice := posStopRef
-        else
-            stopPrice := posEntry + (longRunupR - 1) * posRisk
-
-    strategy.exit("Long Exit", from_entry="Long", stop=stopPrice, limit=limitPrice)
+    strategy.exit("Long Exit", from_entry="Long", stop=activeLongStop, limit=activeLongTarget)
 
 if validShort
-    float stopPrice  = na
-    float limitPrice = na
-
-    if tradeMode == "Fixed RR"
-        stopPrice  := posStopRef
-        limitPrice := posEntry - posRisk * rrMultiple
-    else
-        if shortRunupR < 1
-            stopPrice := posStopRef
-        else
-            stopPrice := posEntry - (shortRunupR - 1) * posRisk
-
-    strategy.exit("Short Exit", from_entry="Short", stop=stopPrice, limit=limitPrice)
+    strategy.exit("Short Exit", from_entry="Short", stop=activeShortStop, limit=activeShortTarget)
 
 // Time-based close
 if timeExitLong
@@ -365,3 +365,12 @@ plot(showORBLevels and useLondon ? ldnLow  : na, "London ORB Low",  color=color.
 
 plot(showORBLevels and useAsia ? asiaHigh : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
 plot(showORBLevels and useAsia ? asiaLow  : na, "Asia ORB Low",  color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
+
+// =========================
+// Plot active stop / target
+// =========================
+plot(showActiveStop and strategy.position_size > 0 ? activeLongStop : na, "Long Active Stop", color=color.new(color.yellow, 0), linewidth=2, style=plot.style_stepline)
+plot(showActiveStop and strategy.position_size < 0 ? activeShortStop : na, "Short Active Stop", color=color.new(color.yellow, 0), linewidth=2, style=plot.style_stepline)
+
+plot(showActiveStop and strategy.position_size > 0 ? activeLongStop : na, "Long Active Stop Dots", color=color.new(color.yellow, 0), linewidth=3, style=plot.style_circles)
+plot(showActiveStop and strategy.position_size < 0 ? activeShortStop : na, "Short Active Stop Dots", color=color.new(color.yellow, 0), linewidth=3, style=plot.style_circles)
