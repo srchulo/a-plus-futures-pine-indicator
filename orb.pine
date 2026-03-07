@@ -30,6 +30,8 @@ tradeMode    = input.string("Fixed RR", "Exit Mode", options=["Fixed RR", "1R St
 rrMultiple   = input.float(2.0, "Fixed RR Multiple", minval=0.5, step=0.5, group=groupTrade)
 noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTrade)
 
+breakoutMode = input.string("Current Behavior", "Breakout Qualification Mode", options=["Current Behavior", "First Qualified Close Only", "Reset Inside Then Requalify", "One-Bar Grace Then Reset"], group=groupTrade)
+
 // optional tiny buffer so stops/targets aren’t exactly on a level
 useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTrade)
 bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=groupTrade)
@@ -50,9 +52,9 @@ eodHour     = input.int(15, "EOD Hour", minval=0, maxval=23, group=groupEOD)
 eodMinute   = input.int(55, "EOD Minute", minval=0, maxval=59, group=groupEOD)
 
 groupDisplay = "Display"
-showORBLevels = input.bool(true, "Show ORB Levels", group=groupDisplay)
-showLabels    = input.bool(true, "Show Entry Labels", group=groupDisplay)
-showActiveStop   = input.bool(true, "Show Active Stop", group=groupDisplay)
+showORBLevels   = input.bool(true, "Show ORB Levels", group=groupDisplay)
+showLabels      = input.bool(true, "Show Entry Labels", group=groupDisplay)
+showActiveStop  = input.bool(true, "Show Active Stop", group=groupDisplay)
 showActiveTarget = input.bool(true, "Show Active Target", group=groupDisplay)
 
 // =========================
@@ -82,6 +84,15 @@ entryLongOk(orbHigh) =>
 
 entryShortOk(orbLow) =>
     bodyCloseShort(orbLow) and (not useDisplacementFilter or displacementShort(orbLow))
+
+closeInsideOrb(orbHigh, orbLow) =>
+    close <= orbHigh and close >= orbLow
+
+closeAboveOrb(orbHigh) =>
+    close > orbHigh
+
+closeBelowOrb(orbLow) =>
+    close < orbLow
 
 // =========================
 // ORB engine on 1m (range accuracy)
@@ -149,16 +160,139 @@ var bool nyTraded = false
 var bool ldnTraded = false
 var bool asiaTraded = false
 
+// Directional breakout state per session
+var bool nyLongNeedsReset = false
+var bool nyShortNeedsReset = false
+var bool ldnLongNeedsReset = false
+var bool ldnShortNeedsReset = false
+var bool asiaLongNeedsReset = false
+var bool asiaShortNeedsReset = false
+
+var bool nyLongDead = false
+var bool nyShortDead = false
+var bool ldnLongDead = false
+var bool ldnShortDead = false
+var bool asiaLongDead = false
+var bool asiaShortDead = false
+
+var int nyLongOutsideCount = 0
+var int nyShortOutsideCount = 0
+var int ldnLongOutsideCount = 0
+var int ldnShortOutsideCount = 0
+var int asiaLongOutsideCount = 0
+var int asiaShortOutsideCount = 0
+
 curDay = year(time, sessionTZ) * 10000 + month(time, sessionTZ) * 100 + dayofmonth(time, sessionTZ)
 
 if na(lastDay) or curDay != lastDay
     nyTraded := false
     ldnTraded := false
     asiaTraded := false
+
+    nyLongNeedsReset := false
+    nyShortNeedsReset := false
+    ldnLongNeedsReset := false
+    ldnShortNeedsReset := false
+    asiaLongNeedsReset := false
+    asiaShortNeedsReset := false
+
+    nyLongDead := false
+    nyShortDead := false
+    ldnLongDead := false
+    ldnShortDead := false
+    asiaLongDead := false
+    asiaShortDead := false
+
+    nyLongOutsideCount := 0
+    nyShortOutsideCount := 0
+    ldnLongOutsideCount := 0
+    ldnShortOutsideCount := 0
+    asiaLongOutsideCount := 0
+    asiaShortOutsideCount := 0
+
     lastDay := curDay
 
 // =========================
-// Entry Logic (FIRST CHART-TF candle to close outside ORB)
+// Breakout state management
+// =========================
+if strategy.position_size == 0
+    // NY long side
+    if useNY and nyReady and not nyTraded and not nyLongDead
+        if closeInsideOrb(nyHigh, nyLow)
+            nyLongNeedsReset := false
+            nyLongOutsideCount := 0
+        else if closeAboveOrb(nyHigh)
+            if nyLongNeedsReset
+                nyLongOutsideCount += 1
+                if breakoutMode == "One-Bar Grace Then Reset" and nyLongOutsideCount > 1
+                    nyLongDead := true
+
+    // NY short side
+    if useNY and nyReady and not nyTraded and not nyShortDead
+        if closeInsideOrb(nyHigh, nyLow)
+            nyShortNeedsReset := false
+            nyShortOutsideCount := 0
+        else if closeBelowOrb(nyLow)
+            if nyShortNeedsReset
+                nyShortOutsideCount += 1
+                if breakoutMode == "One-Bar Grace Then Reset" and nyShortOutsideCount > 1
+                    nyShortDead := true
+
+    // London long side
+    if useLondon and ldnReady and not ldnTraded and not ldnLongDead
+        if closeInsideOrb(ldnHigh, ldnLow)
+            ldnLongNeedsReset := false
+            ldnLongOutsideCount := 0
+        else if closeAboveOrb(ldnHigh)
+            if ldnLongNeedsReset
+                ldnLongOutsideCount += 1
+                if breakoutMode == "One-Bar Grace Then Reset" and ldnLongOutsideCount > 1
+                    ldnLongDead := true
+
+    // London short side
+    if useLondon and ldnReady and not ldnTraded and not ldnShortDead
+        if closeInsideOrb(ldnHigh, ldnLow)
+            ldnShortNeedsReset := false
+            ldnShortOutsideCount := 0
+        else if closeBelowOrb(ldnLow)
+            if ldnShortNeedsReset
+                ldnShortOutsideCount += 1
+                if breakoutMode == "One-Bar Grace Then Reset" and ldnShortOutsideCount > 1
+                    ldnShortDead := true
+
+    // Asia long side
+    if useAsia and asiaReady and not asiaTraded and not asiaLongDead
+        if closeInsideOrb(asiaHigh, asiaLow)
+            asiaLongNeedsReset := false
+            asiaLongOutsideCount := 0
+        else if closeAboveOrb(asiaHigh)
+            if asiaLongNeedsReset
+                asiaLongOutsideCount += 1
+                if breakoutMode == "One-Bar Grace Then Reset" and asiaLongOutsideCount > 1
+                    asiaLongDead := true
+
+    // Asia short side
+    if useAsia and asiaReady and not asiaTraded and not asiaShortDead
+        if closeInsideOrb(asiaHigh, asiaLow)
+            asiaShortNeedsReset := false
+            asiaShortOutsideCount := 0
+        else if closeBelowOrb(asiaLow)
+            if asiaShortNeedsReset
+                asiaShortOutsideCount += 1
+                if breakoutMode == "One-Bar Grace Then Reset" and asiaShortOutsideCount > 1
+                    asiaShortDead := true
+
+// =========================
+// Entry permission logic by mode
+// =========================
+canConsiderLong(ready, traded, dead, needsReset, orbHigh) =>
+    ready and not traded and strategy.position_size == 0 and (breakoutMode == "Current Behavior" ? closeAboveOrb(orbHigh) : breakoutMode == "First Qualified Close Only" ? closeAboveOrb(orbHigh) and not needsReset and not dead : breakoutMode == "Reset Inside Then Requalify" ? closeAboveOrb(orbHigh) and not needsReset and not dead : breakoutMode == "One-Bar Grace Then Reset" ? closeAboveOrb(orbHigh) and not dead : false)
+
+canConsiderShort(ready, traded, dead, needsReset, orbLow) =>
+    ready and not traded and strategy.position_size == 0 and (breakoutMode == "Current Behavior" ? closeBelowOrb(orbLow) : breakoutMode == "First Qualified Close Only" ? closeBelowOrb(orbLow) and not needsReset and not dead : breakoutMode == "Reset Inside Then Requalify" ? closeBelowOrb(orbLow) and not needsReset and not dead : breakoutMode == "One-Bar Grace Then Reset" ? closeBelowOrb(orbLow) and not dead : false)
+
+// =========================
+// Entry Logic (FIRST / QUALIFIED CHART-TF candle outside ORB per mode)
 // Stop = breakout candle low/high
 // =========================
 float tick = syminfo.mintick
@@ -169,46 +303,141 @@ bool longSignal = false
 bool shortSignal = false
 float intendedStop = na
 
-nyLongSignal   = useNY and nyReady and not nyTraded and strategy.position_size == 0 and entryLongOk(nyHigh)
-nyShortSignal  = useNY and nyReady and not nyTraded and strategy.position_size == 0 and entryShortOk(nyLow)
+nyLongCandidate   = useNY and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
+nyShortCandidate  = useNY and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
 
-ldnLongSignal  = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and entryLongOk(ldnHigh)
-ldnShortSignal = useLondon and ldnReady and not ldnTraded and strategy.position_size == 0 and entryShortOk(ldnLow)
+ldnLongCandidate  = useLondon and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
+ldnShortCandidate = useLondon and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
 
-asiaLongSignal  = useAsia and asiaReady and not asiaTraded and strategy.position_size == 0 and entryLongOk(asiaHigh)
-asiaShortSignal = useAsia and asiaReady and not asiaTraded and strategy.position_size == 0 and entryShortOk(asiaLow)
+asiaLongCandidate  = useAsia and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
+asiaShortCandidate = useAsia and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow)
 
-// Priority: NY > London > Asia if multiple somehow trigger on same bar
+nyLongSignal   = nyLongCandidate and entryLongOk(nyHigh)
+nyShortSignal  = nyShortCandidate and entryShortOk(nyLow)
+
+ldnLongSignal  = ldnLongCandidate and entryLongOk(ldnHigh)
+ldnShortSignal = ldnShortCandidate and entryShortOk(ldnLow)
+
+asiaLongSignal  = asiaLongCandidate and entryLongOk(asiaHigh)
+asiaShortSignal = asiaShortCandidate and entryShortOk(asiaLow)
+
+// Mark failed breakout attempts based on mode
+if strategy.position_size == 0
+    // NY long fail handling
+    if nyLongCandidate and not entryLongOk(nyHigh)
+        if breakoutMode == "First Qualified Close Only"
+            nyLongDead := true
+            nyLongNeedsReset := true
+        else if breakoutMode == "Reset Inside Then Requalify"
+            nyLongNeedsReset := true
+            nyLongOutsideCount := 0
+        else if breakoutMode == "One-Bar Grace Then Reset"
+            nyLongNeedsReset := true
+            nyLongOutsideCount := 0
+
+    // NY short fail handling
+    if nyShortCandidate and not entryShortOk(nyLow)
+        if breakoutMode == "First Qualified Close Only"
+            nyShortDead := true
+            nyShortNeedsReset := true
+        else if breakoutMode == "Reset Inside Then Requalify"
+            nyShortNeedsReset := true
+            nyShortOutsideCount := 0
+        else if breakoutMode == "One-Bar Grace Then Reset"
+            nyShortNeedsReset := true
+            nyShortOutsideCount := 0
+
+    // London long fail handling
+    if ldnLongCandidate and not entryLongOk(ldnHigh)
+        if breakoutMode == "First Qualified Close Only"
+            ldnLongDead := true
+            ldnLongNeedsReset := true
+        else if breakoutMode == "Reset Inside Then Requalify"
+            ldnLongNeedsReset := true
+            ldnLongOutsideCount := 0
+        else if breakoutMode == "One-Bar Grace Then Reset"
+            ldnLongNeedsReset := true
+            ldnLongOutsideCount := 0
+
+    // London short fail handling
+    if ldnShortCandidate and not entryShortOk(ldnLow)
+        if breakoutMode == "First Qualified Close Only"
+            ldnShortDead := true
+            ldnShortNeedsReset := true
+        else if breakoutMode == "Reset Inside Then Requalify"
+            ldnShortNeedsReset := true
+            ldnShortOutsideCount := 0
+        else if breakoutMode == "One-Bar Grace Then Reset"
+            ldnShortNeedsReset := true
+            ldnShortOutsideCount := 0
+
+    // Asia long fail handling
+    if asiaLongCandidate and not entryLongOk(asiaHigh)
+        if breakoutMode == "First Qualified Close Only"
+            asiaLongDead := true
+            asiaLongNeedsReset := true
+        else if breakoutMode == "Reset Inside Then Requalify"
+            asiaLongNeedsReset := true
+            asiaLongOutsideCount := 0
+        else if breakoutMode == "One-Bar Grace Then Reset"
+            asiaLongNeedsReset := true
+            asiaLongOutsideCount := 0
+
+    // Asia short fail handling
+    if asiaShortCandidate and not entryShortOk(asiaLow)
+        if breakoutMode == "First Qualified Close Only"
+            asiaShortDead := true
+            asiaShortNeedsReset := true
+        else if breakoutMode == "Reset Inside Then Requalify"
+            asiaShortNeedsReset := true
+            asiaShortOutsideCount := 0
+        else if breakoutMode == "One-Bar Grace Then Reset"
+            asiaShortNeedsReset := true
+            asiaShortOutsideCount := 0
+
+// Priority: NY > London > Asia if multiple trigger same bar
 if nyLongSignal
     longSignal := true
     activeORB := "NY"
     intendedStop := low - buf
     nyTraded := true
+    nyLongNeedsReset := false
+    nyLongDead := true
 else if nyShortSignal
     shortSignal := true
     activeORB := "NY"
     intendedStop := high + buf
     nyTraded := true
+    nyShortNeedsReset := false
+    nyShortDead := true
 else if ldnLongSignal
     longSignal := true
     activeORB := "London"
     intendedStop := low - buf
     ldnTraded := true
+    ldnLongNeedsReset := false
+    ldnLongDead := true
 else if ldnShortSignal
     shortSignal := true
     activeORB := "London"
     intendedStop := high + buf
     ldnTraded := true
+    ldnShortNeedsReset := false
+    ldnShortDead := true
 else if asiaLongSignal
     longSignal := true
     activeORB := "Asia"
     intendedStop := low - buf
     asiaTraded := true
+    asiaLongNeedsReset := false
+    asiaLongDead := true
 else if asiaShortSignal
     shortSignal := true
     activeORB := "Asia"
     intendedStop := high + buf
     asiaTraded := true
+    asiaShortNeedsReset := false
+    asiaShortDead := true
 
 if longSignal
     strategy.entry("Long", strategy.long)
@@ -287,11 +516,9 @@ longInProfit  = validLong and close > posEntry
 shortInProfit = validShort and close < posEntry
 
 timeExitEligibleLong = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveLong)
-
 timeExitEligibleShort = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveShort)
 
 timeExitLong = useTimeExit and validLong and timeExitEligibleLong and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and longInProfit))
-
 timeExitShort = useTimeExit and validShort and timeExitEligibleShort and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and shortInProfit))
 
 // =========================
@@ -307,9 +534,9 @@ eodCloseNow = useEodClose and curMinuteOfDay >= eodMinuteOfDay
 // =========================
 // Visible active stop / target levels
 // =========================
-float activeLongStop  = na
-float activeShortStop = na
-float activeLongTarget  = na
+float activeLongStop   = na
+float activeShortStop  = na
+float activeLongTarget = na
 float activeShortTarget = na
 
 if validLong
@@ -328,11 +555,6 @@ if validShort
 
 // =========================
 // Exit Logic
-// - Fixed RR: fixed stop + limit
-// - 1R Trail:
-//   Before +1R: stop stays at original SL
-//   At +1R: stop moves to BE
-//   At +2R: stop moves to +1R, etc.
 // =========================
 if validLong
     strategy.exit("Long Exit", from_entry="Long", stop=activeLongStop, limit=activeLongTarget)
@@ -369,5 +591,8 @@ plot(showORBLevels and useAsia ? asiaLow  : na, "Asia ORB Low",  color=color.new
 // =========================
 // Plot active stop / target
 // =========================
-plot(showActiveStop and strategy.position_size > 0 ? activeLongStop : na, "Long Active Stop", color=color.new(color.blue, 0), linewidth=3, style=plot.style_circles)
-plot(showActiveStop and strategy.position_size < 0 ? activeShortStop : na, "Short Active Stop", color=color.new(color.blue, 0), linewidth=3, style=plot.style_circles)
+plot(showActiveStop and validLong ? activeLongStop : na, "Long Active Stop", color=color.new(color.blue, 0), linewidth=3, style=plot.style_circles)
+plot(showActiveStop and validShort ? activeShortStop : na, "Short Active Stop", color=color.new(color.blue, 0), linewidth=3, style=plot.style_circles)
+
+plot(showActiveTarget and tradeMode == "Fixed RR" and validLong ? activeLongTarget : na, "Long Target", color=color.new(color.lime, 0), linewidth=2, style=plot.style_linebr)
+plot(showActiveTarget and tradeMode == "Fixed RR" and validShort ? activeShortTarget : na, "Short Target", color=color.new(color.maroon, 0), linewidth=2, style=plot.style_linebr)
