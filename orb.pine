@@ -45,7 +45,7 @@ bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=group
 
 groupDisp = "Displacement Filter"
 useDisplacementFilter = input.bool(true, "Displacement Filter On", group=groupDisp)
-minCloseBeyondPct     = input.float(0.15, "Min Close Beyond ORB (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
+minCloseBeyondPct     = input.float(0.18, "Min Close Beyond ORB (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
 maxBreakoutWickPct    = input.float(0.20, "Max Breakout Wick (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
 
 groupAtr = "ATR Filter"
