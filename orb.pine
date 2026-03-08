@@ -38,6 +38,7 @@ tradeMode    = input.string("1R Step Trail", "Exit Mode", options=["Fixed RR", "
 rrMultiple   = input.float(2.0, "Fixed RR Multiple", minval=0.5, step=0.5, group=groupTrade)
 noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTrade)
 breakoutMode = input.string("Current Behavior", "Breakout Qualification Mode", options=["Current Behavior", "First Qualified Close Only", "Reset Inside Then Requalify", "One-Bar Grace Then Reset"], group=groupTrade)
+allowSecondBreak = input.bool(false, "Allow One Second Break After First Losing Trade + Reset Inside ORB", group=groupTrade)
 
 // optional tiny buffer so stops/targets aren’t exactly on a level
 useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTrade)
@@ -381,6 +382,28 @@ var int ldnShortOutsideCount = 0
 var int asiaLongOutsideCount = 0
 var int asiaShortOutsideCount = 0
 
+// Second-break state: actual trades only
+var int nyLongTradeCount = 0
+var int nyShortTradeCount = 0
+var int ldnLongTradeCount = 0
+var int ldnShortTradeCount = 0
+var int asiaLongTradeCount = 0
+var int asiaShortTradeCount = 0
+
+var bool nyLongRetryEligible = false
+var bool nyShortRetryEligible = false
+var bool ldnLongRetryEligible = false
+var bool ldnShortRetryEligible = false
+var bool asiaLongRetryEligible = false
+var bool asiaShortRetryEligible = false
+
+var bool nyLongRetryArmed = false
+var bool nyShortRetryArmed = false
+var bool ldnLongRetryArmed = false
+var bool ldnShortRetryArmed = false
+var bool asiaLongRetryArmed = false
+var bool asiaShortRetryArmed = false
+
 curDay = year(time, sessionTZ) * 10000 + month(time, sessionTZ) * 100 + dayofmonth(time, sessionTZ)
 
 if na(lastDay) or curDay != lastDay
@@ -405,61 +428,103 @@ if na(lastDay) or curDay != lastDay
     ldnShortOutsideCount := 0
     asiaLongOutsideCount := 0
     asiaShortOutsideCount := 0
+    nyLongTradeCount := 0
+    nyShortTradeCount := 0
+    ldnLongTradeCount := 0
+    ldnShortTradeCount := 0
+    asiaLongTradeCount := 0
+    asiaShortTradeCount := 0
+    nyLongRetryEligible := false
+    nyShortRetryEligible := false
+    ldnLongRetryEligible := false
+    ldnShortRetryEligible := false
+    asiaLongRetryEligible := false
+    asiaShortRetryEligible := false
+    nyLongRetryArmed := false
+    nyShortRetryArmed := false
+    ldnLongRetryArmed := false
+    ldnShortRetryArmed := false
+    asiaLongRetryArmed := false
+    asiaShortRetryArmed := false
     lastDay := curDay
 
 // =========================
 // Breakout state management
 // =========================
+nyLongPathActive   = nyTradeWindowActive   and not nyLongDead   and ((nyLongTradeCount == 0 and not nyTraded)   or (allowSecondBreak and nyLongTradeCount == 1 and nyLongRetryEligible))
+nyShortPathActive  = nyTradeWindowActive   and not nyShortDead  and ((nyShortTradeCount == 0 and not nyTraded)  or (allowSecondBreak and nyShortTradeCount == 1 and nyShortRetryEligible))
+ldnLongPathActive  = ldnTradeWindowActive  and not ldnLongDead  and ((ldnLongTradeCount == 0 and not ldnTraded) or (allowSecondBreak and ldnLongTradeCount == 1 and ldnLongRetryEligible))
+ldnShortPathActive = ldnTradeWindowActive  and not ldnShortDead and ((ldnShortTradeCount == 0 and not ldnTraded) or (allowSecondBreak and ldnShortTradeCount == 1 and ldnShortRetryEligible))
+asiaLongPathActive = asiaTradeWindowActive and not asiaLongDead and ((asiaLongTradeCount == 0 and not asiaTraded) or (allowSecondBreak and asiaLongTradeCount == 1 and asiaLongRetryEligible))
+asiaShortPathActive = asiaTradeWindowActive and not asiaShortDead and ((asiaShortTradeCount == 0 and not asiaTraded) or (allowSecondBreak and asiaShortTradeCount == 1 and asiaShortRetryEligible))
+
 if strategy.position_size == 0
-    if nyTradeWindowActive and not nyTraded and not nyLongDead
+    if nyLongPathActive
         if closeInsideOrb(nyHigh, nyLow)
             nyLongNeedsReset := false
             nyLongOutsideCount := 0
+            if allowSecondBreak and nyLongRetryEligible and nyLongTradeCount == 1
+                nyLongRetryArmed := true
         else if closeAboveOrb(nyHigh)
             if nyLongNeedsReset
                 nyLongOutsideCount += 1
                 if breakoutMode == "One-Bar Grace Then Reset" and nyLongOutsideCount > 1
                     nyLongDead := true
-    if nyTradeWindowActive and not nyTraded and not nyShortDead
+
+    if nyShortPathActive
         if closeInsideOrb(nyHigh, nyLow)
             nyShortNeedsReset := false
             nyShortOutsideCount := 0
+            if allowSecondBreak and nyShortRetryEligible and nyShortTradeCount == 1
+                nyShortRetryArmed := true
         else if closeBelowOrb(nyLow)
             if nyShortNeedsReset
                 nyShortOutsideCount += 1
                 if breakoutMode == "One-Bar Grace Then Reset" and nyShortOutsideCount > 1
                     nyShortDead := true
-    if ldnTradeWindowActive and not ldnTraded and not ldnLongDead
+
+    if ldnLongPathActive
         if closeInsideOrb(ldnHigh, ldnLow)
             ldnLongNeedsReset := false
             ldnLongOutsideCount := 0
+            if allowSecondBreak and ldnLongRetryEligible and ldnLongTradeCount == 1
+                ldnLongRetryArmed := true
         else if closeAboveOrb(ldnHigh)
             if ldnLongNeedsReset
                 ldnLongOutsideCount += 1
                 if breakoutMode == "One-Bar Grace Then Reset" and ldnLongOutsideCount > 1
                     ldnLongDead := true
-    if ldnTradeWindowActive and not ldnTraded and not ldnShortDead
+
+    if ldnShortPathActive
         if closeInsideOrb(ldnHigh, ldnLow)
             ldnShortNeedsReset := false
             ldnShortOutsideCount := 0
+            if allowSecondBreak and ldnShortRetryEligible and ldnShortTradeCount == 1
+                ldnShortRetryArmed := true
         else if closeBelowOrb(ldnLow)
             if ldnShortNeedsReset
                 ldnShortOutsideCount += 1
                 if breakoutMode == "One-Bar Grace Then Reset" and ldnShortOutsideCount > 1
                     ldnShortDead := true
-    if asiaTradeWindowActive and not asiaTraded and not asiaLongDead
+
+    if asiaLongPathActive
         if closeInsideOrb(asiaHigh, asiaLow)
             asiaLongNeedsReset := false
             asiaLongOutsideCount := 0
+            if allowSecondBreak and asiaLongRetryEligible and asiaLongTradeCount == 1
+                asiaLongRetryArmed := true
         else if closeAboveOrb(asiaHigh)
             if asiaLongNeedsReset
                 asiaLongOutsideCount += 1
                 if breakoutMode == "One-Bar Grace Then Reset" and asiaLongOutsideCount > 1
                     asiaLongDead := true
-    if asiaTradeWindowActive and not asiaTraded and not asiaShortDead
+
+    if asiaShortPathActive
         if closeInsideOrb(asiaHigh, asiaLow)
             asiaShortNeedsReset := false
             asiaShortOutsideCount := 0
+            if allowSecondBreak and asiaShortRetryEligible and asiaShortTradeCount == 1
+                asiaShortRetryArmed := true
         else if closeBelowOrb(asiaLow)
             if asiaShortNeedsReset
                 asiaShortOutsideCount += 1
@@ -469,8 +534,25 @@ if strategy.position_size == 0
 // =========================
 // Entry permission logic by mode
 // =========================
-canConsiderLong(ready, traded, dead, needsReset, orbHigh) => ready and not traded and strategy.position_size == 0 and (breakoutMode == "Current Behavior" ? closeAboveOrb(orbHigh) : breakoutMode == "First Qualified Close Only" ? closeAboveOrb(orbHigh) and not needsReset and not dead : breakoutMode == "Reset Inside Then Requalify" ? closeAboveOrb(orbHigh) and not needsReset and not dead : breakoutMode == "One-Bar Grace Then Reset" ? closeAboveOrb(orbHigh) and not dead : false)
-canConsiderShort(ready, traded, dead, needsReset, orbLow) => ready and not traded and strategy.position_size == 0 and (breakoutMode == "Current Behavior" ? closeBelowOrb(orbLow) : breakoutMode == "First Qualified Close Only" ? closeBelowOrb(orbLow) and not needsReset and not dead : breakoutMode == "Reset Inside Then Requalify" ? closeBelowOrb(orbLow) and not needsReset and not dead : breakoutMode == "One-Bar Grace Then Reset" ? closeBelowOrb(orbLow) and not dead : false)
+canConsiderLong(ready, traded, dead, needsReset, orbHigh, tradeCount, retryArmed) =>
+    bool firstTradeAllowed  = tradeCount == 0 and not traded
+    bool secondTradeAllowed = allowSecondBreak and tradeCount == 1 and retryArmed
+    ready and strategy.position_size == 0 and not dead and (firstTradeAllowed or secondTradeAllowed) and (
+         breakoutMode == "Current Behavior" ? closeAboveOrb(orbHigh) :
+         breakoutMode == "First Qualified Close Only" ? closeAboveOrb(orbHigh) and not needsReset :
+         breakoutMode == "Reset Inside Then Requalify" ? closeAboveOrb(orbHigh) and not needsReset :
+         breakoutMode == "One-Bar Grace Then Reset" ? closeAboveOrb(orbHigh) :
+         false)
+
+canConsiderShort(ready, traded, dead, needsReset, orbLow, tradeCount, retryArmed) =>
+    bool firstTradeAllowed  = tradeCount == 0 and not traded
+    bool secondTradeAllowed = allowSecondBreak and tradeCount == 1 and retryArmed
+    ready and strategy.position_size == 0 and not dead and (firstTradeAllowed or secondTradeAllowed) and (
+         breakoutMode == "Current Behavior" ? closeBelowOrb(orbLow) :
+         breakoutMode == "First Qualified Close Only" ? closeBelowOrb(orbLow) and not needsReset :
+         breakoutMode == "Reset Inside Then Requalify" ? closeBelowOrb(orbLow) and not needsReset :
+         breakoutMode == "One-Bar Grace Then Reset" ? closeBelowOrb(orbLow) :
+         false)
 
 // =========================
 // Entry Logic (FIRST / QUALIFIED CHART-TF candle outside ORB per mode)
@@ -491,12 +573,12 @@ bool prevDayCompressionPass = prevDayCompressionOk(prevDayRange, atrValue)
 bool prevDayTrendLongPass = prevDayTrendLongOk(prevDayOpen, prevDayClose)
 bool prevDayTrendShortPass = prevDayTrendShortOk(prevDayOpen, prevDayClose)
 
-nyLongCandidate   = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
-nyShortCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
-ldnLongCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
-ldnShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
-asiaLongCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
-asiaShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow)
+nyLongCandidate   = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh, nyLongTradeCount, nyLongRetryArmed)
+nyShortCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow, nyShortTradeCount, nyShortRetryArmed)
+ldnLongCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh, ldnLongTradeCount, ldnLongRetryArmed)
+ldnShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow, ldnShortTradeCount, ldnShortRetryArmed)
+asiaLongCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh, asiaLongTradeCount, asiaLongRetryArmed)
+asiaShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow, asiaShortTradeCount, asiaShortRetryArmed)
 
 nyLongSignal   = nyLongCandidate and entryLongOk(nyHigh)
 nyShortSignal  = nyShortCandidate and entryShortOk(nyLow)
@@ -505,7 +587,7 @@ ldnShortSignal = ldnShortCandidate and entryShortOk(ldnLow)
 asiaLongSignal = asiaLongCandidate and entryLongOk(asiaHigh)
 asiaShortSignal = asiaShortCandidate and entryShortOk(asiaLow)
 
-// Mark failed breakout attempts based on mode
+// Mark failed breakout attempts based on mode (same behavior as baseline)
 if strategy.position_size == 0
     if nyLongCandidate and not entryLongOk(nyHigh)
         if breakoutMode == "First Qualified Close Only"
@@ -517,6 +599,7 @@ if strategy.position_size == 0
         else if breakoutMode == "One-Bar Grace Then Reset"
             nyLongNeedsReset := true
             nyLongOutsideCount := 0
+
     if nyShortCandidate and not entryShortOk(nyLow)
         if breakoutMode == "First Qualified Close Only"
             nyShortDead := true
@@ -527,6 +610,7 @@ if strategy.position_size == 0
         else if breakoutMode == "One-Bar Grace Then Reset"
             nyShortNeedsReset := true
             nyShortOutsideCount := 0
+
     if ldnLongCandidate and not entryLongOk(ldnHigh)
         if breakoutMode == "First Qualified Close Only"
             ldnLongDead := true
@@ -537,6 +621,7 @@ if strategy.position_size == 0
         else if breakoutMode == "One-Bar Grace Then Reset"
             ldnLongNeedsReset := true
             ldnLongOutsideCount := 0
+
     if ldnShortCandidate and not entryShortOk(ldnLow)
         if breakoutMode == "First Qualified Close Only"
             ldnShortDead := true
@@ -547,6 +632,7 @@ if strategy.position_size == 0
         else if breakoutMode == "One-Bar Grace Then Reset"
             ldnShortNeedsReset := true
             ldnShortOutsideCount := 0
+
     if asiaLongCandidate and not entryLongOk(asiaHigh)
         if breakoutMode == "First Qualified Close Only"
             asiaLongDead := true
@@ -557,6 +643,7 @@ if strategy.position_size == 0
         else if breakoutMode == "One-Bar Grace Then Reset"
             asiaLongNeedsReset := true
             asiaLongOutsideCount := 0
+
     if asiaShortCandidate and not entryShortOk(asiaLow)
         if breakoutMode == "First Qualified Close Only"
             asiaShortDead := true
@@ -576,6 +663,9 @@ if nyLongSignal
     pendingSessionCloseTs := getSessionCloseTs("NY")
     intendedStop := low - buf
     nyTraded := true
+    nyLongTradeCount += 1
+    nyLongRetryEligible := false
+    nyLongRetryArmed := false
     nyLongNeedsReset := false
     nyLongDead := true
 else if nyShortSignal
@@ -585,6 +675,9 @@ else if nyShortSignal
     pendingSessionCloseTs := getSessionCloseTs("NY")
     intendedStop := high + buf
     nyTraded := true
+    nyShortTradeCount += 1
+    nyShortRetryEligible := false
+    nyShortRetryArmed := false
     nyShortNeedsReset := false
     nyShortDead := true
 else if ldnLongSignal
@@ -594,6 +687,9 @@ else if ldnLongSignal
     pendingSessionCloseTs := getSessionCloseTs("London")
     intendedStop := low - buf
     ldnTraded := true
+    ldnLongTradeCount += 1
+    ldnLongRetryEligible := false
+    ldnLongRetryArmed := false
     ldnLongNeedsReset := false
     ldnLongDead := true
 else if ldnShortSignal
@@ -603,6 +699,9 @@ else if ldnShortSignal
     pendingSessionCloseTs := getSessionCloseTs("London")
     intendedStop := high + buf
     ldnTraded := true
+    ldnShortTradeCount += 1
+    ldnShortRetryEligible := false
+    ldnShortRetryArmed := false
     ldnShortNeedsReset := false
     ldnShortDead := true
 else if asiaLongSignal
@@ -612,6 +711,9 @@ else if asiaLongSignal
     pendingSessionCloseTs := getSessionCloseTs("Asia")
     intendedStop := low - buf
     asiaTraded := true
+    asiaLongTradeCount += 1
+    asiaLongRetryEligible := false
+    asiaLongRetryArmed := false
     asiaLongNeedsReset := false
     asiaLongDead := true
 else if asiaShortSignal
@@ -621,6 +723,9 @@ else if asiaShortSignal
     pendingSessionCloseTs := getSessionCloseTs("Asia")
     intendedStop := high + buf
     asiaTraded := true
+    asiaShortTradeCount += 1
+    asiaShortRetryEligible := false
+    asiaShortRetryArmed := false
     asiaShortNeedsReset := false
     asiaShortDead := true
 
@@ -648,6 +753,8 @@ var int   entryBarIndex = na
 var int   activeSessionCloseTs = na
 var int   timeExitStartBarIndex = na
 var int   lastTrailStepCount = 0
+var string openTradeSession = ""
+var string openTradeDirection = ""
 
 if longSignal or shortSignal
     posStopRef := intendedStop
@@ -657,6 +764,45 @@ newShort = strategy.position_size < 0 and strategy.position_size[1] == 0
 flatNow  = strategy.position_size == 0 and strategy.position_size[1] != 0
 
 if flatNow
+    closedTradePnl = strategy.netprofit - nz(strategy.netprofit[1])
+    if allowSecondBreak and closedTradePnl < 0
+        if openTradeSession == "NY" and openTradeDirection == "Long" and nyLongTradeCount == 1
+            nyLongRetryEligible := true
+            nyLongRetryArmed := false
+            nyLongDead := false
+            nyLongNeedsReset := false
+            nyLongOutsideCount := 0
+        else if openTradeSession == "NY" and openTradeDirection == "Short" and nyShortTradeCount == 1
+            nyShortRetryEligible := true
+            nyShortRetryArmed := false
+            nyShortDead := false
+            nyShortNeedsReset := false
+            nyShortOutsideCount := 0
+        else if openTradeSession == "London" and openTradeDirection == "Long" and ldnLongTradeCount == 1
+            ldnLongRetryEligible := true
+            ldnLongRetryArmed := false
+            ldnLongDead := false
+            ldnLongNeedsReset := false
+            ldnLongOutsideCount := 0
+        else if openTradeSession == "London" and openTradeDirection == "Short" and ldnShortTradeCount == 1
+            ldnShortRetryEligible := true
+            ldnShortRetryArmed := false
+            ldnShortDead := false
+            ldnShortNeedsReset := false
+            ldnShortOutsideCount := 0
+        else if openTradeSession == "Asia" and openTradeDirection == "Long" and asiaLongTradeCount == 1
+            asiaLongRetryEligible := true
+            asiaLongRetryArmed := false
+            asiaLongDead := false
+            asiaLongNeedsReset := false
+            asiaLongOutsideCount := 0
+        else if openTradeSession == "Asia" and openTradeDirection == "Short" and asiaShortTradeCount == 1
+            asiaShortRetryEligible := true
+            asiaShortRetryArmed := false
+            asiaShortDead := false
+            asiaShortNeedsReset := false
+            asiaShortOutsideCount := 0
+
     posEntry := na
     posRisk := na
     posBaseRisk := na
@@ -670,6 +816,8 @@ if flatNow
     pendingSessionCloseTs := na
     timeExitStartBarIndex := na
     lastTrailStepCount := 0
+    openTradeSession := ""
+    openTradeDirection := ""
 else if strategy.position_size == 0
     posEntry := na
     posRisk := na
@@ -695,6 +843,8 @@ if newLong
     activeSessionCloseTs := pendingSessionCloseTs
     timeExitStartBarIndex := bar_index
     lastTrailStepCount := 0
+    openTradeSession := pendingORB
+    openTradeDirection := "Long"
 
 if newShort
     posEntry := strategy.position_avg_price
@@ -708,6 +858,8 @@ if newShort
     activeSessionCloseTs := pendingSessionCloseTs
     timeExitStartBarIndex := bar_index
     lastTrailStepCount := 0
+    openTradeSession := pendingORB
+    openTradeDirection := "Short"
 
 if strategy.position_size > 0
     highestSinceEntry := na(highestSinceEntry) ? high : math.max(highestSinceEntry, high)
