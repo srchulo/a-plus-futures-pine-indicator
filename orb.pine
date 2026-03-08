@@ -34,7 +34,7 @@ asiaEndH   = input.int(23, "Asian End Hour", minval=0, maxval=23, group=groupSes
 asiaEndM   = input.int(0,  "Asian End Minute", minval=0, maxval=59, group=groupSessions)
 
 groupTrade = "Trade Logic"
-tradeMode    = input.string("Fixed RR", "Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTrade)
+tradeMode    = input.string("1R Step Trail", "Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTrade)
 rrMultiple   = input.float(2.0, "Fixed RR Multiple", minval=0.5, step=0.5, group=groupTrade)
 noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTrade)
 breakoutMode = input.string("Current Behavior", "Breakout Qualification Mode", options=["Current Behavior", "First Qualified Close Only", "Reset Inside Then Requalify", "One-Bar Grace Then Reset"], group=groupTrade)
@@ -49,10 +49,15 @@ minCloseBeyondPct     = input.float(0.17, "Min Close Beyond ORB (% of candle ran
 maxBreakoutWickPct    = input.float(0.20, "Max Breakout Wick (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
 
 groupAtr = "ATR Filter"
-useAtrOrbFilter = input.bool(false, "ATR ORB Filter On", group=groupAtr)
+useAtrOrbFilter = input.bool(true, "ATR ORB Filter On", group=groupAtr)
 atrLen = input.int(14, "ATR Length", minval=1, group=groupAtr)
 minOrbAtrPct = input.float(0.17, "Min ORB / ATR", minval=0.0, step=0.01, group=groupAtr)
 maxOrbAtrPct = input.float(1.20, "Max ORB / ATR", minval=0.0, step=0.01, group=groupAtr)
+
+groupOvernight = "Overnight Range Filter"
+useOvernightRangeFilter = input.bool(false, "NY Overnight Range Filter On", group=groupOvernight)
+minOvernightAtrPct = input.float(0.00, "Min Overnight / ATR", minval=0.0, step=0.01, group=groupOvernight)
+maxOvernightAtrPct = input.float(0.80, "Max Overnight / ATR", minval=0.0, step=0.01, group=groupOvernight)
 
 groupTimeExit = "Time Exit"
 useTimeExit    = input.bool(true, "Time Exit On", group=groupTimeExit)
@@ -60,12 +65,12 @@ maxBarsInTrade = input.int(12, "Max Bars In Trade", minval=1, maxval=500, group=
 timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExit)
 
 groupEOD = "End Of Day Close"
-useEodClose = input.bool(true, "Session Close On", group=groupEOD)
+useEodClose = input.bool(false, "Session Close On", group=groupEOD)
 
 groupFilters = "Trade Filters"
-skipDecember = input.bool(false, "Skip December", group=groupFilters)
-skipThanksgivingWeek = input.bool(false, "Skip Thanksgiving Week", group=groupFilters)
-skipUSHalfDays = input.bool(false, "Skip US Half Days (Approximation)", group=groupFilters)
+skipDecember = input.bool(true, "Skip December", group=groupFilters)
+skipThanksgivingWeek = input.bool(true, "Skip Thanksgiving Week", group=groupFilters)
+skipUSHalfDays = input.bool(true, "Skip US Half Days (Approximation)", group=groupFilters)
 skipMondays = input.bool(false, "Skip Mondays", group=groupFilters)
 skipTuesdays = input.bool(false, "Skip Tuesdays", group=groupFilters)
 skipWednesdays = input.bool(false, "Skip Wednesdays", group=groupFilters)
@@ -159,6 +164,9 @@ getSessionCloseTs(sessionName) =>
 orbAtrOk(orbSize, atrValue) =>
     not useAtrOrbFilter or (not na(orbSize) and not na(atrValue) and atrValue > 0 and orbSize / atrValue >= minOrbAtrPct and orbSize / atrValue <= maxOrbAtrPct)
 
+overnightAtrOk(overnightSize, atrValue) =>
+    not useOvernightRangeFilter or (not na(overnightSize) and not na(atrValue) and atrValue > 0 and overnightSize / atrValue >= minOvernightAtrPct and overnightSize / atrValue <= maxOvernightAtrPct)
+
 // =========================
 // ORB engine on 1m (range accuracy)
 // =========================
@@ -197,15 +205,51 @@ orbLevels1m(startH, startM, durM) =>
     float outLo = (inOrb or ready) ? lo : na
     [outHi, outLo, ready, dayId]
 
+overnightLevels1m(startH, startM, prevEndH, prevEndM) =>
+    int y  = year(time, sessionTZ)
+    int mo = month(time, sessionTZ)
+    int d  = dayofmonth(time, sessionTZ)
+    int h  = hour(time, sessionTZ)
+    int m  = minute(time, sessionTZ)
+    int dayId = y * 10000 + mo * 100 + d
+    int curMin = h * 60 + m
+    int startMin = startH * 60 + startM
+    int prevEndMin = prevEndH * 60 + prevEndM
+    bool atPrevEnd = curMin == prevEndMin
+    bool atStart = curMin == startMin
+    bool inOvernight = curMin >= prevEndMin or curMin < startMin
+    var float hi = na
+    var float lo = na
+    var bool ready = false
+    var int readyDayId = na
+    if atPrevEnd
+        hi := high
+        lo := low
+        ready := false
+        readyDayId := na
+    else if inOvernight and not atStart
+        hi := na(hi) ? high : math.max(hi, high)
+        lo := na(lo) ? low : math.min(lo, low)
+    if atStart and not na(hi) and not na(lo)
+        ready := true
+        readyDayId := dayId
+    float outHi = ready and readyDayId == dayId ? hi : na
+    float outLo = ready and readyDayId == dayId ? lo : na
+    [outHi, outLo, ready, readyDayId]
+
 // Pull ORBs from 1m
 [nyHigh, nyLow, nyReady, nyDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(nyStartH, nyStartM, nyDurM), barmerge.gaps_off, barmerge.lookahead_off)
 [ldnHigh, ldnLow, ldnReady, ldnDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
 [asiaHigh, asiaLow, asiaReady, asiaDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(asiaStartH, asiaStartM, asiaDurM), barmerge.gaps_off, barmerge.lookahead_off)
 
+// Pull NY overnight range from 1m
+[nyOverHigh, nyOverLow, nyOverReady, nyOverDayId] = request.security(syminfo.tickerid, "1", overnightLevels1m(nyStartH, nyStartM, nyEndH, nyEndM), barmerge.gaps_off, barmerge.lookahead_off)
+
 atrValue = request.security(syminfo.tickerid, "D", ta.atr(atrLen))
 nyOrbSize = nyReady and not na(nyHigh) and not na(nyLow) ? nyHigh - nyLow : na
 ldnOrbSize = ldnReady and not na(ldnHigh) and not na(ldnLow) ? ldnHigh - ldnLow : na
 asiaOrbSize = asiaReady and not na(asiaHigh) and not na(asiaLow) ? asiaHigh - asiaLow : na
+nyOvernightSize = nyOverReady and not na(nyOverHigh) and not na(nyOverLow) ? nyOverHigh - nyOverLow : na
 
 // Calendar / trade filters
 int curY = year(time, sessionTZ)
@@ -361,8 +405,8 @@ bool shortSignal = false
 float intendedStop = na
 var int pendingSessionCloseTs = na
 
-nyLongCandidate   = nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
-nyShortCandidate  = nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
+nyLongCandidate   = nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
+nyShortCandidate  = nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
 ldnLongCandidate  = ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
 ldnShortCandidate = ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
 asiaLongCandidate = asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
