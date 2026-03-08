@@ -78,7 +78,7 @@ timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In 
 resetTimeExitOnTrailStep = input.bool(false, "Reset Time Exit On Trail Step", group=groupTimeExit)
 
 groupEntryTime = "Entry Time Filter"
-useNoTradeAfter = input.bool(false, "Don't Enter After Time", group=groupEntryTime)
+useNoTradeAfter = input.bool(true, "Don't Enter After Time", group=groupEntryTime)
 lastEntryH      = input.int(11, "Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
 lastEntryM      = input.int(0, "Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
