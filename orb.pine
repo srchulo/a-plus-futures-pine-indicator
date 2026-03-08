@@ -43,6 +43,11 @@ breakoutMode = input.string("Current Behavior", "Breakout Qualification Mode", o
 useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTrade)
 bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=groupTrade)
 
+groupStopAdj = "Stop Adjustment"
+useStopAdjustment = input.bool(true, "Stop Adjustment On", group=groupStopAdj)
+stopMultiplier = input.float(1.8, "Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdj)
+trailRiskBasis = input.string("Adjusted Stop Risk", "Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdj)
+
 groupDisp = "Displacement Filter"
 useDisplacementFilter = input.bool(true, "Displacement Filter On", group=groupDisp)
 minCloseBeyondPct     = input.float(0.17, "Min Close Beyond ORB (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
@@ -554,6 +559,8 @@ if shortSignal
 var float posStopRef = na
 var float posEntry   = na
 var float posRisk    = na
+var float posBaseRisk = na
+var float posTrailRisk = na
 var float highestSinceEntry = na
 var float lowestSinceEntry  = na
 var int   entryBarIndex = na
@@ -569,6 +576,8 @@ flatNow  = strategy.position_size == 0 and strategy.position_size[1] != 0
 if flatNow
     posEntry := na
     posRisk := na
+    posBaseRisk := na
+    posTrailRisk := na
     highestSinceEntry := na
     lowestSinceEntry := na
     entryBarIndex := na
@@ -579,6 +588,8 @@ if flatNow
 else if strategy.position_size == 0
     posEntry := na
     posRisk := na
+    posBaseRisk := na
+    posTrailRisk := na
     highestSinceEntry := na
     lowestSinceEntry := na
     entryBarIndex := na
@@ -587,7 +598,10 @@ else if strategy.position_size == 0
 
 if newLong
     posEntry := strategy.position_avg_price
-    posRisk  := posEntry - posStopRef
+    posBaseRisk := posEntry - posStopRef
+    posRisk := useStopAdjustment ? posBaseRisk * stopMultiplier : posBaseRisk
+    posTrailRisk := tradeMode == "1R Step Trail" and useStopAdjustment and trailRiskBasis == "Original Breakout Risk" ? posBaseRisk : posRisk
+    posStopRef := posEntry - posRisk
     highestSinceEntry := high
     entryBarIndex := bar_index
     activeORB := pendingORB
@@ -595,7 +609,10 @@ if newLong
 
 if newShort
     posEntry := strategy.position_avg_price
-    posRisk  := posStopRef - posEntry
+    posBaseRisk := posStopRef - posEntry
+    posRisk := useStopAdjustment ? posBaseRisk * stopMultiplier : posBaseRisk
+    posTrailRisk := tradeMode == "1R Step Trail" and useStopAdjustment and trailRiskBasis == "Original Breakout Risk" ? posBaseRisk : posRisk
+    posStopRef := posEntry + posRisk
     lowestSinceEntry := low
     entryBarIndex := bar_index
     activeORB := pendingORB
@@ -607,14 +624,14 @@ if strategy.position_size > 0
 if strategy.position_size < 0
     lowestSinceEntry := na(lowestSinceEntry) ? low : math.min(lowestSinceEntry, low)
 
-validLong  = strategy.position_size > 0 and not na(posEntry) and not na(posRisk) and posRisk > 0 and not na(posStopRef)
-validShort = strategy.position_size < 0 and not na(posEntry) and not na(posRisk) and posRisk > 0 and not na(posStopRef)
+validLong  = strategy.position_size > 0 and not na(posEntry) and not na(posRisk) and not na(posTrailRisk) and posRisk > 0 and posTrailRisk > 0 and not na(posStopRef)
+validShort = strategy.position_size < 0 and not na(posEntry) and not na(posRisk) and not na(posTrailRisk) and posRisk > 0 and posTrailRisk > 0 and not na(posStopRef)
 
 // =========================
 // Helper state for trail activation
 // =========================
-longRunupR  = validLong ? math.floor((highestSinceEntry - posEntry) / posRisk) : na
-shortRunupR = validShort ? math.floor((posEntry - lowestSinceEntry) / posRisk) : na
+longRunupR  = validLong ? math.floor((highestSinceEntry - posEntry) / posTrailRisk) : na
+shortRunupR = validShort ? math.floor((posEntry - lowestSinceEntry) / posTrailRisk) : na
 
 trailActiveLong  = validLong and tradeMode == "1R Step Trail" and longRunupR >= 1
 trailActiveShort = validShort and tradeMode == "1R Step Trail" and shortRunupR >= 1
@@ -652,14 +669,14 @@ if validLong
         activeLongStop   := posStopRef
         activeLongTarget := posEntry + posRisk * rrMultiple
     else
-        activeLongStop := longRunupR < 1 ? posStopRef : posEntry + (longRunupR - 1) * posRisk
+        activeLongStop := longRunupR < 1 ? posStopRef : posEntry + (longRunupR - 1) * posTrailRisk
 
 if validShort
     if tradeMode == "Fixed RR"
         activeShortStop   := posStopRef
         activeShortTarget := posEntry - posRisk * rrMultiple
     else
-        activeShortStop := shortRunupR < 1 ? posStopRef : posEntry - (shortRunupR - 1) * posRisk
+        activeShortStop := shortRunupR < 1 ? posStopRef : posEntry - (shortRunupR - 1) * posTrailRisk
 
 // =========================
 // Exit Logic
