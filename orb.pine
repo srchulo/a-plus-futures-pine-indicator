@@ -82,9 +82,9 @@ useNoTradeAfter = input.bool(false, "Don't Enter After Time (Global Default)", g
 lastEntryH      = input.int(11, "Global Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
 lastEntryM      = input.int(0, "Global Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
-useWeekdaySpecificCutoffs = input.bool(false, "Use Weekday-Specific Cutoffs", group=groupEntryTime)
+useWeekdaySpecificCutoffs = input.bool(true, "Use Weekday-Specific Cutoffs", group=groupEntryTime)
 
-monUseNoTradeAfter = input.bool(false, "Monday Override On", group=groupEntryTime)
+monUseNoTradeAfter = input.bool(true, "Monday Override On", group=groupEntryTime)
 monLastEntryH      = input.int(11, "Monday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
 monLastEntryM      = input.int(0, "Monday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
