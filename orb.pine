@@ -65,7 +65,7 @@ minOvernightAtrPct = input.float(0.00, "Min Overnight / ATR", minval=0.0, step=0
 maxOvernightAtrPct = input.float(0.80, "Max Overnight / ATR", minval=0.0, step=0.01, group=groupOvernight)
 
 groupTimeExit = "Time Exit"
-useTimeExit    = input.bool(true, "Time Exit On", group=groupTimeExit)
+useTimeExit    = input.bool(false, "Time Exit On", group=groupTimeExit)
 maxBarsInTrade = input.int(12, "Max Bars In Trade", minval=1, maxval=500, group=groupTimeExit)
 timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExit)
 
