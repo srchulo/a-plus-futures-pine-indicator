@@ -63,6 +63,9 @@ groupPrevDayCompression = "Previous Day Compression Filter"
 usePrevDayCompressionFilter = input.bool(false, "Previous Day Compression Filter On", group=groupPrevDayCompression)
 maxPrevDayRangeAtrPct       = input.float(0.80, "Max Previous Day Range / ATR", minval=0.0, step=0.01, group=groupPrevDayCompression)
 
+groupPrevDayTrend = "Previous Day Trend Alignment Filter"
+usePrevDayTrendAlignment = input.bool(false, "Previous Day Trend Alignment On", group=groupPrevDayTrend)
+
 groupOvernight = "Overnight Range Filter"
 useOvernightRangeFilter = input.bool(false, "NY Overnight Range Filter On", group=groupOvernight)
 minOvernightAtrPct = input.float(0.00, "Min Overnight / ATR", minval=0.0, step=0.01, group=groupOvernight)
@@ -189,6 +192,12 @@ orbAtrOk(orbSize, atrValue) =>
 prevDayCompressionOk(prevDayRange, atrValue) =>
     not usePrevDayCompressionFilter or (not na(prevDayRange) and not na(atrValue) and atrValue > 0 and prevDayRange / atrValue <= maxPrevDayRangeAtrPct)
 
+prevDayTrendLongOk(prevDayOpen, prevDayClose) =>
+    not usePrevDayTrendAlignment or (not na(prevDayOpen) and not na(prevDayClose) and prevDayClose > prevDayOpen)
+
+prevDayTrendShortOk(prevDayOpen, prevDayClose) =>
+    not usePrevDayTrendAlignment or (not na(prevDayOpen) and not na(prevDayClose) and prevDayClose < prevDayOpen)
+
 overnightAtrOk(overnightSize, atrValue) =>
     not useOvernightRangeFilter or (not na(overnightSize) and not na(atrValue) and atrValue > 0 and overnightSize / atrValue >= minOvernightAtrPct and overnightSize / atrValue <= maxOvernightAtrPct)
 
@@ -271,8 +280,10 @@ overnightLevels1m(startH, startM, prevEndH, prevEndM) =>
 [nyOverHigh, nyOverLow, nyOverReady, nyOverDayId] = request.security(syminfo.tickerid, "1", overnightLevels1m(nyStartH, nyStartM, nyEndH, nyEndM), barmerge.gaps_off, barmerge.lookahead_off)
 
 atrValue = request.security(syminfo.tickerid, "D", ta.atr(atrLen))
-prevDayHigh = request.security(syminfo.tickerid, "D", high[1], barmerge.gaps_off, barmerge.lookahead_off)
-prevDayLow  = request.security(syminfo.tickerid, "D", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+prevDayHigh  = request.security(syminfo.tickerid, "D", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+prevDayLow   = request.security(syminfo.tickerid, "D", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+prevDayOpen  = request.security(syminfo.tickerid, "D", open[1], barmerge.gaps_off, barmerge.lookahead_off)
+prevDayClose = request.security(syminfo.tickerid, "D", close[1], barmerge.gaps_off, barmerge.lookahead_off)
 prevDayRange = not na(prevDayHigh) and not na(prevDayLow) ? prevDayHigh - prevDayLow : na
 
 nyOrbSize = nyReady and not na(nyHigh) and not na(nyLow) ? nyHigh - nyLow : na
@@ -436,13 +447,15 @@ var int pendingSessionCloseTs = na
 
 bool entryTimeOk = entryTimeAllowed()
 bool prevDayCompressionPass = prevDayCompressionOk(prevDayRange, atrValue)
+bool prevDayTrendLongPass = prevDayTrendLongOk(prevDayOpen, prevDayClose)
+bool prevDayTrendShortPass = prevDayTrendShortOk(prevDayOpen, prevDayClose)
 
-nyLongCandidate   = entryTimeOk and prevDayCompressionPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
-nyShortCandidate  = entryTimeOk and prevDayCompressionPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
-ldnLongCandidate  = entryTimeOk and prevDayCompressionPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
-ldnShortCandidate = entryTimeOk and prevDayCompressionPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
-asiaLongCandidate = entryTimeOk and prevDayCompressionPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
-asiaShortCandidate = entryTimeOk and prevDayCompressionPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow)
+nyLongCandidate   = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
+nyShortCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
+ldnLongCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
+ldnShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
+asiaLongCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
+asiaShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow)
 
 nyLongSignal   = nyLongCandidate and entryLongOk(nyHigh)
 nyShortSignal  = nyShortCandidate and entryShortOk(nyLow)
