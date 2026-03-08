@@ -659,8 +659,12 @@ barsInTrade = not na(entryBarIndex) ? (bar_index - entryBarIndex) : na
 longInProfit  = validLong and close > posEntry
 shortInProfit = validShort and close < posEntry
 
-timeExitEligibleLong = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveLong)
-timeExitEligibleShort = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveShort)
+// use if you don't want time exit to affect trailing AFTER it has trailed at least once
+// timeExitEligibleLong = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveLong)
+// timeExitEligibleShort = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveShort)
+
+timeExitEligibleLong = true
+timeExitEligibleShort = true
 
 timeExitLong = useTimeExit and validLong and timeExitEligibleLong and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and longInProfit))
 timeExitShort = useTimeExit and validShort and timeExitEligibleShort and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and shortInProfit))
