@@ -78,9 +78,31 @@ timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In 
 resetTimeExitOnTrailStep = input.bool(false, "Reset Time Exit On Trail Step", group=groupTimeExit)
 
 groupEntryTime = "Entry Time Filter"
-useNoTradeAfter = input.bool(false, "Don't Enter After Time", group=groupEntryTime)
-lastEntryH      = input.int(11, "Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
-lastEntryM      = input.int(0, "Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+useNoTradeAfter = input.bool(false, "Don't Enter After Time (Global Default)", group=groupEntryTime)
+lastEntryH      = input.int(11, "Global Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+lastEntryM      = input.int(0, "Global Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+useWeekdaySpecificCutoffs = input.bool(false, "Use Weekday-Specific Cutoffs", group=groupEntryTime)
+
+monUseNoTradeAfter = input.bool(false, "Monday Override On", group=groupEntryTime)
+monLastEntryH      = input.int(11, "Monday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+monLastEntryM      = input.int(0, "Monday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+tueUseNoTradeAfter = input.bool(false, "Tuesday Override On", group=groupEntryTime)
+tueLastEntryH      = input.int(11, "Tuesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+tueLastEntryM      = input.int(0, "Tuesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+wedUseNoTradeAfter = input.bool(false, "Wednesday Override On", group=groupEntryTime)
+wedLastEntryH      = input.int(11, "Wednesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+wedLastEntryM      = input.int(0, "Wednesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+thuUseNoTradeAfter = input.bool(false, "Thursday Override On", group=groupEntryTime)
+thuLastEntryH      = input.int(11, "Thursday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+thuLastEntryM      = input.int(0, "Thursday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+friUseNoTradeAfter = input.bool(false, "Friday Override On", group=groupEntryTime)
+friLastEntryH      = input.int(11, "Friday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+friLastEntryM      = input.int(0, "Friday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
 groupEOD = "End Of Day Close"
 useEodClose = input.bool(false, "Session Close On", group=groupEOD)
@@ -158,8 +180,27 @@ entryTimeAllowed() =>
     int curH = hour(time, sessionTZ)
     int curM = minute(time, sessionTZ)
     int curMin = minuteOfDay(curH, curM)
-    int cutoffMin = minuteOfDay(lastEntryH, lastEntryM)
-    not useNoTradeAfter or curMin <= cutoffMin
+    int curDowLocal = dayofweek(time, sessionTZ)
+    int globalCutoffMin = minuteOfDay(lastEntryH, lastEntryM)
+    bool globalAllowed = not useNoTradeAfter or curMin <= globalCutoffMin
+
+    int weekdayCutoffMin =
+         curDowLocal == dayofweek.monday    ? minuteOfDay(monLastEntryH, monLastEntryM) :
+         curDowLocal == dayofweek.tuesday   ? minuteOfDay(tueLastEntryH, tueLastEntryM) :
+         curDowLocal == dayofweek.wednesday ? minuteOfDay(wedLastEntryH, wedLastEntryM) :
+         curDowLocal == dayofweek.thursday  ? minuteOfDay(thuLastEntryH, thuLastEntryM) :
+         curDowLocal == dayofweek.friday    ? minuteOfDay(friLastEntryH, friLastEntryM) :
+         globalCutoffMin
+
+    bool weekdayOverrideEnabled =
+         curDowLocal == dayofweek.monday    ? monUseNoTradeAfter :
+         curDowLocal == dayofweek.tuesday   ? tueUseNoTradeAfter :
+         curDowLocal == dayofweek.wednesday ? wedUseNoTradeAfter :
+         curDowLocal == dayofweek.thursday  ? thuUseNoTradeAfter :
+         curDowLocal == dayofweek.friday    ? friUseNoTradeAfter :
+         false
+
+    useWeekdaySpecificCutoffs and weekdayOverrideEnabled ? (curMin <= weekdayCutoffMin) : globalAllowed
 
 dateToInt(y, mo, d) =>
     y * 10000 + mo * 100 + d
@@ -696,8 +737,6 @@ if validShort and resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" and 
 
 // =========================
 // Time Exit Logic
-// Fixed RR: normal time exit logic
-// 1R Trail: time exit only BEFORE trail activates
 // =========================
 barsInTrade = not na(entryBarIndex) ? (bar_index - entryBarIndex) : na
 barsSinceTimeExitReset = not na(timeExitStartBarIndex) ? (bar_index - timeExitStartBarIndex) : na
@@ -705,6 +744,8 @@ timeExitBars = resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" ? barsS
 longInProfit  = validLong and close > posEntry
 shortInProfit = validShort and close < posEntry
 
+// Fixed RR: normal time exit logic
+// 1R Trail: time exit only BEFORE trail activates
 // use if you don't want time exit to affect trailing AFTER it has trailed at least once
 // timeExitEligibleLong = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveLong)
 // timeExitEligibleShort = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveShort)
