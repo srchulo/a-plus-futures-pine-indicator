@@ -71,7 +71,7 @@ timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In 
 
 groupEntryTime = "Entry Time Filter"
 useNoTradeAfter = input.bool(false, "Don't Enter After Time", group=groupEntryTime)
-lastEntryH      = input.int(12, "Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+lastEntryH      = input.int(13, "Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
 lastEntryM      = input.int(0, "Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
 groupEOD = "End Of Day Close"
