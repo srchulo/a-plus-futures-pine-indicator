@@ -96,7 +96,7 @@ wedUseNoTradeAfter = input.bool(false, "Wednesday Override On", group=groupEntry
 wedLastEntryH      = input.int(11, "Wednesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
 wedLastEntryM      = input.int(0, "Wednesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
-thuUseNoTradeAfter = input.bool(false, "Thursday Override On", group=groupEntryTime)
+thuUseNoTradeAfter = input.bool(true, "Thursday Override On", group=groupEntryTime)
 thuLastEntryH      = input.int(11, "Thursday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
 thuLastEntryM      = input.int(0, "Thursday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
