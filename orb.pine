@@ -69,6 +69,11 @@ useTimeExit    = input.bool(false, "Time Exit On", group=groupTimeExit)
 maxBarsInTrade = input.int(12, "Max Bars In Trade", minval=1, maxval=500, group=groupTimeExit)
 timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExit)
 
+groupEntryTime = "Entry Time Filter"
+useNoTradeAfter = input.bool(false, "Don't Enter After Time", group=groupEntryTime)
+lastEntryH      = input.int(12, "Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+lastEntryM      = input.int(0, "Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
 groupEOD = "End Of Day Close"
 useEodClose = input.bool(false, "Session Close On", group=groupEOD)
 
@@ -140,6 +145,13 @@ tradeWindowActive(startH, startM, durM, endH, endM) =>
     int endMin = minuteOfDay(endH, endM)
     orbEndMin := orbEndMin % 1440
     inWindow(curMin, orbEndMin, endMin)
+
+entryTimeAllowed() =>
+    int curH = hour(time, sessionTZ)
+    int curM = minute(time, sessionTZ)
+    int curMin = minuteOfDay(curH, curM)
+    int cutoffMin = minuteOfDay(lastEntryH, lastEntryM)
+    not useNoTradeAfter or curMin <= cutoffMin
 
 dateToInt(y, mo, d) =>
     y * 10000 + mo * 100 + d
@@ -410,12 +422,14 @@ bool shortSignal = false
 float intendedStop = na
 var int pendingSessionCloseTs = na
 
-nyLongCandidate   = nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
-nyShortCandidate  = nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
-ldnLongCandidate  = ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
-ldnShortCandidate = ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
-asiaLongCandidate = asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
-asiaShortCandidate = asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow)
+bool entryTimeOk = entryTimeAllowed()
+
+nyLongCandidate   = entryTimeOk and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh)
+nyShortCandidate  = entryTimeOk and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow)
+ldnLongCandidate  = entryTimeOk and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh)
+ldnShortCandidate = entryTimeOk and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow)
+asiaLongCandidate = entryTimeOk and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh)
+asiaShortCandidate = entryTimeOk and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow)
 
 nyLongSignal   = nyLongCandidate and entryLongOk(nyHigh)
 nyShortSignal  = nyShortCandidate and entryShortOk(nyLow)
