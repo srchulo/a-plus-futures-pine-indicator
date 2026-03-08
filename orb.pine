@@ -72,6 +72,7 @@ groupTimeExit = "Time Exit"
 useTimeExit    = input.bool(true, "Time Exit On", group=groupTimeExit)
 maxBarsInTrade = input.int(24, "Max Bars In Trade", minval=1, maxval=500, group=groupTimeExit)
 timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExit)
+resetTimeExitOnTrailStep = input.bool(false, "Reset Time Exit On Trail Step", group=groupTimeExit)
 
 groupEntryTime = "Entry Time Filter"
 useNoTradeAfter = input.bool(false, "Don't Enter After Time", group=groupEntryTime)
@@ -591,6 +592,8 @@ var float highestSinceEntry = na
 var float lowestSinceEntry  = na
 var int   entryBarIndex = na
 var int   activeSessionCloseTs = na
+var int   timeExitStartBarIndex = na
+var int   lastTrailStepCount = 0
 
 if longSignal or shortSignal
     posStopRef := intendedStop
@@ -611,6 +614,8 @@ if flatNow
     pendingORB := ""
     activeSessionCloseTs := na
     pendingSessionCloseTs := na
+    timeExitStartBarIndex := na
+    lastTrailStepCount := 0
 else if strategy.position_size == 0
     posEntry := na
     posRisk := na
@@ -621,6 +626,8 @@ else if strategy.position_size == 0
     entryBarIndex := na
     activeORB := ""
     activeSessionCloseTs := na
+    timeExitStartBarIndex := na
+    lastTrailStepCount := 0
 
 if newLong
     posEntry := strategy.position_avg_price
@@ -632,6 +639,8 @@ if newLong
     entryBarIndex := bar_index
     activeORB := pendingORB
     activeSessionCloseTs := pendingSessionCloseTs
+    timeExitStartBarIndex := bar_index
+    lastTrailStepCount := 0
 
 if newShort
     posEntry := strategy.position_avg_price
@@ -643,6 +652,8 @@ if newShort
     entryBarIndex := bar_index
     activeORB := pendingORB
     activeSessionCloseTs := pendingSessionCloseTs
+    timeExitStartBarIndex := bar_index
+    lastTrailStepCount := 0
 
 if strategy.position_size > 0
     highestSinceEntry := na(highestSinceEntry) ? high : math.max(highestSinceEntry, high)
@@ -662,12 +673,22 @@ shortRunupR = validShort ? math.floor((posEntry - lowestSinceEntry) / posTrailRi
 trailActiveLong  = validLong and tradeMode == "1R Step Trail" and longRunupR >= 1
 trailActiveShort = validShort and tradeMode == "1R Step Trail" and shortRunupR >= 1
 
+if validLong and resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" and longRunupR >= 1 and longRunupR > lastTrailStepCount
+    timeExitStartBarIndex := bar_index
+    lastTrailStepCount := longRunupR
+
+if validShort and resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" and shortRunupR >= 1 and shortRunupR > lastTrailStepCount
+    timeExitStartBarIndex := bar_index
+    lastTrailStepCount := shortRunupR
+
 // =========================
 // Time Exit Logic
 // Fixed RR: normal time exit logic
 // 1R Trail: time exit only BEFORE trail activates
 // =========================
 barsInTrade = not na(entryBarIndex) ? (bar_index - entryBarIndex) : na
+barsSinceTimeExitReset = not na(timeExitStartBarIndex) ? (bar_index - timeExitStartBarIndex) : na
+timeExitBars = resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" ? barsSinceTimeExitReset : barsInTrade
 longInProfit  = validLong and close > posEntry
 shortInProfit = validShort and close < posEntry
 
@@ -678,8 +699,8 @@ shortInProfit = validShort and close < posEntry
 timeExitEligibleLong = true
 timeExitEligibleShort = true
 
-timeExitLong = useTimeExit and validLong and timeExitEligibleLong and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and longInProfit))
-timeExitShort = useTimeExit and validShort and timeExitEligibleShort and not na(barsInTrade) and barsInTrade >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and shortInProfit))
+timeExitLong = useTimeExit and validLong and timeExitEligibleLong and not na(timeExitBars) and timeExitBars >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and longInProfit))
+timeExitShort = useTimeExit and validShort and timeExitEligibleShort and not na(timeExitBars) and timeExitBars >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and shortInProfit))
 
 // =========================
 // Session-specific forced close logic
