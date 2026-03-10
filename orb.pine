@@ -344,7 +344,11 @@ overnightLevels1m(startH, startM, prevEndH, prevEndM) =>
 // Pull NY overnight range from 1m
 [nyOverHigh, nyOverLow, nyOverReady, nyOverDayId] = request.security(syminfo.tickerid, "1", overnightLevels1m(nyStartH, nyStartM, nyEndH, nyEndM), barmerge.gaps_off, barmerge.lookahead_off)
 
-atrValue = request.security(syminfo.tickerid, "D", ta.atr(atrLen))
+// Daily ATR remains for structural filters
+dailyAtrValue = request.security(syminfo.tickerid, "D", ta.atr(atrLen))
+// Local/chart ATR is used for large breakout candle sizing
+breakoutAtrLocal = ta.atr(atrLen)
+
 prevDayHigh  = request.security(syminfo.tickerid, "D", high[1], barmerge.gaps_off, barmerge.lookahead_off)
 prevDayLow   = request.security(syminfo.tickerid, "D", low[1], barmerge.gaps_off, barmerge.lookahead_off)
 prevDayOpen  = request.security(syminfo.tickerid, "D", open[1], barmerge.gaps_off, barmerge.lookahead_off)
@@ -638,16 +642,16 @@ float intendedStop = na
 var int pendingSessionCloseTs = na
 
 bool entryTimeOk = entryTimeAllowed()
-bool prevDayCompressionPass = prevDayCompressionOk(prevDayRange, atrValue)
+bool prevDayCompressionPass = prevDayCompressionOk(prevDayRange, dailyAtrValue)
 bool prevDayTrendLongPass = prevDayTrendLongOk(prevDayOpen, prevDayClose)
 bool prevDayTrendShortPass = prevDayTrendShortOk(prevDayOpen, prevDayClose)
 
-nyLongCandidate   = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh, nyLongTradeCount, nyLongRetryArmed)
-nyShortCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, atrValue) and overnightAtrOk(nyOvernightSize, atrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow, nyShortTradeCount, nyShortRetryArmed)
-ldnLongCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh, ldnLongTradeCount, ldnLongRetryArmed)
-ldnShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, atrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow, ldnShortTradeCount, ldnShortRetryArmed)
-asiaLongCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh, asiaLongTradeCount, asiaLongRetryArmed)
-asiaShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow, asiaShortTradeCount, asiaShortRetryArmed)
+nyLongCandidate   = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh, nyLongTradeCount, nyLongRetryArmed)
+nyShortCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow, nyShortTradeCount, nyShortRetryArmed)
+ldnLongCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, dailyAtrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh, ldnLongTradeCount, ldnLongRetryArmed)
+ldnShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, dailyAtrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow, ldnShortTradeCount, ldnShortRetryArmed)
+asiaLongCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, dailyAtrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh, asiaLongTradeCount, asiaLongRetryArmed)
+asiaShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, dailyAtrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow, asiaShortTradeCount, asiaShortRetryArmed)
 
 // Raw breakout events on the breakout bar
 nyLongBreakout   = nyLongCandidate and entryLongOk(nyHigh)
@@ -728,12 +732,13 @@ if strategy.position_size == 0 and not pendingConfirmActive and not pendingRetes
 // Determine breakout size for routing
 float breakoutCandleRange = high - low
 
-bool nyLongLargeBreakout   = nyLongBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
-bool nyShortLargeBreakout  = nyShortBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
-bool ldnLongLargeBreakout  = ldnLongBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
-bool ldnShortLargeBreakout = ldnShortBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
-bool asiaLongLargeBreakout = asiaLongBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
-bool asiaShortLargeBreakout = asiaShortBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
+// FIX 1: large breakout detection now uses chart-timeframe ATR, not daily ATR
+bool nyLongLargeBreakout   = nyLongBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
+bool nyShortLargeBreakout  = nyShortBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
+bool ldnLongLargeBreakout  = ldnLongBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
+bool ldnShortLargeBreakout = ldnShortBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
+bool asiaLongLargeBreakout = asiaLongBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
+bool asiaShortLargeBreakout = asiaShortBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
 
 // =========================
 // Pending retest evaluation
@@ -754,8 +759,18 @@ if pendingRetestActive and strategy.position_size == 0
         pendingRetestBarIndex := na
         pendingRetestSessionCloseTs := na
     else if not retestSameBarBlocked and entryTimeAllowed()
-        bool longRetestHit = pendingRetestDirection == "Long" and low <= pendingRetestLevel and close > pendingRetestLevel
-        bool shortRetestHit = pendingRetestDirection == "Short" and high >= pendingRetestLevel and close < pendingRetestLevel
+        // FIX 2: require candle color agreement on retest confirmation
+        bool longRetestHit =
+             pendingRetestDirection == "Long" and
+             low <= pendingRetestLevel and
+             close > pendingRetestLevel and
+             close > open
+
+        bool shortRetestHit =
+             pendingRetestDirection == "Short" and
+             high >= pendingRetestLevel and
+             close < pendingRetestLevel and
+             close < open
 
         if longRetestHit
             longSignal := true
