@@ -40,9 +40,16 @@ noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTra
 breakoutMode = input.string("Current Behavior", "Breakout Qualification Mode", options=["Current Behavior", "First Qualified Close Only", "Reset Inside Then Requalify", "One-Bar Grace Then Reset"], group=groupTrade)
 allowSecondBreak = input.bool(false, "Allow One Second Break After First Losing Trade + Reset Inside ORB", group=groupTrade)
 
-// NEW: immediate follow-through / reclaim filter
+// NEW: next-bar confirmation
 groupFollow = "Follow-Through Confirmation Filter"
 useFollowThroughConfirmation = input.bool(false, "Immediate Follow-Through / Reclaim Filter On", group=groupFollow)
+
+// NEW: large breakout retest mode
+groupRetest = "Large Breakout Retest Mode"
+useLargeBreakoutRetest = input.bool(false, "Large Breakout Retest On", group=groupRetest)
+largeBreakoutAtrThreshold = input.float(0.55, "Large Breakout Candle / ATR Threshold", minval=0.0, step=0.01, group=groupRetest)
+retestLevelMode = input.string("ORB Boundary", "Retest Level", options=["ORB Boundary", "Breakout Midpoint"], group=groupRetest)
+maxRetestBars = input.int(4, "Max Bars To Wait For Retest", minval=1, maxval=20, group=groupRetest)
 
 // optional tiny buffer so stops/targets aren’t exactly on a level
 useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTrade)
@@ -166,7 +173,6 @@ closeAboveOrb(orbHigh) =>
 closeBelowOrb(orbLow) =>
     close < orbLow
 
-// NEW: next-bar confirmation logic
 followThroughLongOk(orbHigh, breakoutHigh, breakoutClose) =>
     close > orbHigh and high >= breakoutHigh and close >= breakoutClose
 
@@ -253,6 +259,12 @@ prevDayTrendShortOk(prevDayOpen, prevDayClose) =>
 
 overnightAtrOk(overnightSize, atrValue) =>
     not useOvernightRangeFilter or (not na(overnightSize) and not na(atrValue) and atrValue > 0 and overnightSize / atrValue >= minOvernightAtrPct and overnightSize / atrValue <= maxOvernightAtrPct)
+
+breakoutIsLarge(candleRange, atrValue) =>
+    useLargeBreakoutRetest and not na(candleRange) and not na(atrValue) and atrValue > 0 and candleRange / atrValue >= largeBreakoutAtrThreshold
+
+calcRetestLevel(isLong, orbHigh, orbLow, breakoutHigh, breakoutLow) =>
+    retestLevelMode == "ORB Boundary" ? (isLong ? orbHigh : orbLow) : ((breakoutHigh + breakoutLow) / 2.0)
 
 // =========================
 // ORB engine on 1m (range accuracy)
@@ -415,7 +427,7 @@ var bool ldnShortRetryArmed = false
 var bool asiaLongRetryArmed = false
 var bool asiaShortRetryArmed = false
 
-// NEW: pending confirmation state
+// Pending confirmation state
 var bool pendingConfirmActive = false
 var string pendingConfirmSession = ""
 var string pendingConfirmDirection = ""
@@ -427,6 +439,17 @@ var float pendingConfirmBreakoutLow = na
 var float pendingConfirmBreakoutClose = na
 var int pendingConfirmBarIndex = na
 var int pendingConfirmSessionCloseTs = na
+
+// Pending retest state
+var bool pendingRetestActive = false
+var string pendingRetestSession = ""
+var string pendingRetestDirection = ""
+var float pendingRetestStop = na
+var float pendingRetestLevel = na
+var float pendingRetestOrbHigh = na
+var float pendingRetestOrbLow = na
+var int pendingRetestBarIndex = na
+var int pendingRetestSessionCloseTs = na
 
 curDay = year(time, sessionTZ) * 10000 + month(time, sessionTZ) * 100 + dayofmonth(time, sessionTZ)
 
@@ -470,6 +493,7 @@ if na(lastDay) or curDay != lastDay
     ldnShortRetryArmed := false
     asiaLongRetryArmed := false
     asiaShortRetryArmed := false
+
     pendingConfirmActive := false
     pendingConfirmSession := ""
     pendingConfirmDirection := ""
@@ -481,6 +505,17 @@ if na(lastDay) or curDay != lastDay
     pendingConfirmBreakoutClose := na
     pendingConfirmBarIndex := na
     pendingConfirmSessionCloseTs := na
+
+    pendingRetestActive := false
+    pendingRetestSession := ""
+    pendingRetestDirection := ""
+    pendingRetestStop := na
+    pendingRetestLevel := na
+    pendingRetestOrbHigh := na
+    pendingRetestOrbLow := na
+    pendingRetestBarIndex := na
+    pendingRetestSessionCloseTs := na
+
     lastDay := curDay
 
 // =========================
@@ -493,7 +528,7 @@ ldnShortPathActive = ldnTradeWindowActive  and not ldnShortDead and ((ldnShortTr
 asiaLongPathActive = asiaTradeWindowActive and not asiaLongDead and ((asiaLongTradeCount == 0 and not asiaTraded) or (allowSecondBreak and asiaLongTradeCount == 1 and asiaLongRetryEligible))
 asiaShortPathActive = asiaTradeWindowActive and not asiaShortDead and ((asiaShortTradeCount == 0 and not asiaTraded) or (allowSecondBreak and asiaShortTradeCount == 1 and asiaShortRetryEligible))
 
-if strategy.position_size == 0 and not pendingConfirmActive
+if strategy.position_size == 0 and not pendingConfirmActive and not pendingRetestActive
     if nyLongPathActive
         if closeInsideOrb(nyHigh, nyLow)
             nyLongNeedsReset := false
@@ -590,8 +625,7 @@ canConsiderShort(ready, traded, dead, needsReset, orbLow, tradeCount, retryArmed
          false)
 
 // =========================
-// Entry Logic (FIRST / QUALIFIED CHART-TF candle outside ORB per mode)
-// Stop = breakout candle low/high
+// Entry Logic
 // =========================
 float tick = syminfo.mintick
 float buf  = useBufferTicks ? bufferTicks * tick : 0.0
@@ -623,8 +657,8 @@ ldnShortBreakout = ldnShortCandidate and entryShortOk(ldnLow)
 asiaLongBreakout = asiaLongCandidate and entryLongOk(asiaHigh)
 asiaShortBreakout = asiaShortCandidate and entryShortOk(asiaLow)
 
-// Mark failed breakout attempts based on mode (same behavior as baseline)
-if strategy.position_size == 0 and not pendingConfirmActive
+// Mark failed breakout attempts based on mode
+if strategy.position_size == 0 and not pendingConfirmActive and not pendingRetestActive
     if nyLongCandidate and not entryLongOk(nyHigh)
         if breakoutMode == "First Qualified Close Only"
             nyLongDead := true
@@ -691,12 +725,121 @@ if strategy.position_size == 0 and not pendingConfirmActive
             asiaShortNeedsReset := true
             asiaShortOutsideCount := 0
 
+// Determine breakout size for routing
+float breakoutCandleRange = high - low
+
+bool nyLongLargeBreakout   = nyLongBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
+bool nyShortLargeBreakout  = nyShortBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
+bool ldnLongLargeBreakout  = ldnLongBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
+bool ldnShortLargeBreakout = ldnShortBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
+bool asiaLongLargeBreakout = asiaLongBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
+bool asiaShortLargeBreakout = asiaShortBreakout and breakoutIsLarge(breakoutCandleRange, atrValue)
+
 // =========================
-// Immediate follow-through confirmation engine
+// Pending retest evaluation
 // =========================
-if useFollowThroughConfirmation and strategy.position_size == 0
-    // Evaluate pending confirmation on the next bar only
-    if pendingConfirmActive and not na(pendingConfirmBarIndex) and bar_index == pendingConfirmBarIndex + 1
+if pendingRetestActive and strategy.position_size == 0
+    bool retestExpired = not na(pendingRetestBarIndex) and bar_index > pendingRetestBarIndex + maxRetestBars
+    bool retestSameBarBlocked = not na(pendingRetestBarIndex) and bar_index <= pendingRetestBarIndex
+    bool retestStoppedOut = pendingRetestDirection == "Long" ? low <= pendingRetestStop : high >= pendingRetestStop
+
+    if retestExpired or retestStoppedOut
+        pendingRetestActive := false
+        pendingRetestSession := ""
+        pendingRetestDirection := ""
+        pendingRetestStop := na
+        pendingRetestLevel := na
+        pendingRetestOrbHigh := na
+        pendingRetestOrbLow := na
+        pendingRetestBarIndex := na
+        pendingRetestSessionCloseTs := na
+    else if not retestSameBarBlocked and entryTimeAllowed()
+        bool longRetestHit = pendingRetestDirection == "Long" and low <= pendingRetestLevel and close > pendingRetestLevel
+        bool shortRetestHit = pendingRetestDirection == "Short" and high >= pendingRetestLevel and close < pendingRetestLevel
+
+        if longRetestHit
+            longSignal := true
+            activeORB := pendingRetestSession
+            pendingORB := pendingRetestSession
+            pendingSessionCloseTs := pendingRetestSessionCloseTs
+            intendedStop := pendingRetestStop
+
+            if pendingRetestSession == "NY"
+                nyTraded := true
+                nyLongTradeCount += 1
+                nyLongRetryEligible := false
+                nyLongRetryArmed := false
+                nyLongNeedsReset := false
+                nyLongDead := true
+            else if pendingRetestSession == "London"
+                ldnTraded := true
+                ldnLongTradeCount += 1
+                ldnLongRetryEligible := false
+                ldnLongRetryArmed := false
+                ldnLongNeedsReset := false
+                ldnLongDead := true
+            else if pendingRetestSession == "Asia"
+                asiaTraded := true
+                asiaLongTradeCount += 1
+                asiaLongRetryEligible := false
+                asiaLongRetryArmed := false
+                asiaLongNeedsReset := false
+                asiaLongDead := true
+
+            pendingRetestActive := false
+            pendingRetestSession := ""
+            pendingRetestDirection := ""
+            pendingRetestStop := na
+            pendingRetestLevel := na
+            pendingRetestOrbHigh := na
+            pendingRetestOrbLow := na
+            pendingRetestBarIndex := na
+            pendingRetestSessionCloseTs := na
+
+        else if shortRetestHit
+            shortSignal := true
+            activeORB := pendingRetestSession
+            pendingORB := pendingRetestSession
+            pendingSessionCloseTs := pendingRetestSessionCloseTs
+            intendedStop := pendingRetestStop
+
+            if pendingRetestSession == "NY"
+                nyTraded := true
+                nyShortTradeCount += 1
+                nyShortRetryEligible := false
+                nyShortRetryArmed := false
+                nyShortNeedsReset := false
+                nyShortDead := true
+            else if pendingRetestSession == "London"
+                ldnTraded := true
+                ldnShortTradeCount += 1
+                ldnShortRetryEligible := false
+                ldnShortRetryArmed := false
+                ldnShortNeedsReset := false
+                ldnShortDead := true
+            else if pendingRetestSession == "Asia"
+                asiaTraded := true
+                asiaShortTradeCount += 1
+                asiaShortRetryEligible := false
+                asiaShortRetryArmed := false
+                asiaShortNeedsReset := false
+                asiaShortDead := true
+
+            pendingRetestActive := false
+            pendingRetestSession := ""
+            pendingRetestDirection := ""
+            pendingRetestStop := na
+            pendingRetestLevel := na
+            pendingRetestOrbHigh := na
+            pendingRetestOrbLow := na
+            pendingRetestBarIndex := na
+            pendingRetestSessionCloseTs := na
+
+// =========================
+// Pending follow-through evaluation
+// =========================
+if pendingConfirmActive and strategy.position_size == 0 and not longSignal and not shortSignal
+    if not na(pendingConfirmBarIndex) and bar_index == pendingConfirmBarIndex + 1
         bool confirmLong = pendingConfirmDirection == "Long" and followThroughLongOk(pendingConfirmOrbHigh, pendingConfirmBreakoutHigh, pendingConfirmBreakoutClose)
         bool confirmShort = pendingConfirmDirection == "Short" and followThroughShortOk(pendingConfirmOrbLow, pendingConfirmBreakoutLow, pendingConfirmBreakoutClose)
 
@@ -758,7 +901,6 @@ if useFollowThroughConfirmation and strategy.position_size == 0
                 asiaShortNeedsReset := false
                 asiaShortDead := true
         else
-            // Failed next-bar confirmation: apply breakout mode dead/reset logic
             if pendingConfirmSession == "NY" and pendingConfirmDirection == "Long"
                 if breakoutMode == "First Qualified Close Only"
                     nyLongDead := true
@@ -837,9 +979,80 @@ if useFollowThroughConfirmation and strategy.position_size == 0
         pendingConfirmBarIndex := na
         pendingConfirmSessionCloseTs := na
 
-    // Arm a pending confirmation from the breakout bar (priority NY > London > Asia)
-    if not pendingConfirmActive and not longSignal and not shortSignal
-        if nyLongBreakout
+// =========================
+// New breakout routing
+// Priority:
+// 1) Large breakout retest
+// 2) Follow-through confirmation
+// 3) Immediate entry
+// =========================
+if strategy.position_size == 0 and not pendingRetestActive and not pendingConfirmActive and not longSignal and not shortSignal
+    // 1) Large breakout retest path
+    if useLargeBreakoutRetest
+        if nyLongLargeBreakout
+            pendingRetestActive := true
+            pendingRetestSession := "NY"
+            pendingRetestDirection := "Long"
+            pendingRetestStop := low - buf
+            pendingRetestLevel := calcRetestLevel(true, nyHigh, nyLow, high, low)
+            pendingRetestOrbHigh := nyHigh
+            pendingRetestOrbLow := nyLow
+            pendingRetestBarIndex := bar_index
+            pendingRetestSessionCloseTs := getSessionCloseTs("NY")
+        else if nyShortLargeBreakout
+            pendingRetestActive := true
+            pendingRetestSession := "NY"
+            pendingRetestDirection := "Short"
+            pendingRetestStop := high + buf
+            pendingRetestLevel := calcRetestLevel(false, nyHigh, nyLow, high, low)
+            pendingRetestOrbHigh := nyHigh
+            pendingRetestOrbLow := nyLow
+            pendingRetestBarIndex := bar_index
+            pendingRetestSessionCloseTs := getSessionCloseTs("NY")
+        else if ldnLongLargeBreakout
+            pendingRetestActive := true
+            pendingRetestSession := "London"
+            pendingRetestDirection := "Long"
+            pendingRetestStop := low - buf
+            pendingRetestLevel := calcRetestLevel(true, ldnHigh, ldnLow, high, low)
+            pendingRetestOrbHigh := ldnHigh
+            pendingRetestOrbLow := ldnLow
+            pendingRetestBarIndex := bar_index
+            pendingRetestSessionCloseTs := getSessionCloseTs("London")
+        else if ldnShortLargeBreakout
+            pendingRetestActive := true
+            pendingRetestSession := "London"
+            pendingRetestDirection := "Short"
+            pendingRetestStop := high + buf
+            pendingRetestLevel := calcRetestLevel(false, ldnHigh, ldnLow, high, low)
+            pendingRetestOrbHigh := ldnHigh
+            pendingRetestOrbLow := ldnLow
+            pendingRetestBarIndex := bar_index
+            pendingRetestSessionCloseTs := getSessionCloseTs("London")
+        else if asiaLongLargeBreakout
+            pendingRetestActive := true
+            pendingRetestSession := "Asia"
+            pendingRetestDirection := "Long"
+            pendingRetestStop := low - buf
+            pendingRetestLevel := calcRetestLevel(true, asiaHigh, asiaLow, high, low)
+            pendingRetestOrbHigh := asiaHigh
+            pendingRetestOrbLow := asiaLow
+            pendingRetestBarIndex := bar_index
+            pendingRetestSessionCloseTs := getSessionCloseTs("Asia")
+        else if asiaShortLargeBreakout
+            pendingRetestActive := true
+            pendingRetestSession := "Asia"
+            pendingRetestDirection := "Short"
+            pendingRetestStop := high + buf
+            pendingRetestLevel := calcRetestLevel(false, asiaHigh, asiaLow, high, low)
+            pendingRetestOrbHigh := asiaHigh
+            pendingRetestOrbLow := asiaLow
+            pendingRetestBarIndex := bar_index
+            pendingRetestSessionCloseTs := getSessionCloseTs("Asia")
+
+    // 2) Follow-through confirmation path for non-large breakouts
+    if not pendingRetestActive and useFollowThroughConfirmation
+        if nyLongBreakout and not nyLongLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "NY"
             pendingConfirmDirection := "Long"
@@ -851,7 +1064,7 @@ if useFollowThroughConfirmation and strategy.position_size == 0
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("NY")
-        else if nyShortBreakout
+        else if nyShortBreakout and not nyShortLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "NY"
             pendingConfirmDirection := "Short"
@@ -863,7 +1076,7 @@ if useFollowThroughConfirmation and strategy.position_size == 0
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("NY")
-        else if ldnLongBreakout
+        else if ldnLongBreakout and not ldnLongLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "London"
             pendingConfirmDirection := "Long"
@@ -875,7 +1088,7 @@ if useFollowThroughConfirmation and strategy.position_size == 0
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("London")
-        else if ldnShortBreakout
+        else if ldnShortBreakout and not ldnShortLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "London"
             pendingConfirmDirection := "Short"
@@ -887,7 +1100,7 @@ if useFollowThroughConfirmation and strategy.position_size == 0
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("London")
-        else if asiaLongBreakout
+        else if asiaLongBreakout and not asiaLongLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "Asia"
             pendingConfirmDirection := "Long"
@@ -899,7 +1112,7 @@ if useFollowThroughConfirmation and strategy.position_size == 0
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("Asia")
-        else if asiaShortBreakout
+        else if asiaShortBreakout and not asiaShortLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "Asia"
             pendingConfirmDirection := "Short"
@@ -912,80 +1125,87 @@ if useFollowThroughConfirmation and strategy.position_size == 0
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("Asia")
 
-// Baseline immediate entry behavior when follow-through filter is off
-if not useFollowThroughConfirmation
-    if nyLongBreakout
-        longSignal := true
-        activeORB := "NY"
-        pendingORB := "NY"
-        pendingSessionCloseTs := getSessionCloseTs("NY")
-        intendedStop := low - buf
-        nyTraded := true
-        nyLongTradeCount += 1
-        nyLongRetryEligible := false
-        nyLongRetryArmed := false
-        nyLongNeedsReset := false
-        nyLongDead := true
-    else if nyShortBreakout
-        shortSignal := true
-        activeORB := "NY"
-        pendingORB := "NY"
-        pendingSessionCloseTs := getSessionCloseTs("NY")
-        intendedStop := high + buf
-        nyTraded := true
-        nyShortTradeCount += 1
-        nyShortRetryEligible := false
-        nyShortRetryArmed := false
-        nyShortNeedsReset := false
-        nyShortDead := true
-    else if ldnLongBreakout
-        longSignal := true
-        activeORB := "London"
-        pendingORB := "London"
-        pendingSessionCloseTs := getSessionCloseTs("London")
-        intendedStop := low - buf
-        ldnTraded := true
-        ldnLongTradeCount += 1
-        ldnLongRetryEligible := false
-        ldnLongRetryArmed := false
-        ldnLongNeedsReset := false
-        ldnLongDead := true
-    else if ldnShortBreakout
-        shortSignal := true
-        activeORB := "London"
-        pendingORB := "London"
-        pendingSessionCloseTs := getSessionCloseTs("London")
-        intendedStop := high + buf
-        ldnTraded := true
-        ldnShortTradeCount += 1
-        ldnShortRetryEligible := false
-        ldnShortRetryArmed := false
-        ldnShortNeedsReset := false
-        ldnShortDead := true
-    else if asiaLongBreakout
-        longSignal := true
-        activeORB := "Asia"
-        pendingORB := "Asia"
-        pendingSessionCloseTs := getSessionCloseTs("Asia")
-        intendedStop := low - buf
-        asiaTraded := true
-        asiaLongTradeCount += 1
-        asiaLongRetryEligible := false
-        asiaLongRetryArmed := false
-        asiaLongNeedsReset := false
-        asiaLongDead := true
-    else if asiaShortBreakout
-        shortSignal := true
-        activeORB := "Asia"
-        pendingORB := "Asia"
-        pendingSessionCloseTs := getSessionCloseTs("Asia")
-        intendedStop := high + buf
-        asiaTraded := true
-        asiaShortTradeCount += 1
-        asiaShortRetryEligible := false
-        asiaShortRetryArmed := false
-        asiaShortNeedsReset := false
-        asiaShortDead := true
+    // 3) Immediate entry path
+    if not pendingRetestActive and not pendingConfirmActive
+        bool allowImmediateNyLong = nyLongBreakout and not nyLongLargeBreakout
+        bool allowImmediateNyShort = nyShortBreakout and not nyShortLargeBreakout
+        bool allowImmediateLdnLong = ldnLongBreakout and not ldnLongLargeBreakout
+        bool allowImmediateLdnShort = ldnShortBreakout and not ldnShortLargeBreakout
+        bool allowImmediateAsiaLong = asiaLongBreakout and not asiaLongLargeBreakout
+        bool allowImmediateAsiaShort = asiaShortBreakout and not asiaShortLargeBreakout
+
+        if allowImmediateNyLong
+            longSignal := true
+            activeORB := "NY"
+            pendingORB := "NY"
+            pendingSessionCloseTs := getSessionCloseTs("NY")
+            intendedStop := low - buf
+            nyTraded := true
+            nyLongTradeCount += 1
+            nyLongRetryEligible := false
+            nyLongRetryArmed := false
+            nyLongNeedsReset := false
+            nyLongDead := true
+        else if allowImmediateNyShort
+            shortSignal := true
+            activeORB := "NY"
+            pendingORB := "NY"
+            pendingSessionCloseTs := getSessionCloseTs("NY")
+            intendedStop := high + buf
+            nyTraded := true
+            nyShortTradeCount += 1
+            nyShortRetryEligible := false
+            nyShortRetryArmed := false
+            nyShortNeedsReset := false
+            nyShortDead := true
+        else if allowImmediateLdnLong
+            longSignal := true
+            activeORB := "London"
+            pendingORB := "London"
+            pendingSessionCloseTs := getSessionCloseTs("London")
+            intendedStop := low - buf
+            ldnTraded := true
+            ldnLongTradeCount += 1
+            ldnLongRetryEligible := false
+            ldnLongRetryArmed := false
+            ldnLongNeedsReset := false
+            ldnLongDead := true
+        else if allowImmediateLdnShort
+            shortSignal := true
+            activeORB := "London"
+            pendingORB := "London"
+            pendingSessionCloseTs := getSessionCloseTs("London")
+            intendedStop := high + buf
+            ldnTraded := true
+            ldnShortTradeCount += 1
+            ldnShortRetryEligible := false
+            ldnShortRetryArmed := false
+            ldnShortNeedsReset := false
+            ldnShortDead := true
+        else if allowImmediateAsiaLong
+            longSignal := true
+            activeORB := "Asia"
+            pendingORB := "Asia"
+            pendingSessionCloseTs := getSessionCloseTs("Asia")
+            intendedStop := low - buf
+            asiaTraded := true
+            asiaLongTradeCount += 1
+            asiaLongRetryEligible := false
+            asiaLongRetryArmed := false
+            asiaLongNeedsReset := false
+            asiaLongDead := true
+        else if allowImmediateAsiaShort
+            shortSignal := true
+            activeORB := "Asia"
+            pendingORB := "Asia"
+            pendingSessionCloseTs := getSessionCloseTs("Asia")
+            intendedStop := high + buf
+            asiaTraded := true
+            asiaShortTradeCount += 1
+            asiaShortRetryEligible := false
+            asiaShortRetryArmed := false
+            asiaShortNeedsReset := false
+            asiaShortDead := true
 
 if longSignal
     strategy.entry("Long", strategy.long)
@@ -1217,6 +1437,10 @@ plot(showORBLevels and tradeDayAllowed and useLondon and (not showORBOnlyDuringT
 plot(showORBLevels and tradeDayAllowed and useLondon and (not showORBOnlyDuringTradeWindow or ldnTradeWindowActive) ? ldnLow  : na, "London ORB Low", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
 plot(showORBLevels and tradeDayAllowed and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive) ? asiaHigh : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
 plot(showORBLevels and tradeDayAllowed and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive) ? asiaLow  : na, "Asia ORB Low", color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
+
+// Pending visuals
+plot(pendingRetestActive and pendingRetestDirection == "Long" ? pendingRetestLevel : na, "Pending Long Retest", color=color.new(color.green, 40), linewidth=2, style=plot.style_linebr)
+plot(pendingRetestActive and pendingRetestDirection == "Short" ? pendingRetestLevel : na, "Pending Short Retest", color=color.new(color.red, 40), linewidth=2, style=plot.style_linebr)
 
 // =========================
 // Plot active stop / target
