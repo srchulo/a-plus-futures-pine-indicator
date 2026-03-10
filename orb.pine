@@ -40,6 +40,10 @@ noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTra
 breakoutMode = input.string("Current Behavior", "Breakout Qualification Mode", options=["Current Behavior", "First Qualified Close Only", "Reset Inside Then Requalify", "One-Bar Grace Then Reset"], group=groupTrade)
 allowSecondBreak = input.bool(false, "Allow One Second Break After First Losing Trade + Reset Inside ORB", group=groupTrade)
 
+// NEW: immediate follow-through / reclaim filter
+groupFollow = "Follow-Through Confirmation Filter"
+useFollowThroughConfirmation = input.bool(false, "Immediate Follow-Through / Reclaim Filter On", group=groupFollow)
+
 // optional tiny buffer so stops/targets aren’t exactly on a level
 useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTrade)
 bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=groupTrade)
@@ -161,6 +165,13 @@ closeAboveOrb(orbHigh) =>
 
 closeBelowOrb(orbLow) =>
     close < orbLow
+
+// NEW: next-bar confirmation logic
+followThroughLongOk(orbHigh, breakoutHigh, breakoutClose) =>
+    close > orbHigh and high >= breakoutHigh and close >= breakoutClose
+
+followThroughShortOk(orbLow, breakoutLow, breakoutClose) =>
+    close < orbLow and low <= breakoutLow and close <= breakoutClose
 
 minuteOfDay(h, m) =>
     h * 60 + m
@@ -404,6 +415,19 @@ var bool ldnShortRetryArmed = false
 var bool asiaLongRetryArmed = false
 var bool asiaShortRetryArmed = false
 
+// NEW: pending confirmation state
+var bool pendingConfirmActive = false
+var string pendingConfirmSession = ""
+var string pendingConfirmDirection = ""
+var float pendingConfirmStop = na
+var float pendingConfirmOrbHigh = na
+var float pendingConfirmOrbLow = na
+var float pendingConfirmBreakoutHigh = na
+var float pendingConfirmBreakoutLow = na
+var float pendingConfirmBreakoutClose = na
+var int pendingConfirmBarIndex = na
+var int pendingConfirmSessionCloseTs = na
+
 curDay = year(time, sessionTZ) * 10000 + month(time, sessionTZ) * 100 + dayofmonth(time, sessionTZ)
 
 if na(lastDay) or curDay != lastDay
@@ -446,6 +470,17 @@ if na(lastDay) or curDay != lastDay
     ldnShortRetryArmed := false
     asiaLongRetryArmed := false
     asiaShortRetryArmed := false
+    pendingConfirmActive := false
+    pendingConfirmSession := ""
+    pendingConfirmDirection := ""
+    pendingConfirmStop := na
+    pendingConfirmOrbHigh := na
+    pendingConfirmOrbLow := na
+    pendingConfirmBreakoutHigh := na
+    pendingConfirmBreakoutLow := na
+    pendingConfirmBreakoutClose := na
+    pendingConfirmBarIndex := na
+    pendingConfirmSessionCloseTs := na
     lastDay := curDay
 
 // =========================
@@ -458,7 +493,7 @@ ldnShortPathActive = ldnTradeWindowActive  and not ldnShortDead and ((ldnShortTr
 asiaLongPathActive = asiaTradeWindowActive and not asiaLongDead and ((asiaLongTradeCount == 0 and not asiaTraded) or (allowSecondBreak and asiaLongTradeCount == 1 and asiaLongRetryEligible))
 asiaShortPathActive = asiaTradeWindowActive and not asiaShortDead and ((asiaShortTradeCount == 0 and not asiaTraded) or (allowSecondBreak and asiaShortTradeCount == 1 and asiaShortRetryEligible))
 
-if strategy.position_size == 0
+if strategy.position_size == 0 and not pendingConfirmActive
     if nyLongPathActive
         if closeInsideOrb(nyHigh, nyLow)
             nyLongNeedsReset := false
@@ -580,15 +615,16 @@ ldnShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShort
 asiaLongCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh, asiaLongTradeCount, asiaLongRetryArmed)
 asiaShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, atrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow, asiaShortTradeCount, asiaShortRetryArmed)
 
-nyLongSignal   = nyLongCandidate and entryLongOk(nyHigh)
-nyShortSignal  = nyShortCandidate and entryShortOk(nyLow)
-ldnLongSignal  = ldnLongCandidate and entryLongOk(ldnHigh)
-ldnShortSignal = ldnShortCandidate and entryShortOk(ldnLow)
-asiaLongSignal = asiaLongCandidate and entryLongOk(asiaHigh)
-asiaShortSignal = asiaShortCandidate and entryShortOk(asiaLow)
+// Raw breakout events on the breakout bar
+nyLongBreakout   = nyLongCandidate and entryLongOk(nyHigh)
+nyShortBreakout  = nyShortCandidate and entryShortOk(nyLow)
+ldnLongBreakout  = ldnLongCandidate and entryLongOk(ldnHigh)
+ldnShortBreakout = ldnShortCandidate and entryShortOk(ldnLow)
+asiaLongBreakout = asiaLongCandidate and entryLongOk(asiaHigh)
+asiaShortBreakout = asiaShortCandidate and entryShortOk(asiaLow)
 
 // Mark failed breakout attempts based on mode (same behavior as baseline)
-if strategy.position_size == 0
+if strategy.position_size == 0 and not pendingConfirmActive
     if nyLongCandidate and not entryLongOk(nyHigh)
         if breakoutMode == "First Qualified Close Only"
             nyLongDead := true
@@ -655,79 +691,301 @@ if strategy.position_size == 0
             asiaShortNeedsReset := true
             asiaShortOutsideCount := 0
 
-// Priority: NY > London > Asia if multiple trigger same bar
-if nyLongSignal
-    longSignal := true
-    activeORB := "NY"
-    pendingORB := "NY"
-    pendingSessionCloseTs := getSessionCloseTs("NY")
-    intendedStop := low - buf
-    nyTraded := true
-    nyLongTradeCount += 1
-    nyLongRetryEligible := false
-    nyLongRetryArmed := false
-    nyLongNeedsReset := false
-    nyLongDead := true
-else if nyShortSignal
-    shortSignal := true
-    activeORB := "NY"
-    pendingORB := "NY"
-    pendingSessionCloseTs := getSessionCloseTs("NY")
-    intendedStop := high + buf
-    nyTraded := true
-    nyShortTradeCount += 1
-    nyShortRetryEligible := false
-    nyShortRetryArmed := false
-    nyShortNeedsReset := false
-    nyShortDead := true
-else if ldnLongSignal
-    longSignal := true
-    activeORB := "London"
-    pendingORB := "London"
-    pendingSessionCloseTs := getSessionCloseTs("London")
-    intendedStop := low - buf
-    ldnTraded := true
-    ldnLongTradeCount += 1
-    ldnLongRetryEligible := false
-    ldnLongRetryArmed := false
-    ldnLongNeedsReset := false
-    ldnLongDead := true
-else if ldnShortSignal
-    shortSignal := true
-    activeORB := "London"
-    pendingORB := "London"
-    pendingSessionCloseTs := getSessionCloseTs("London")
-    intendedStop := high + buf
-    ldnTraded := true
-    ldnShortTradeCount += 1
-    ldnShortRetryEligible := false
-    ldnShortRetryArmed := false
-    ldnShortNeedsReset := false
-    ldnShortDead := true
-else if asiaLongSignal
-    longSignal := true
-    activeORB := "Asia"
-    pendingORB := "Asia"
-    pendingSessionCloseTs := getSessionCloseTs("Asia")
-    intendedStop := low - buf
-    asiaTraded := true
-    asiaLongTradeCount += 1
-    asiaLongRetryEligible := false
-    asiaLongRetryArmed := false
-    asiaLongNeedsReset := false
-    asiaLongDead := true
-else if asiaShortSignal
-    shortSignal := true
-    activeORB := "Asia"
-    pendingORB := "Asia"
-    pendingSessionCloseTs := getSessionCloseTs("Asia")
-    intendedStop := high + buf
-    asiaTraded := true
-    asiaShortTradeCount += 1
-    asiaShortRetryEligible := false
-    asiaShortRetryArmed := false
-    asiaShortNeedsReset := false
-    asiaShortDead := true
+// =========================
+// Immediate follow-through confirmation engine
+// =========================
+if useFollowThroughConfirmation and strategy.position_size == 0
+    // Evaluate pending confirmation on the next bar only
+    if pendingConfirmActive and not na(pendingConfirmBarIndex) and bar_index == pendingConfirmBarIndex + 1
+        bool confirmLong = pendingConfirmDirection == "Long" and followThroughLongOk(pendingConfirmOrbHigh, pendingConfirmBreakoutHigh, pendingConfirmBreakoutClose)
+        bool confirmShort = pendingConfirmDirection == "Short" and followThroughShortOk(pendingConfirmOrbLow, pendingConfirmBreakoutLow, pendingConfirmBreakoutClose)
+
+        if confirmLong
+            longSignal := true
+            activeORB := pendingConfirmSession
+            pendingORB := pendingConfirmSession
+            pendingSessionCloseTs := pendingConfirmSessionCloseTs
+            intendedStop := pendingConfirmStop
+
+            if pendingConfirmSession == "NY"
+                nyTraded := true
+                nyLongTradeCount += 1
+                nyLongRetryEligible := false
+                nyLongRetryArmed := false
+                nyLongNeedsReset := false
+                nyLongDead := true
+            else if pendingConfirmSession == "London"
+                ldnTraded := true
+                ldnLongTradeCount += 1
+                ldnLongRetryEligible := false
+                ldnLongRetryArmed := false
+                ldnLongNeedsReset := false
+                ldnLongDead := true
+            else if pendingConfirmSession == "Asia"
+                asiaTraded := true
+                asiaLongTradeCount += 1
+                asiaLongRetryEligible := false
+                asiaLongRetryArmed := false
+                asiaLongNeedsReset := false
+                asiaLongDead := true
+
+        else if confirmShort
+            shortSignal := true
+            activeORB := pendingConfirmSession
+            pendingORB := pendingConfirmSession
+            pendingSessionCloseTs := pendingConfirmSessionCloseTs
+            intendedStop := pendingConfirmStop
+
+            if pendingConfirmSession == "NY"
+                nyTraded := true
+                nyShortTradeCount += 1
+                nyShortRetryEligible := false
+                nyShortRetryArmed := false
+                nyShortNeedsReset := false
+                nyShortDead := true
+            else if pendingConfirmSession == "London"
+                ldnTraded := true
+                ldnShortTradeCount += 1
+                ldnShortRetryEligible := false
+                ldnShortRetryArmed := false
+                ldnShortNeedsReset := false
+                ldnShortDead := true
+            else if pendingConfirmSession == "Asia"
+                asiaTraded := true
+                asiaShortTradeCount += 1
+                asiaShortRetryEligible := false
+                asiaShortRetryArmed := false
+                asiaShortNeedsReset := false
+                asiaShortDead := true
+        else
+            // Failed next-bar confirmation: apply breakout mode dead/reset logic
+            if pendingConfirmSession == "NY" and pendingConfirmDirection == "Long"
+                if breakoutMode == "First Qualified Close Only"
+                    nyLongDead := true
+                    nyLongNeedsReset := true
+                else if breakoutMode == "Reset Inside Then Requalify"
+                    nyLongNeedsReset := true
+                    nyLongOutsideCount := 0
+                else if breakoutMode == "One-Bar Grace Then Reset"
+                    nyLongNeedsReset := true
+                    nyLongOutsideCount := 0
+
+            if pendingConfirmSession == "NY" and pendingConfirmDirection == "Short"
+                if breakoutMode == "First Qualified Close Only"
+                    nyShortDead := true
+                    nyShortNeedsReset := true
+                else if breakoutMode == "Reset Inside Then Requalify"
+                    nyShortNeedsReset := true
+                    nyShortOutsideCount := 0
+                else if breakoutMode == "One-Bar Grace Then Reset"
+                    nyShortNeedsReset := true
+                    nyShortOutsideCount := 0
+
+            if pendingConfirmSession == "London" and pendingConfirmDirection == "Long"
+                if breakoutMode == "First Qualified Close Only"
+                    ldnLongDead := true
+                    ldnLongNeedsReset := true
+                else if breakoutMode == "Reset Inside Then Requalify"
+                    ldnLongNeedsReset := true
+                    ldnLongOutsideCount := 0
+                else if breakoutMode == "One-Bar Grace Then Reset"
+                    ldnLongNeedsReset := true
+                    ldnLongOutsideCount := 0
+
+            if pendingConfirmSession == "London" and pendingConfirmDirection == "Short"
+                if breakoutMode == "First Qualified Close Only"
+                    ldnShortDead := true
+                    ldnShortNeedsReset := true
+                else if breakoutMode == "Reset Inside Then Requalify"
+                    ldnShortNeedsReset := true
+                    ldnShortOutsideCount := 0
+                else if breakoutMode == "One-Bar Grace Then Reset"
+                    ldnShortNeedsReset := true
+                    ldnShortOutsideCount := 0
+
+            if pendingConfirmSession == "Asia" and pendingConfirmDirection == "Long"
+                if breakoutMode == "First Qualified Close Only"
+                    asiaLongDead := true
+                    asiaLongNeedsReset := true
+                else if breakoutMode == "Reset Inside Then Requalify"
+                    asiaLongNeedsReset := true
+                    asiaLongOutsideCount := 0
+                else if breakoutMode == "One-Bar Grace Then Reset"
+                    asiaLongNeedsReset := true
+                    asiaLongOutsideCount := 0
+
+            if pendingConfirmSession == "Asia" and pendingConfirmDirection == "Short"
+                if breakoutMode == "First Qualified Close Only"
+                    asiaShortDead := true
+                    asiaShortNeedsReset := true
+                else if breakoutMode == "Reset Inside Then Requalify"
+                    asiaShortNeedsReset := true
+                    asiaShortOutsideCount := 0
+                else if breakoutMode == "One-Bar Grace Then Reset"
+                    asiaShortNeedsReset := true
+                    asiaShortOutsideCount := 0
+
+        pendingConfirmActive := false
+        pendingConfirmSession := ""
+        pendingConfirmDirection := ""
+        pendingConfirmStop := na
+        pendingConfirmOrbHigh := na
+        pendingConfirmOrbLow := na
+        pendingConfirmBreakoutHigh := na
+        pendingConfirmBreakoutLow := na
+        pendingConfirmBreakoutClose := na
+        pendingConfirmBarIndex := na
+        pendingConfirmSessionCloseTs := na
+
+    // Arm a pending confirmation from the breakout bar (priority NY > London > Asia)
+    if not pendingConfirmActive and not longSignal and not shortSignal
+        if nyLongBreakout
+            pendingConfirmActive := true
+            pendingConfirmSession := "NY"
+            pendingConfirmDirection := "Long"
+            pendingConfirmStop := low - buf
+            pendingConfirmOrbHigh := nyHigh
+            pendingConfirmOrbLow := nyLow
+            pendingConfirmBreakoutHigh := high
+            pendingConfirmBreakoutLow := low
+            pendingConfirmBreakoutClose := close
+            pendingConfirmBarIndex := bar_index
+            pendingConfirmSessionCloseTs := getSessionCloseTs("NY")
+        else if nyShortBreakout
+            pendingConfirmActive := true
+            pendingConfirmSession := "NY"
+            pendingConfirmDirection := "Short"
+            pendingConfirmStop := high + buf
+            pendingConfirmOrbHigh := nyHigh
+            pendingConfirmOrbLow := nyLow
+            pendingConfirmBreakoutHigh := high
+            pendingConfirmBreakoutLow := low
+            pendingConfirmBreakoutClose := close
+            pendingConfirmBarIndex := bar_index
+            pendingConfirmSessionCloseTs := getSessionCloseTs("NY")
+        else if ldnLongBreakout
+            pendingConfirmActive := true
+            pendingConfirmSession := "London"
+            pendingConfirmDirection := "Long"
+            pendingConfirmStop := low - buf
+            pendingConfirmOrbHigh := ldnHigh
+            pendingConfirmOrbLow := ldnLow
+            pendingConfirmBreakoutHigh := high
+            pendingConfirmBreakoutLow := low
+            pendingConfirmBreakoutClose := close
+            pendingConfirmBarIndex := bar_index
+            pendingConfirmSessionCloseTs := getSessionCloseTs("London")
+        else if ldnShortBreakout
+            pendingConfirmActive := true
+            pendingConfirmSession := "London"
+            pendingConfirmDirection := "Short"
+            pendingConfirmStop := high + buf
+            pendingConfirmOrbHigh := ldnHigh
+            pendingConfirmOrbLow := ldnLow
+            pendingConfirmBreakoutHigh := high
+            pendingConfirmBreakoutLow := low
+            pendingConfirmBreakoutClose := close
+            pendingConfirmBarIndex := bar_index
+            pendingConfirmSessionCloseTs := getSessionCloseTs("London")
+        else if asiaLongBreakout
+            pendingConfirmActive := true
+            pendingConfirmSession := "Asia"
+            pendingConfirmDirection := "Long"
+            pendingConfirmStop := low - buf
+            pendingConfirmOrbHigh := asiaHigh
+            pendingConfirmOrbLow := asiaLow
+            pendingConfirmBreakoutHigh := high
+            pendingConfirmBreakoutLow := low
+            pendingConfirmBreakoutClose := close
+            pendingConfirmBarIndex := bar_index
+            pendingConfirmSessionCloseTs := getSessionCloseTs("Asia")
+        else if asiaShortBreakout
+            pendingConfirmActive := true
+            pendingConfirmSession := "Asia"
+            pendingConfirmDirection := "Short"
+            pendingConfirmStop := high + buf
+            pendingConfirmOrbHigh := asiaHigh
+            pendingConfirmOrbLow := asiaLow
+            pendingConfirmBreakoutHigh := high
+            pendingConfirmBreakoutLow := low
+            pendingConfirmBreakoutClose := close
+            pendingConfirmBarIndex := bar_index
+            pendingConfirmSessionCloseTs := getSessionCloseTs("Asia")
+
+// Baseline immediate entry behavior when follow-through filter is off
+if not useFollowThroughConfirmation
+    if nyLongBreakout
+        longSignal := true
+        activeORB := "NY"
+        pendingORB := "NY"
+        pendingSessionCloseTs := getSessionCloseTs("NY")
+        intendedStop := low - buf
+        nyTraded := true
+        nyLongTradeCount += 1
+        nyLongRetryEligible := false
+        nyLongRetryArmed := false
+        nyLongNeedsReset := false
+        nyLongDead := true
+    else if nyShortBreakout
+        shortSignal := true
+        activeORB := "NY"
+        pendingORB := "NY"
+        pendingSessionCloseTs := getSessionCloseTs("NY")
+        intendedStop := high + buf
+        nyTraded := true
+        nyShortTradeCount += 1
+        nyShortRetryEligible := false
+        nyShortRetryArmed := false
+        nyShortNeedsReset := false
+        nyShortDead := true
+    else if ldnLongBreakout
+        longSignal := true
+        activeORB := "London"
+        pendingORB := "London"
+        pendingSessionCloseTs := getSessionCloseTs("London")
+        intendedStop := low - buf
+        ldnTraded := true
+        ldnLongTradeCount += 1
+        ldnLongRetryEligible := false
+        ldnLongRetryArmed := false
+        ldnLongNeedsReset := false
+        ldnLongDead := true
+    else if ldnShortBreakout
+        shortSignal := true
+        activeORB := "London"
+        pendingORB := "London"
+        pendingSessionCloseTs := getSessionCloseTs("London")
+        intendedStop := high + buf
+        ldnTraded := true
+        ldnShortTradeCount += 1
+        ldnShortRetryEligible := false
+        ldnShortRetryArmed := false
+        ldnShortNeedsReset := false
+        ldnShortDead := true
+    else if asiaLongBreakout
+        longSignal := true
+        activeORB := "Asia"
+        pendingORB := "Asia"
+        pendingSessionCloseTs := getSessionCloseTs("Asia")
+        intendedStop := low - buf
+        asiaTraded := true
+        asiaLongTradeCount += 1
+        asiaLongRetryEligible := false
+        asiaLongRetryArmed := false
+        asiaLongNeedsReset := false
+        asiaLongDead := true
+    else if asiaShortBreakout
+        shortSignal := true
+        activeORB := "Asia"
+        pendingORB := "Asia"
+        pendingSessionCloseTs := getSessionCloseTs("Asia")
+        intendedStop := high + buf
+        asiaTraded := true
+        asiaShortTradeCount += 1
+        asiaShortRetryEligible := false
+        asiaShortRetryArmed := false
+        asiaShortNeedsReset := false
+        asiaShortDead := true
 
 if longSignal
     strategy.entry("Long", strategy.long)
@@ -895,12 +1153,6 @@ barsSinceTimeExitReset = not na(timeExitStartBarIndex) ? (bar_index - timeExitSt
 timeExitBars = resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" ? barsSinceTimeExitReset : barsInTrade
 longInProfit  = validLong and close > posEntry
 shortInProfit = validShort and close < posEntry
-
-// Fixed RR: normal time exit logic
-// 1R Trail: time exit only BEFORE trail activates
-// use if you don't want time exit to affect trailing AFTER it has trailed at least once
-// timeExitEligibleLong = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveLong)
-// timeExitEligibleShort = tradeMode == "Fixed RR" or (tradeMode == "1R Step Trail" and not trailActiveShort)
 
 timeExitEligibleLong = true
 timeExitEligibleShort = true
