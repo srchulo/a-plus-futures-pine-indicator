@@ -8,29 +8,36 @@ groupSessions = "Sessions"
 useNY      = input.bool(true,  "NY Open On", group=groupSessions)
 useLondon  = input.bool(false, "London Open On", group=groupSessions)
 useAsia    = input.bool(false, "Asian Open On", group=groupSessions)
-sessionTZ  = input.string("America/New_York", "Session Timezone", group=groupSessions)
 
-// ORB windows by clock time + duration (minutes)
+// Master strategy day / bookkeeping timezone
+strategyDayTZ = input.string("America/New_York", "Strategy Day Timezone", group=groupSessions)
+
+// Native session timezones
+nyTZ   = input.string("America/New_York", "NY Timezone", group=groupSessions)
+ldnTZ  = input.string("Europe/London", "London Timezone", group=groupSessions)
+asiaTZ = input.string("Asia/Tokyo", "Asia Timezone", group=groupSessions)
+
+// ORB windows by LOCAL SESSION clock time + duration (minutes)
 nyStartH   = input.int(9,  "NY Start Hour",   minval=0, maxval=23, group=groupSessions)
 nyStartM   = input.int(30, "NY Start Minute", minval=0, maxval=59, group=groupSessions)
 nyDurM     = input.int(15, "NY ORB Minutes",  minval=1, maxval=120, group=groupSessions)
 
-ldnStartH  = input.int(3,  "London Start Hour",   minval=0, maxval=23, group=groupSessions)
+ldnStartH  = input.int(8,  "London Start Hour",   minval=0, maxval=23, group=groupSessions)
 ldnStartM  = input.int(0,  "London Start Minute", minval=0, maxval=59, group=groupSessions)
 ldnDurM    = input.int(15, "London ORB Minutes",  minval=1, maxval=120, group=groupSessions)
 
-asiaStartH = input.int(19, "Asian Start Hour",   minval=0, maxval=23, group=groupSessions)
+asiaStartH = input.int(9,  "Asian Start Hour",   minval=0, maxval=23, group=groupSessions)
 asiaStartM = input.int(0,  "Asian Start Minute", minval=0, maxval=59, group=groupSessions)
 asiaDurM   = input.int(15, "Asian ORB Minutes",  minval=1, maxval=120, group=groupSessions)
 
-// Trade windows / session cutoffs
+// Trade windows / session cutoffs in LOCAL SESSION clock time
 nyEndH     = input.int(16, "NY End Hour", minval=0, maxval=23, group=groupSessions)
 nyEndM     = input.int(0,  "NY End Minute", minval=0, maxval=59, group=groupSessions)
 
-ldnEndH    = input.int(6,  "London End Hour", minval=0, maxval=23, group=groupSessions)
+ldnEndH    = input.int(10, "London End Hour", minval=0, maxval=23, group=groupSessions)
 ldnEndM    = input.int(0,  "London End Minute", minval=0, maxval=59, group=groupSessions)
 
-asiaEndH   = input.int(23, "Asian End Hour", minval=0, maxval=23, group=groupSessions)
+asiaEndH   = input.int(13, "Asian End Hour", minval=0, maxval=23, group=groupSessions)
 asiaEndM   = input.int(0,  "Asian End Minute", minval=0, maxval=59, group=groupSessions)
 
 groupTrade = "Trade Logic"
@@ -185,9 +192,9 @@ minuteOfDay(h, m) =>
 inWindow(curMin, startMin, endMin) =>
     startMin <= endMin ? (curMin >= startMin and curMin <= endMin) : (curMin >= startMin or curMin <= endMin)
 
-tradeWindowActive(startH, startM, durM, endH, endM) =>
-    int curH = hour(time, sessionTZ)
-    int curM = minute(time, sessionTZ)
+tradeWindowActive(tz, startH, startM, durM, endH, endM) =>
+    int curH = hour(time, tz)
+    int curM = minute(time, tz)
     int curMin = minuteOfDay(curH, curM)
     int orbEndMin = minuteOfDay(startH, startM) + durM
     int endMin = minuteOfDay(endH, endM)
@@ -195,10 +202,10 @@ tradeWindowActive(startH, startM, durM, endH, endM) =>
     inWindow(curMin, orbEndMin, endMin)
 
 entryTimeAllowed() =>
-    int curH = hour(time, sessionTZ)
-    int curM = minute(time, sessionTZ)
+    int curH = hour(time, strategyDayTZ)
+    int curM = minute(time, strategyDayTZ)
     int curMin = minuteOfDay(curH, curM)
-    int curDowLocal = dayofweek(time, sessionTZ)
+    int curDowLocal = dayofweek(time, strategyDayTZ)
     int globalCutoffMin = minuteOfDay(lastEntryH, lastEntryM)
     bool globalAllowed = not useNoTradeAfter or curMin <= globalCutoffMin
 
@@ -224,7 +231,7 @@ dateToInt(y, mo, d) =>
     y * 10000 + mo * 100 + d
 
 nthWeekdayDom(y, mo, targetDow, nth) =>
-    int firstDow = dayofweek(timestamp(sessionTZ, y, mo, 1, 0, 0))
+    int firstDow = dayofweek(timestamp(strategyDayTZ, y, mo, 1, 0, 0))
     int offset = (targetDow - firstDow + 7) % 7
     1 + offset + (nth - 1) * 7
 
@@ -240,10 +247,14 @@ isManualSkipDate(dateList, ymd) =>
     match
 
 getSessionCloseTs(sessionName) =>
-    int y = year(time, sessionTZ)
-    int mo = month(time, sessionTZ)
-    int d = dayofmonth(time, sessionTZ)
-    sessionName == "NY" ? timestamp(sessionTZ, y, mo, d, nyEndH, nyEndM) : sessionName == "London" ? timestamp(sessionTZ, y, mo, d, ldnEndH, ldnEndM) : sessionName == "Asia" ? timestamp(sessionTZ, y, mo, d, asiaEndH, asiaEndM) : na
+    string tz = sessionName == "NY" ? nyTZ : sessionName == "London" ? ldnTZ : sessionName == "Asia" ? asiaTZ : strategyDayTZ
+    int y = year(time, tz)
+    int mo = month(time, tz)
+    int d = dayofmonth(time, tz)
+    sessionName == "NY" ? timestamp(tz, y, mo, d, nyEndH, nyEndM) :
+     sessionName == "London" ? timestamp(tz, y, mo, d, ldnEndH, ldnEndM) :
+     sessionName == "Asia" ? timestamp(tz, y, mo, d, asiaEndH, asiaEndM) :
+     na
 
 orbAtrOk(orbSize, atrValue) =>
     not useAtrOrbFilter or (not na(orbSize) and not na(atrValue) and atrValue > 0 and orbSize / atrValue >= minOrbAtrPct and orbSize / atrValue <= maxOrbAtrPct)
@@ -269,12 +280,12 @@ calcRetestLevel(isLong, orbHigh, orbLow, breakoutHigh, breakoutLow) =>
 // =========================
 // ORB engine on 1m (range accuracy)
 // =========================
-orbLevels1m(startH, startM, durM) =>
-    int y  = year(time, sessionTZ)
-    int mo = month(time, sessionTZ)
-    int d  = dayofmonth(time, sessionTZ)
-    int h  = hour(time, sessionTZ)
-    int m  = minute(time, sessionTZ)
+orbLevels1m(tz, startH, startM, durM) =>
+    int y  = year(time, tz)
+    int mo = month(time, tz)
+    int d  = dayofmonth(time, tz)
+    int h  = hour(time, tz)
+    int m  = minute(time, tz)
     int dayId = y * 10000 + mo * 100 + d
     int curMin   = h * 60 + m
     int startMin = startH * 60 + startM
@@ -304,12 +315,12 @@ orbLevels1m(startH, startM, durM) =>
     float outLo = (inOrb or ready) ? lo : na
     [outHi, outLo, ready, dayId]
 
-overnightLevels1m(startH, startM, prevEndH, prevEndM) =>
-    int y  = year(time, sessionTZ)
-    int mo = month(time, sessionTZ)
-    int d  = dayofmonth(time, sessionTZ)
-    int h  = hour(time, sessionTZ)
-    int m  = minute(time, sessionTZ)
+overnightLevels1m(tz, startH, startM, prevEndH, prevEndM) =>
+    int y  = year(time, tz)
+    int mo = month(time, tz)
+    int d  = dayofmonth(time, tz)
+    int h  = hour(time, tz)
+    int m  = minute(time, tz)
     int dayId = y * 10000 + mo * 100 + d
     int curMin = h * 60 + m
     int startMin = startH * 60 + startM
@@ -337,12 +348,12 @@ overnightLevels1m(startH, startM, prevEndH, prevEndM) =>
     [outHi, outLo, ready, readyDayId]
 
 // Pull ORBs from 1m
-[nyHigh, nyLow, nyReady, nyDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(nyStartH, nyStartM, nyDurM), barmerge.gaps_off, barmerge.lookahead_off)
-[ldnHigh, ldnLow, ldnReady, ldnDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
-[asiaHigh, asiaLow, asiaReady, asiaDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(asiaStartH, asiaStartM, asiaDurM), barmerge.gaps_off, barmerge.lookahead_off)
+[nyHigh, nyLow, nyReady, nyDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(nyTZ, nyStartH, nyStartM, nyDurM), barmerge.gaps_off, barmerge.lookahead_off)
+[ldnHigh, ldnLow, ldnReady, ldnDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(ldnTZ, ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
+[asiaHigh, asiaLow, asiaReady, asiaDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(asiaTZ, asiaStartH, asiaStartM, asiaDurM), barmerge.gaps_off, barmerge.lookahead_off)
 
 // Pull NY overnight range from 1m
-[nyOverHigh, nyOverLow, nyOverReady, nyOverDayId] = request.security(syminfo.tickerid, "1", overnightLevels1m(nyStartH, nyStartM, nyEndH, nyEndM), barmerge.gaps_off, barmerge.lookahead_off)
+[nyOverHigh, nyOverLow, nyOverReady, nyOverDayId] = request.security(syminfo.tickerid, "1", overnightLevels1m(nyTZ, nyStartH, nyStartM, nyEndH, nyEndM), barmerge.gaps_off, barmerge.lookahead_off)
 
 // Daily ATR remains for structural filters
 dailyAtrValue = request.security(syminfo.tickerid, "D", ta.atr(atrLen))
@@ -361,10 +372,10 @@ asiaOrbSize = asiaReady and not na(asiaHigh) and not na(asiaLow) ? asiaHigh - as
 nyOvernightSize = nyOverReady and not na(nyOverHigh) and not na(nyOverLow) ? nyOverHigh - nyOverLow : na
 
 // Calendar / trade filters
-int curY = year(time, sessionTZ)
-int curMo = month(time, sessionTZ)
-int curD = dayofmonth(time, sessionTZ)
-int curDow = dayofweek(time, sessionTZ)
+int curY = year(time, strategyDayTZ)
+int curMo = month(time, strategyDayTZ)
+int curD = dayofmonth(time, strategyDayTZ)
+int curDow = dayofweek(time, strategyDayTZ)
 int curYmd = dateToInt(curY, curMo, curD)
 int thanksgivingDom = nthWeekdayDom(curY, 11, dayofweek.thursday, 4)
 bool isDecember = curMo == 12
@@ -379,9 +390,9 @@ bool skipToday = (skipDecember and isDecember) or (skipThanksgivingWeek and isTh
 bool tradeDayAllowed = not skipToday
 
 // Session trade windows
-nyTradeWindowActive   = tradeDayAllowed and useNY and nyReady and tradeWindowActive(nyStartH, nyStartM, nyDurM, nyEndH, nyEndM)
-ldnTradeWindowActive  = tradeDayAllowed and useLondon and ldnReady and tradeWindowActive(ldnStartH, ldnStartM, ldnDurM, ldnEndH, ldnEndM)
-asiaTradeWindowActive = tradeDayAllowed and useAsia and asiaReady and tradeWindowActive(asiaStartH, asiaStartM, asiaDurM, asiaEndH, asiaEndM)
+nyTradeWindowActive   = tradeDayAllowed and useNY and nyReady and tradeWindowActive(nyTZ, nyStartH, nyStartM, nyDurM, nyEndH, nyEndM)
+ldnTradeWindowActive  = tradeDayAllowed and useLondon and ldnReady and tradeWindowActive(ldnTZ, ldnStartH, ldnStartM, ldnDurM, ldnEndH, ldnEndM)
+asiaTradeWindowActive = tradeDayAllowed and useAsia and asiaReady and tradeWindowActive(asiaTZ, asiaStartH, asiaStartM, asiaDurM, asiaEndH, asiaEndM)
 
 // =========================
 // One trade per session per day gating
@@ -455,7 +466,7 @@ var float pendingRetestOrbLow = na
 var int pendingRetestBarIndex = na
 var int pendingRetestSessionCloseTs = na
 
-curDay = year(time, sessionTZ) * 10000 + month(time, sessionTZ) * 100 + dayofmonth(time, sessionTZ)
+curDay = year(time, strategyDayTZ) * 10000 + month(time, strategyDayTZ) * 100 + dayofmonth(time, strategyDayTZ)
 
 if na(lastDay) or curDay != lastDay
     nyTraded := false
