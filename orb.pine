@@ -40,61 +40,153 @@ ldnEndM    = input.int(0,  "London End Minute", minval=0, maxval=59, group=group
 asiaEndH   = input.int(13, "Asian End Hour", minval=0, maxval=23, group=groupSessions)
 asiaEndM   = input.int(0,  "Asian End Minute", minval=0, maxval=59, group=groupSessions)
 
-groupTrade = "Trade Logic"
-tradeMode    = input.string("1R Step Trail", "Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTrade)
-rrMultiple   = input.float(2.0, "Fixed RR Multiple", minval=0.5, step=0.5, group=groupTrade)
-noWickStrict = input.bool(false, "Strict: No wick back into ORB", group=groupTrade)
-breakoutMode = input.string("Current Behavior", "Breakout Qualification Mode", options=["Current Behavior", "First Qualified Close Only", "Reset Inside Then Requalify", "One-Bar Grace Then Reset"], group=groupTrade)
-allowSecondBreak = input.bool(false, "Allow One Second Break After First Losing Trade + Reset Inside ORB", group=groupTrade)
+// =========================
+// Session-specific trade logic inputs
+// =========================
+groupTradeNY = "Trade Logic - NY"
+nyTradeMode       = input.string("1R Step Trail", "NY Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTradeNY)
+nyRrMultiple      = input.float(2.0, "NY Fixed RR Multiple", minval=0.5, step=0.5, group=groupTradeNY)
+nyNoWickStrict    = input.bool(false, "NY Strict: No wick back into ORB", group=groupTradeNY)
+nyBreakoutMode    = input.string("Current Behavior", "NY Breakout Qualification Mode", options=["Current Behavior", "First Qualified Close Only", "Reset Inside Then Requalify", "One-Bar Grace Then Reset"], group=groupTradeNY)
+nyAllowSecondBreak = input.bool(false, "NY Allow One Second Break After First Losing Trade + Reset Inside ORB", group=groupTradeNY)
 
-// NEW: next-bar confirmation
-groupFollow = "Follow-Through Confirmation Filter"
-useFollowThroughConfirmation = input.bool(false, "Immediate Follow-Through / Reclaim Filter On", group=groupFollow)
+groupFollowNY = "Follow-Through Confirmation Filter - NY"
+nyUseFollowThroughConfirmation = input.bool(false, "NY Immediate Follow-Through / Reclaim Filter On", group=groupFollowNY)
 
-// NEW: large breakout retest mode
-groupRetest = "Large Breakout Retest Mode"
-useLargeBreakoutRetest = input.bool(false, "Large Breakout Retest On", group=groupRetest)
-largeBreakoutAtrThreshold = input.float(0.55, "Large Breakout Candle / ATR Threshold", minval=0.0, step=0.01, group=groupRetest)
-retestLevelMode = input.string("ORB Boundary", "Retest Level", options=["ORB Boundary", "Breakout Midpoint"], group=groupRetest)
-maxRetestBars = input.int(4, "Max Bars To Wait For Retest", minval=1, maxval=20, group=groupRetest)
+groupRetestNY = "Large Breakout Retest Mode - NY"
+nyUseLargeBreakoutRetest   = input.bool(false, "NY Large Breakout Retest On", group=groupRetestNY)
+nyLargeBreakoutAtrThreshold = input.float(0.55, "NY Large Breakout Candle / ATR Threshold", minval=0.0, step=0.01, group=groupRetestNY)
+nyRetestLevelMode          = input.string("ORB Boundary", "NY Retest Level", options=["ORB Boundary", "Breakout Midpoint"], group=groupRetestNY)
+nyMaxRetestBars            = input.int(4, "NY Max Bars To Wait For Retest", minval=1, maxval=20, group=groupRetestNY)
+
+groupStopAdjNY = "Stop Adjustment - NY"
+nyUseStopAdjustment = input.bool(true, "NY Stop Adjustment On", group=groupStopAdjNY)
+nyStopMultiplier    = input.float(1.85, "NY Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdjNY)
+nyTrailRiskBasis    = input.string("Adjusted Stop Risk", "NY Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdjNY)
+
+groupDispNY = "Displacement Filter - NY"
+nyUseDisplacementFilter = input.bool(true, "NY Displacement Filter On", group=groupDispNY)
+nyMinCloseBeyondPct     = input.float(0.17, "NY Min Close Beyond ORB (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDispNY)
+nyMaxBreakoutWickPct    = input.float(0.20, "NY Max Breakout Wick (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDispNY)
+
+groupAtrNY = "ATR Filter - NY"
+nyUseAtrOrbFilter = input.bool(true, "NY ATR ORB Filter On", group=groupAtrNY)
+atrLen            = input.int(14, "ATR Length (Global)", minval=1, group=groupAtrNY)
+nyMinOrbAtrPct    = input.float(0.17, "NY Min ORB / ATR", minval=0.0, step=0.01, group=groupAtrNY)
+nyMaxOrbAtrPct    = input.float(1.20, "NY Max ORB / ATR", minval=0.0, step=0.01, group=groupAtrNY)
+
+groupPrevDayCompressionNY = "Previous Day Compression Filter - NY"
+nyUsePrevDayCompressionFilter = input.bool(false, "NY Previous Day Compression Filter On", group=groupPrevDayCompressionNY)
+nyMaxPrevDayRangeAtrPct       = input.float(0.80, "NY Max Previous Day Range / ATR", minval=0.0, step=0.01, group=groupPrevDayCompressionNY)
+
+groupPrevDayTrendNY = "Previous Day Trend Alignment Filter - NY"
+nyUsePrevDayTrendAlignment = input.bool(false, "NY Previous Day Trend Alignment On", group=groupPrevDayTrendNY)
+
+groupTimeExitNY = "Time Exit - NY"
+nyUseTimeExit              = input.bool(true, "NY Time Exit On", group=groupTimeExitNY)
+nyMaxBarsInTrade           = input.int(24, "NY Max Bars In Trade", minval=1, maxval=500, group=groupTimeExitNY)
+nyTimeExitMode             = input.string("Any", "NY Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExitNY)
+nyResetTimeExitOnTrailStep = input.bool(false, "NY Reset Time Exit On Trail Step", group=groupTimeExitNY)
+
+// London
+groupTradeLDN = "Trade Logic - London"
+ldnTradeMode       = input.string("1R Step Trail", "London Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTradeLDN)
+ldnRrMultiple      = input.float(2.0, "London Fixed RR Multiple", minval=0.5, step=0.5, group=groupTradeLDN)
+ldnNoWickStrict    = input.bool(false, "London Strict: No wick back into ORB", group=groupTradeLDN)
+ldnBreakoutMode    = input.string("Current Behavior", "London Breakout Qualification Mode", options=["Current Behavior", "First Qualified Close Only", "Reset Inside Then Requalify", "One-Bar Grace Then Reset"], group=groupTradeLDN)
+ldnAllowSecondBreak = input.bool(false, "London Allow One Second Break After First Losing Trade + Reset Inside ORB", group=groupTradeLDN)
+
+groupFollowLDN = "Follow-Through Confirmation Filter - London"
+ldnUseFollowThroughConfirmation = input.bool(false, "London Immediate Follow-Through / Reclaim Filter On", group=groupFollowLDN)
+
+groupRetestLDN = "Large Breakout Retest Mode - London"
+ldnUseLargeBreakoutRetest   = input.bool(false, "London Large Breakout Retest On", group=groupRetestLDN)
+ldnLargeBreakoutAtrThreshold = input.float(0.55, "London Large Breakout Candle / ATR Threshold", minval=0.0, step=0.01, group=groupRetestLDN)
+ldnRetestLevelMode          = input.string("ORB Boundary", "London Retest Level", options=["ORB Boundary", "Breakout Midpoint"], group=groupRetestLDN)
+ldnMaxRetestBars            = input.int(4, "London Max Bars To Wait For Retest", minval=1, maxval=20, group=groupRetestLDN)
+
+groupStopAdjLDN = "Stop Adjustment - London"
+ldnUseStopAdjustment = input.bool(true, "London Stop Adjustment On", group=groupStopAdjLDN)
+ldnStopMultiplier    = input.float(1.85, "London Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdjLDN)
+ldnTrailRiskBasis    = input.string("Adjusted Stop Risk", "London Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdjLDN)
+
+groupDispLDN = "Displacement Filter - London"
+ldnUseDisplacementFilter = input.bool(true, "London Displacement Filter On", group=groupDispLDN)
+ldnMinCloseBeyondPct     = input.float(0.17, "London Min Close Beyond ORB (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDispLDN)
+ldnMaxBreakoutWickPct    = input.float(0.20, "London Max Breakout Wick (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDispLDN)
+
+groupAtrLDN = "ATR Filter - London"
+ldnUseAtrOrbFilter = input.bool(true, "London ATR ORB Filter On", group=groupAtrLDN)
+ldnMinOrbAtrPct    = input.float(0.17, "London Min ORB / ATR", minval=0.0, step=0.01, group=groupAtrLDN)
+ldnMaxOrbAtrPct    = input.float(1.20, "London Max ORB / ATR", minval=0.0, step=0.01, group=groupAtrLDN)
+
+groupPrevDayCompressionLDN = "Previous Day Compression Filter - London"
+ldnUsePrevDayCompressionFilter = input.bool(false, "London Previous Day Compression Filter On", group=groupPrevDayCompressionLDN)
+ldnMaxPrevDayRangeAtrPct       = input.float(0.80, "London Max Previous Day Range / ATR", minval=0.0, step=0.01, group=groupPrevDayCompressionLDN)
+
+groupPrevDayTrendLDN = "Previous Day Trend Alignment Filter - London"
+ldnUsePrevDayTrendAlignment = input.bool(false, "London Previous Day Trend Alignment On", group=groupPrevDayTrendLDN)
+
+groupTimeExitLDN = "Time Exit - London"
+ldnUseTimeExit              = input.bool(true, "London Time Exit On", group=groupTimeExitLDN)
+ldnMaxBarsInTrade           = input.int(24, "London Max Bars In Trade", minval=1, maxval=500, group=groupTimeExitLDN)
+ldnTimeExitMode             = input.string("Any", "London Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExitLDN)
+ldnResetTimeExitOnTrailStep = input.bool(false, "London Reset Time Exit On Trail Step", group=groupTimeExitLDN)
+
+// Asia
+groupTradeASIA = "Trade Logic - Asia"
+asiaTradeMode       = input.string("1R Step Trail", "Asia Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTradeASIA)
+asiaRrMultiple      = input.float(2.0, "Asia Fixed RR Multiple", minval=0.5, step=0.5, group=groupTradeASIA)
+asiaNoWickStrict    = input.bool(false, "Asia Strict: No wick back into ORB", group=groupTradeASIA)
+asiaBreakoutMode    = input.string("Current Behavior", "Asia Breakout Qualification Mode", options=["Current Behavior", "First Qualified Close Only", "Reset Inside Then Requalify", "One-Bar Grace Then Reset"], group=groupTradeASIA)
+asiaAllowSecondBreak = input.bool(false, "Asia Allow One Second Break After First Losing Trade + Reset Inside ORB", group=groupTradeASIA)
+
+groupFollowASIA = "Follow-Through Confirmation Filter - Asia"
+asiaUseFollowThroughConfirmation = input.bool(false, "Asia Immediate Follow-Through / Reclaim Filter On", group=groupFollowASIA)
+
+groupRetestASIA = "Large Breakout Retest Mode - Asia"
+asiaUseLargeBreakoutRetest   = input.bool(false, "Asia Large Breakout Retest On", group=groupRetestASIA)
+asiaLargeBreakoutAtrThreshold = input.float(0.55, "Asia Large Breakout Candle / ATR Threshold", minval=0.0, step=0.01, group=groupRetestASIA)
+asiaRetestLevelMode          = input.string("ORB Boundary", "Asia Retest Level", options=["ORB Boundary", "Breakout Midpoint"], group=groupRetestASIA)
+asiaMaxRetestBars            = input.int(4, "Asia Max Bars To Wait For Retest", minval=1, maxval=20, group=groupRetestASIA)
+
+groupStopAdjASIA = "Stop Adjustment - Asia"
+asiaUseStopAdjustment = input.bool(true, "Asia Stop Adjustment On", group=groupStopAdjASIA)
+asiaStopMultiplier    = input.float(1.85, "Asia Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdjASIA)
+asiaTrailRiskBasis    = input.string("Adjusted Stop Risk", "Asia Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdjASIA)
+
+groupDispASIA = "Displacement Filter - Asia"
+asiaUseDisplacementFilter = input.bool(true, "Asia Displacement Filter On", group=groupDispASIA)
+asiaMinCloseBeyondPct     = input.float(0.17, "Asia Min Close Beyond ORB (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDispASIA)
+asiaMaxBreakoutWickPct    = input.float(0.20, "Asia Max Breakout Wick (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDispASIA)
+
+groupAtrASIA = "ATR Filter - Asia"
+asiaUseAtrOrbFilter = input.bool(true, "Asia ATR ORB Filter On", group=groupAtrASIA)
+asiaMinOrbAtrPct    = input.float(0.17, "Asia Min ORB / ATR", minval=0.0, step=0.01, group=groupAtrASIA)
+asiaMaxOrbAtrPct    = input.float(1.20, "Asia Max ORB / ATR", minval=0.0, step=0.01, group=groupAtrASIA)
+
+groupPrevDayCompressionASIA = "Previous Day Compression Filter - Asia"
+asiaUsePrevDayCompressionFilter = input.bool(false, "Asia Previous Day Compression Filter On", group=groupPrevDayCompressionASIA)
+asiaMaxPrevDayRangeAtrPct       = input.float(0.80, "Asia Max Previous Day Range / ATR", minval=0.0, step=0.01, group=groupPrevDayCompressionASIA)
+
+groupPrevDayTrendASIA = "Previous Day Trend Alignment Filter - Asia"
+asiaUsePrevDayTrendAlignment = input.bool(false, "Asia Previous Day Trend Alignment On", group=groupPrevDayTrendASIA)
+
+groupTimeExitASIA = "Time Exit - Asia"
+asiaUseTimeExit              = input.bool(true, "Asia Time Exit On", group=groupTimeExitASIA)
+asiaMaxBarsInTrade           = input.int(24, "Asia Max Bars In Trade", minval=1, maxval=500, group=groupTimeExitASIA)
+asiaTimeExitMode             = input.string("Any", "Asia Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExitASIA)
+asiaResetTimeExitOnTrailStep = input.bool(false, "Asia Reset Time Exit On Trail Step", group=groupTimeExitASIA)
 
 // optional tiny buffer so stops/targets aren’t exactly on a level
-useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTrade)
-bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=groupTrade)
-
-groupStopAdj = "Stop Adjustment"
-useStopAdjustment = input.bool(true, "Stop Adjustment On", group=groupStopAdj)
-stopMultiplier = input.float(1.85, "Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdj)
-trailRiskBasis = input.string("Adjusted Stop Risk", "Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdj)
-
-groupDisp = "Displacement Filter"
-useDisplacementFilter = input.bool(true, "Displacement Filter On", group=groupDisp)
-minCloseBeyondPct     = input.float(0.17, "Min Close Beyond ORB (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
-maxBreakoutWickPct    = input.float(0.20, "Max Breakout Wick (% of candle range)", minval=0.0, maxval=1.0, step=0.01, group=groupDisp)
-
-groupAtr = "ATR Filter"
-useAtrOrbFilter = input.bool(true, "ATR ORB Filter On", group=groupAtr)
-atrLen = input.int(14, "ATR Length", minval=1, group=groupAtr)
-minOrbAtrPct = input.float(0.17, "Min ORB / ATR", minval=0.0, step=0.01, group=groupAtr)
-maxOrbAtrPct = input.float(1.20, "Max ORB / ATR", minval=0.0, step=0.01, group=groupAtr)
-
-groupPrevDayCompression = "Previous Day Compression Filter"
-usePrevDayCompressionFilter = input.bool(false, "Previous Day Compression Filter On", group=groupPrevDayCompression)
-maxPrevDayRangeAtrPct       = input.float(0.80, "Max Previous Day Range / ATR", minval=0.0, step=0.01, group=groupPrevDayCompression)
-
-groupPrevDayTrend = "Previous Day Trend Alignment Filter"
-usePrevDayTrendAlignment = input.bool(false, "Previous Day Trend Alignment On", group=groupPrevDayTrend)
+groupTradeGlobal = "Trade Logic - Global"
+useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTradeGlobal)
+bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=groupTradeGlobal)
 
 groupOvernight = "Overnight Range Filter"
 useOvernightRangeFilter = input.bool(false, "NY Overnight Range Filter On", group=groupOvernight)
 minOvernightAtrPct = input.float(0.00, "Min Overnight / ATR", minval=0.0, step=0.01, group=groupOvernight)
 maxOvernightAtrPct = input.float(0.80, "Max Overnight / ATR", minval=0.0, step=0.01, group=groupOvernight)
-
-groupTimeExit = "Time Exit"
-useTimeExit    = input.bool(true, "Time Exit On", group=groupTimeExit)
-maxBarsInTrade = input.int(24, "Max Bars In Trade", minval=1, maxval=500, group=groupTimeExit)
-timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExit)
-resetTimeExitOnTrailStep = input.bool(false, "Reset Time Exit On Trail Step", group=groupTimeExit)
 
 groupEntryTime = "Entry Time Filter"
 
@@ -207,31 +299,112 @@ showActiveTarget             = input.bool(true, "Show Active Target", group=grou
 showORBOnlyDuringTradeWindow = input.bool(true, "Show ORB Only During Trade Window", group=groupDisplay)
 
 // =========================
+// Session-specific getters
+// =========================
+getTradeMode(sessionName) =>
+    sessionName == "NY" ? nyTradeMode : sessionName == "London" ? ldnTradeMode : sessionName == "Asia" ? asiaTradeMode : nyTradeMode
+
+getRrMultiple(sessionName) =>
+    sessionName == "NY" ? nyRrMultiple : sessionName == "London" ? ldnRrMultiple : sessionName == "Asia" ? asiaRrMultiple : nyRrMultiple
+
+getNoWickStrict(sessionName) =>
+    sessionName == "NY" ? nyNoWickStrict : sessionName == "London" ? ldnNoWickStrict : sessionName == "Asia" ? asiaNoWickStrict : false
+
+getBreakoutMode(sessionName) =>
+    sessionName == "NY" ? nyBreakoutMode : sessionName == "London" ? ldnBreakoutMode : sessionName == "Asia" ? asiaBreakoutMode : "Current Behavior"
+
+getAllowSecondBreak(sessionName) =>
+    sessionName == "NY" ? nyAllowSecondBreak : sessionName == "London" ? ldnAllowSecondBreak : sessionName == "Asia" ? asiaAllowSecondBreak : false
+
+getUseFollowThroughConfirmation(sessionName) =>
+    sessionName == "NY" ? nyUseFollowThroughConfirmation : sessionName == "London" ? ldnUseFollowThroughConfirmation : sessionName == "Asia" ? asiaUseFollowThroughConfirmation : false
+
+getUseLargeBreakoutRetest(sessionName) =>
+    sessionName == "NY" ? nyUseLargeBreakoutRetest : sessionName == "London" ? ldnUseLargeBreakoutRetest : sessionName == "Asia" ? asiaUseLargeBreakoutRetest : false
+
+getLargeBreakoutAtrThreshold(sessionName) =>
+    sessionName == "NY" ? nyLargeBreakoutAtrThreshold : sessionName == "London" ? ldnLargeBreakoutAtrThreshold : sessionName == "Asia" ? asiaLargeBreakoutAtrThreshold : 0.55
+
+getRetestLevelMode(sessionName) =>
+    sessionName == "NY" ? nyRetestLevelMode : sessionName == "London" ? ldnRetestLevelMode : sessionName == "Asia" ? asiaRetestLevelMode : "ORB Boundary"
+
+getMaxRetestBars(sessionName) =>
+    sessionName == "NY" ? nyMaxRetestBars : sessionName == "London" ? ldnMaxRetestBars : sessionName == "Asia" ? asiaMaxRetestBars : 4
+
+getUseStopAdjustment(sessionName) =>
+    sessionName == "NY" ? nyUseStopAdjustment : sessionName == "London" ? ldnUseStopAdjustment : sessionName == "Asia" ? asiaUseStopAdjustment : true
+
+getStopMultiplier(sessionName) =>
+    sessionName == "NY" ? nyStopMultiplier : sessionName == "London" ? ldnStopMultiplier : sessionName == "Asia" ? asiaStopMultiplier : 1.85
+
+getTrailRiskBasis(sessionName) =>
+    sessionName == "NY" ? nyTrailRiskBasis : sessionName == "London" ? ldnTrailRiskBasis : sessionName == "Asia" ? asiaTrailRiskBasis : "Adjusted Stop Risk"
+
+getUseDisplacementFilter(sessionName) =>
+    sessionName == "NY" ? nyUseDisplacementFilter : sessionName == "London" ? ldnUseDisplacementFilter : sessionName == "Asia" ? asiaUseDisplacementFilter : true
+
+getMinCloseBeyondPct(sessionName) =>
+    sessionName == "NY" ? nyMinCloseBeyondPct : sessionName == "London" ? ldnMinCloseBeyondPct : sessionName == "Asia" ? asiaMinCloseBeyondPct : 0.17
+
+getMaxBreakoutWickPct(sessionName) =>
+    sessionName == "NY" ? nyMaxBreakoutWickPct : sessionName == "London" ? ldnMaxBreakoutWickPct : sessionName == "Asia" ? asiaMaxBreakoutWickPct : 0.20
+
+getUseAtrOrbFilter(sessionName) =>
+    sessionName == "NY" ? nyUseAtrOrbFilter : sessionName == "London" ? ldnUseAtrOrbFilter : sessionName == "Asia" ? asiaUseAtrOrbFilter : true
+
+getMinOrbAtrPct(sessionName) =>
+    sessionName == "NY" ? nyMinOrbAtrPct : sessionName == "London" ? ldnMinOrbAtrPct : sessionName == "Asia" ? asiaMinOrbAtrPct : 0.17
+
+getMaxOrbAtrPct(sessionName) =>
+    sessionName == "NY" ? nyMaxOrbAtrPct : sessionName == "London" ? ldnMaxOrbAtrPct : sessionName == "Asia" ? asiaMaxOrbAtrPct : 1.20
+
+getUsePrevDayCompressionFilter(sessionName) =>
+    sessionName == "NY" ? nyUsePrevDayCompressionFilter : sessionName == "London" ? ldnUsePrevDayCompressionFilter : sessionName == "Asia" ? asiaUsePrevDayCompressionFilter : false
+
+getMaxPrevDayRangeAtrPct(sessionName) =>
+    sessionName == "NY" ? nyMaxPrevDayRangeAtrPct : sessionName == "London" ? ldnMaxPrevDayRangeAtrPct : sessionName == "Asia" ? asiaMaxPrevDayRangeAtrPct : 0.80
+
+getUsePrevDayTrendAlignment(sessionName) =>
+    sessionName == "NY" ? nyUsePrevDayTrendAlignment : sessionName == "London" ? ldnUsePrevDayTrendAlignment : sessionName == "Asia" ? asiaUsePrevDayTrendAlignment : false
+
+getUseTimeExit(sessionName) =>
+    sessionName == "NY" ? nyUseTimeExit : sessionName == "London" ? ldnUseTimeExit : sessionName == "Asia" ? asiaUseTimeExit : true
+
+getMaxBarsInTrade(sessionName) =>
+    sessionName == "NY" ? nyMaxBarsInTrade : sessionName == "London" ? ldnMaxBarsInTrade : sessionName == "Asia" ? asiaMaxBarsInTrade : 24
+
+getTimeExitMode(sessionName) =>
+    sessionName == "NY" ? nyTimeExitMode : sessionName == "London" ? ldnTimeExitMode : sessionName == "Asia" ? asiaTimeExitMode : "Any"
+
+getResetTimeExitOnTrailStep(sessionName) =>
+    sessionName == "NY" ? nyResetTimeExitOnTrailStep : sessionName == "London" ? ldnResetTimeExitOnTrailStep : sessionName == "Asia" ? asiaResetTimeExitOnTrailStep : false
+
+// =========================
 // Entry rules (evaluated on CURRENT CHART timeframe)
 // =========================
-bodyCloseLong(orbHigh) =>
-    close > orbHigh and close > open and (not noWickStrict or low >= orbHigh)
+bodyCloseLong(sessionName, orbHigh) =>
+    close > orbHigh and close > open and (not getNoWickStrict(sessionName) or low >= orbHigh)
 
-bodyCloseShort(orbLow) =>
-    close < orbLow and close < open and (not noWickStrict or high <= orbLow)
+bodyCloseShort(sessionName, orbLow) =>
+    close < orbLow and close < open and (not getNoWickStrict(sessionName) or high <= orbLow)
 
-displacementLong(orbHigh) =>
+displacementLong(sessionName, orbHigh) =>
     candleRange = high - low
     breakoutWick = high - close
     closeBeyond = close - orbHigh
-    candleRange > 0 and closeBeyond >= candleRange * minCloseBeyondPct and breakoutWick <= candleRange * maxBreakoutWickPct
+    candleRange > 0 and closeBeyond >= candleRange * getMinCloseBeyondPct(sessionName) and breakoutWick <= candleRange * getMaxBreakoutWickPct(sessionName)
 
-displacementShort(orbLow) =>
+displacementShort(sessionName, orbLow) =>
     candleRange = high - low
     breakoutWick = close - low
     closeBeyond = orbLow - close
-    candleRange > 0 and closeBeyond >= candleRange * minCloseBeyondPct and breakoutWick <= candleRange * maxBreakoutWickPct
+    candleRange > 0 and closeBeyond >= candleRange * getMinCloseBeyondPct(sessionName) and breakoutWick <= candleRange * getMaxBreakoutWickPct(sessionName)
 
-entryLongOk(orbHigh) =>
-    bodyCloseLong(orbHigh) and (not useDisplacementFilter or displacementLong(orbHigh))
+entryLongOk(sessionName, orbHigh) =>
+    bodyCloseLong(sessionName, orbHigh) and (not getUseDisplacementFilter(sessionName) or displacementLong(sessionName, orbHigh))
 
-entryShortOk(orbLow) =>
-    bodyCloseShort(orbLow) and (not useDisplacementFilter or displacementShort(orbLow))
+entryShortOk(sessionName, orbLow) =>
+    bodyCloseShort(sessionName, orbLow) and (not getUseDisplacementFilter(sessionName) or displacementShort(sessionName, orbLow))
 
 closeInsideOrb(orbHigh, orbLow) =>
     close <= orbHigh and close >= orbLow
@@ -344,28 +517,31 @@ getSessionCloseTs(sessionName) =>
      na
 
 sessionEntryAllowed(sessionName) =>
-    sessionName == "NY" ? entryTimeAllowedWithWeekdayOverrides(nyTZ, nyUseNoTradeAfter, nyLastEntryH, nyLastEntryM, nyUseWeekdaySpecificCutoffs, nyMonUseNoTradeAfter, nyMonLastEntryH, nyMonLastEntryM, nyTueUseNoTradeAfter, nyTueLastEntryH, nyTueLastEntryM, nyWedUseNoTradeAfter, nyWedLastEntryH, nyWedLastEntryM, nyThuUseNoTradeAfter, nyThuLastEntryH, nyThuLastEntryM, nyFriUseNoTradeAfter, nyFriLastEntryH, nyFriLastEntryM) : sessionName == "London" ? entryTimeAllowedWithWeekdayOverrides(ldnTZ, ldnUseNoTradeAfter, ldnLastEntryH, ldnLastEntryM, ldnUseWeekdaySpecificCutoffs, ldnMonUseNoTradeAfter, ldnMonLastEntryH, ldnMonLastEntryM, ldnTueUseNoTradeAfter, ldnTueLastEntryH, ldnTueLastEntryM, ldnWedUseNoTradeAfter, ldnWedLastEntryH, ldnWedLastEntryM, ldnThuUseNoTradeAfter, ldnThuLastEntryH, ldnThuLastEntryM, ldnFriUseNoTradeAfter, ldnFriLastEntryH, ldnFriLastEntryM) : sessionName == "Asia" ? entryTimeAllowedWithWeekdayOverrides(asiaTZ, asiaUseNoTradeAfter, asiaLastEntryH, asiaLastEntryM, asiaUseWeekdaySpecificCutoffs, asiaMonUseNoTradeAfter, asiaMonLastEntryH, asiaMonLastEntryM, asiaTueUseNoTradeAfter, asiaTueLastEntryH, asiaTueLastEntryM, asiaWedUseNoTradeAfter, asiaWedLastEntryH, asiaWedLastEntryM, asiaThuUseNoTradeAfter, asiaThuLastEntryH, asiaThuLastEntryM, asiaFriUseNoTradeAfter, asiaFriLastEntryH, asiaFriLastEntryM) : true
+    sessionName == "NY" ? entryTimeAllowedWithWeekdayOverrides(nyTZ, nyUseNoTradeAfter, nyLastEntryH, nyLastEntryM, nyUseWeekdaySpecificCutoffs, nyMonUseNoTradeAfter, nyMonLastEntryH, nyMonLastEntryM, nyTueUseNoTradeAfter, nyTueLastEntryH, nyTueLastEntryM, nyWedUseNoTradeAfter, nyWedLastEntryH, nyWedLastEntryM, nyThuUseNoTradeAfter, nyThuLastEntryH, nyThuLastEntryM, nyFriUseNoTradeAfter, nyFriLastEntryH, nyFriLastEntryM) :
+     sessionName == "London" ? entryTimeAllowedWithWeekdayOverrides(ldnTZ, ldnUseNoTradeAfter, ldnLastEntryH, ldnLastEntryM, ldnUseWeekdaySpecificCutoffs, ldnMonUseNoTradeAfter, ldnMonLastEntryH, ldnMonLastEntryM, ldnTueUseNoTradeAfter, ldnTueLastEntryH, ldnTueLastEntryM, ldnWedUseNoTradeAfter, ldnWedLastEntryH, ldnWedLastEntryM, ldnThuUseNoTradeAfter, ldnThuLastEntryH, ldnThuLastEntryM, ldnFriUseNoTradeAfter, ldnFriLastEntryH, ldnFriLastEntryM) :
+     sessionName == "Asia" ? entryTimeAllowedWithWeekdayOverrides(asiaTZ, asiaUseNoTradeAfter, asiaLastEntryH, asiaLastEntryM, asiaUseWeekdaySpecificCutoffs, asiaMonUseNoTradeAfter, asiaMonLastEntryH, asiaMonLastEntryM, asiaTueUseNoTradeAfter, asiaTueLastEntryH, asiaTueLastEntryM, asiaWedUseNoTradeAfter, asiaWedLastEntryH, asiaWedLastEntryM, asiaThuUseNoTradeAfter, asiaThuLastEntryH, asiaThuLastEntryM, asiaFriUseNoTradeAfter, asiaFriLastEntryH, asiaFriLastEntryM) :
+     true
 
-orbAtrOk(orbSize, atrValue) =>
-    not useAtrOrbFilter or (not na(orbSize) and not na(atrValue) and atrValue > 0 and orbSize / atrValue >= minOrbAtrPct and orbSize / atrValue <= maxOrbAtrPct)
+orbAtrOk(sessionName, orbSize, atrValue) =>
+    not getUseAtrOrbFilter(sessionName) or (not na(orbSize) and not na(atrValue) and atrValue > 0 and orbSize / atrValue >= getMinOrbAtrPct(sessionName) and orbSize / atrValue <= getMaxOrbAtrPct(sessionName))
 
-prevDayCompressionOk(prevDayRange, atrValue) =>
-    not usePrevDayCompressionFilter or (not na(prevDayRange) and not na(atrValue) and atrValue > 0 and prevDayRange / atrValue <= maxPrevDayRangeAtrPct)
+prevDayCompressionOk(sessionName, prevDayRange, atrValue) =>
+    not getUsePrevDayCompressionFilter(sessionName) or (not na(prevDayRange) and not na(atrValue) and atrValue > 0 and prevDayRange / atrValue <= getMaxPrevDayRangeAtrPct(sessionName))
 
-prevDayTrendLongOk(prevDayOpen, prevDayClose) =>
-    not usePrevDayTrendAlignment or (not na(prevDayOpen) and not na(prevDayClose) and prevDayClose > prevDayOpen)
+prevDayTrendLongOk(sessionName, prevDayOpen, prevDayClose) =>
+    not getUsePrevDayTrendAlignment(sessionName) or (not na(prevDayOpen) and not na(prevDayClose) and prevDayClose > prevDayOpen)
 
-prevDayTrendShortOk(prevDayOpen, prevDayClose) =>
-    not usePrevDayTrendAlignment or (not na(prevDayOpen) and not na(prevDayClose) and prevDayClose < prevDayOpen)
+prevDayTrendShortOk(sessionName, prevDayOpen, prevDayClose) =>
+    not getUsePrevDayTrendAlignment(sessionName) or (not na(prevDayOpen) and not na(prevDayClose) and prevDayClose < prevDayOpen)
 
 overnightAtrOk(overnightSize, atrValue) =>
     not useOvernightRangeFilter or (not na(overnightSize) and not na(atrValue) and atrValue > 0 and overnightSize / atrValue >= minOvernightAtrPct and overnightSize / atrValue <= maxOvernightAtrPct)
 
-breakoutIsLarge(candleRange, atrValue) =>
-    useLargeBreakoutRetest and not na(candleRange) and not na(atrValue) and atrValue > 0 and candleRange / atrValue >= largeBreakoutAtrThreshold
+breakoutIsLarge(sessionName, candleRange, atrValue) =>
+    getUseLargeBreakoutRetest(sessionName) and not na(candleRange) and not na(atrValue) and atrValue > 0 and candleRange / atrValue >= getLargeBreakoutAtrThreshold(sessionName)
 
-calcRetestLevel(isLong, orbHigh, orbLow, breakoutHigh, breakoutLow) =>
-    retestLevelMode == "ORB Boundary" ? (isLong ? orbHigh : orbLow) : ((breakoutHigh + breakoutLow) / 2.0)
+calcRetestLevel(sessionName, isLong, orbHigh, orbLow, breakoutHigh, breakoutLow) =>
+    getRetestLevelMode(sessionName) == "ORB Boundary" ? (isLong ? orbHigh : orbLow) : ((breakoutHigh + breakoutLow) / 2.0)
 
 // =========================
 // ORB engine on 1m (range accuracy)
@@ -626,107 +802,107 @@ if na(lastDay) or curDay != lastDay
 // =========================
 // Breakout state management
 // =========================
-nyLongPathActive   = nyTradeWindowActive   and not nyLongDead   and ((nyLongTradeCount == 0 and not nyTraded)   or (allowSecondBreak and nyLongTradeCount == 1 and nyLongRetryEligible))
-nyShortPathActive  = nyTradeWindowActive   and not nyShortDead  and ((nyShortTradeCount == 0 and not nyTraded)  or (allowSecondBreak and nyShortTradeCount == 1 and nyShortRetryEligible))
-ldnLongPathActive  = ldnTradeWindowActive  and not ldnLongDead  and ((ldnLongTradeCount == 0 and not ldnTraded) or (allowSecondBreak and ldnLongTradeCount == 1 and ldnLongRetryEligible))
-ldnShortPathActive = ldnTradeWindowActive  and not ldnShortDead and ((ldnShortTradeCount == 0 and not ldnTraded) or (allowSecondBreak and ldnShortTradeCount == 1 and ldnShortRetryEligible))
-asiaLongPathActive = asiaTradeWindowActive and not asiaLongDead and ((asiaLongTradeCount == 0 and not asiaTraded) or (allowSecondBreak and asiaLongTradeCount == 1 and asiaLongRetryEligible))
-asiaShortPathActive = asiaTradeWindowActive and not asiaShortDead and ((asiaShortTradeCount == 0 and not asiaTraded) or (allowSecondBreak and asiaShortTradeCount == 1 and asiaShortRetryEligible))
+nyLongPathActive   = nyTradeWindowActive   and not nyLongDead   and ((nyLongTradeCount == 0 and not nyTraded)   or (getAllowSecondBreak("NY") and nyLongTradeCount == 1 and nyLongRetryEligible))
+nyShortPathActive  = nyTradeWindowActive   and not nyShortDead  and ((nyShortTradeCount == 0 and not nyTraded)  or (getAllowSecondBreak("NY") and nyShortTradeCount == 1 and nyShortRetryEligible))
+ldnLongPathActive  = ldnTradeWindowActive  and not ldnLongDead  and ((ldnLongTradeCount == 0 and not ldnTraded) or (getAllowSecondBreak("London") and ldnLongTradeCount == 1 and ldnLongRetryEligible))
+ldnShortPathActive = ldnTradeWindowActive  and not ldnShortDead and ((ldnShortTradeCount == 0 and not ldnTraded) or (getAllowSecondBreak("London") and ldnShortTradeCount == 1 and ldnShortRetryEligible))
+asiaLongPathActive = asiaTradeWindowActive and not asiaLongDead and ((asiaLongTradeCount == 0 and not asiaTraded) or (getAllowSecondBreak("Asia") and asiaLongTradeCount == 1 and asiaLongRetryEligible))
+asiaShortPathActive = asiaTradeWindowActive and not asiaShortDead and ((asiaShortTradeCount == 0 and not asiaTraded) or (getAllowSecondBreak("Asia") and asiaShortTradeCount == 1 and asiaShortRetryEligible))
 
 if strategy.position_size == 0 and not pendingConfirmActive and not pendingRetestActive
     if nyLongPathActive
         if closeInsideOrb(nyHigh, nyLow)
             nyLongNeedsReset := false
             nyLongOutsideCount := 0
-            if allowSecondBreak and nyLongRetryEligible and nyLongTradeCount == 1
+            if getAllowSecondBreak("NY") and nyLongRetryEligible and nyLongTradeCount == 1
                 nyLongRetryArmed := true
         else if closeAboveOrb(nyHigh)
             if nyLongNeedsReset
                 nyLongOutsideCount += 1
-                if breakoutMode == "One-Bar Grace Then Reset" and nyLongOutsideCount > 1
+                if getBreakoutMode("NY") == "One-Bar Grace Then Reset" and nyLongOutsideCount > 1
                     nyLongDead := true
 
     if nyShortPathActive
         if closeInsideOrb(nyHigh, nyLow)
             nyShortNeedsReset := false
             nyShortOutsideCount := 0
-            if allowSecondBreak and nyShortRetryEligible and nyShortTradeCount == 1
+            if getAllowSecondBreak("NY") and nyShortRetryEligible and nyShortTradeCount == 1
                 nyShortRetryArmed := true
         else if closeBelowOrb(nyLow)
             if nyShortNeedsReset
                 nyShortOutsideCount += 1
-                if breakoutMode == "One-Bar Grace Then Reset" and nyShortOutsideCount > 1
+                if getBreakoutMode("NY") == "One-Bar Grace Then Reset" and nyShortOutsideCount > 1
                     nyShortDead := true
 
     if ldnLongPathActive
         if closeInsideOrb(ldnHigh, ldnLow)
             ldnLongNeedsReset := false
             ldnLongOutsideCount := 0
-            if allowSecondBreak and ldnLongRetryEligible and ldnLongTradeCount == 1
+            if getAllowSecondBreak("London") and ldnLongRetryEligible and ldnLongTradeCount == 1
                 ldnLongRetryArmed := true
         else if closeAboveOrb(ldnHigh)
             if ldnLongNeedsReset
                 ldnLongOutsideCount += 1
-                if breakoutMode == "One-Bar Grace Then Reset" and ldnLongOutsideCount > 1
+                if getBreakoutMode("London") == "One-Bar Grace Then Reset" and ldnLongOutsideCount > 1
                     ldnLongDead := true
 
     if ldnShortPathActive
         if closeInsideOrb(ldnHigh, ldnLow)
             ldnShortNeedsReset := false
             ldnShortOutsideCount := 0
-            if allowSecondBreak and ldnShortRetryEligible and ldnShortTradeCount == 1
+            if getAllowSecondBreak("London") and ldnShortRetryEligible and ldnShortTradeCount == 1
                 ldnShortRetryArmed := true
         else if closeBelowOrb(ldnLow)
             if ldnShortNeedsReset
                 ldnShortOutsideCount += 1
-                if breakoutMode == "One-Bar Grace Then Reset" and ldnShortOutsideCount > 1
+                if getBreakoutMode("London") == "One-Bar Grace Then Reset" and ldnShortOutsideCount > 1
                     ldnShortDead := true
 
     if asiaLongPathActive
         if closeInsideOrb(asiaHigh, asiaLow)
             asiaLongNeedsReset := false
             asiaLongOutsideCount := 0
-            if allowSecondBreak and asiaLongRetryEligible and asiaLongTradeCount == 1
+            if getAllowSecondBreak("Asia") and asiaLongRetryEligible and asiaLongTradeCount == 1
                 asiaLongRetryArmed := true
         else if closeAboveOrb(asiaHigh)
             if asiaLongNeedsReset
                 asiaLongOutsideCount += 1
-                if breakoutMode == "One-Bar Grace Then Reset" and asiaLongOutsideCount > 1
+                if getBreakoutMode("Asia") == "One-Bar Grace Then Reset" and asiaLongOutsideCount > 1
                     asiaLongDead := true
 
     if asiaShortPathActive
         if closeInsideOrb(asiaHigh, asiaLow)
             asiaShortNeedsReset := false
             asiaShortOutsideCount := 0
-            if allowSecondBreak and asiaShortRetryEligible and asiaShortTradeCount == 1
+            if getAllowSecondBreak("Asia") and asiaShortRetryEligible and asiaShortTradeCount == 1
                 asiaShortRetryArmed := true
         else if closeBelowOrb(asiaLow)
             if asiaShortNeedsReset
                 asiaShortOutsideCount += 1
-                if breakoutMode == "One-Bar Grace Then Reset" and asiaShortOutsideCount > 1
+                if getBreakoutMode("Asia") == "One-Bar Grace Then Reset" and asiaShortOutsideCount > 1
                     asiaShortDead := true
 
 // =========================
 // Entry permission logic by mode
 // =========================
-canConsiderLong(ready, traded, dead, needsReset, orbHigh, tradeCount, retryArmed) =>
+canConsiderLong(sessionName, ready, traded, dead, needsReset, orbHigh, tradeCount, retryArmed) =>
     bool firstTradeAllowed  = tradeCount == 0 and not traded
-    bool secondTradeAllowed = allowSecondBreak and tradeCount == 1 and retryArmed
+    bool secondTradeAllowed = getAllowSecondBreak(sessionName) and tradeCount == 1 and retryArmed
     ready and strategy.position_size == 0 and not dead and (firstTradeAllowed or secondTradeAllowed) and (
-         breakoutMode == "Current Behavior" ? closeAboveOrb(orbHigh) :
-         breakoutMode == "First Qualified Close Only" ? closeAboveOrb(orbHigh) and not needsReset :
-         breakoutMode == "Reset Inside Then Requalify" ? closeAboveOrb(orbHigh) and not needsReset :
-         breakoutMode == "One-Bar Grace Then Reset" ? closeAboveOrb(orbHigh) :
+         getBreakoutMode(sessionName) == "Current Behavior" ? closeAboveOrb(orbHigh) :
+         getBreakoutMode(sessionName) == "First Qualified Close Only" ? closeAboveOrb(orbHigh) and not needsReset :
+         getBreakoutMode(sessionName) == "Reset Inside Then Requalify" ? closeAboveOrb(orbHigh) and not needsReset :
+         getBreakoutMode(sessionName) == "One-Bar Grace Then Reset" ? closeAboveOrb(orbHigh) :
          false)
 
-canConsiderShort(ready, traded, dead, needsReset, orbLow, tradeCount, retryArmed) =>
+canConsiderShort(sessionName, ready, traded, dead, needsReset, orbLow, tradeCount, retryArmed) =>
     bool firstTradeAllowed  = tradeCount == 0 and not traded
-    bool secondTradeAllowed = allowSecondBreak and tradeCount == 1 and retryArmed
+    bool secondTradeAllowed = getAllowSecondBreak(sessionName) and tradeCount == 1 and retryArmed
     ready and strategy.position_size == 0 and not dead and (firstTradeAllowed or secondTradeAllowed) and (
-         breakoutMode == "Current Behavior" ? closeBelowOrb(orbLow) :
-         breakoutMode == "First Qualified Close Only" ? closeBelowOrb(orbLow) and not needsReset :
-         breakoutMode == "Reset Inside Then Requalify" ? closeBelowOrb(orbLow) and not needsReset :
-         breakoutMode == "One-Bar Grace Then Reset" ? closeBelowOrb(orbLow) :
+         getBreakoutMode(sessionName) == "Current Behavior" ? closeBelowOrb(orbLow) :
+         getBreakoutMode(sessionName) == "First Qualified Close Only" ? closeBelowOrb(orbLow) and not needsReset :
+         getBreakoutMode(sessionName) == "Reset Inside Then Requalify" ? closeBelowOrb(orbLow) and not needsReset :
+         getBreakoutMode(sessionName) == "One-Bar Grace Then Reset" ? closeBelowOrb(orbLow) :
          false)
 
 // =========================
@@ -746,109 +922,119 @@ bool nyEntryTimeOk   = sessionEntryAllowed("NY")
 bool ldnEntryTimeOk  = sessionEntryAllowed("London")
 bool asiaEntryTimeOk = sessionEntryAllowed("Asia")
 
-bool prevDayCompressionPass = prevDayCompressionOk(prevDayRange, dailyAtrValue)
-bool prevDayTrendLongPass = prevDayTrendLongOk(prevDayOpen, prevDayClose)
-bool prevDayTrendShortPass = prevDayTrendShortOk(prevDayOpen, prevDayClose)
+bool nyPrevDayCompressionPass   = prevDayCompressionOk("NY", prevDayRange, dailyAtrValue)
+bool nyPrevDayTrendLongPass     = prevDayTrendLongOk("NY", prevDayOpen, prevDayClose)
+bool nyPrevDayTrendShortPass    = prevDayTrendShortOk("NY", prevDayOpen, prevDayClose)
 
-nyLongCandidate   = nyEntryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh, nyLongTradeCount, nyLongRetryArmed)
-nyShortCandidate  = nyEntryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow, nyShortTradeCount, nyShortRetryArmed)
-ldnLongCandidate  = ldnEntryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, dailyAtrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh, ldnLongTradeCount, ldnLongRetryArmed)
-ldnShortCandidate = ldnEntryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, dailyAtrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow, ldnShortTradeCount, ldnShortRetryArmed)
-asiaLongCandidate = asiaEntryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, dailyAtrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh, asiaLongTradeCount, asiaLongRetryArmed)
-asiaShortCandidate = asiaEntryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, dailyAtrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow, asiaShortTradeCount, asiaShortRetryArmed)
+bool ldnPrevDayCompressionPass  = prevDayCompressionOk("London", prevDayRange, dailyAtrValue)
+bool ldnPrevDayTrendLongPass    = prevDayTrendLongOk("London", prevDayOpen, prevDayClose)
+bool ldnPrevDayTrendShortPass   = prevDayTrendShortOk("London", prevDayOpen, prevDayClose)
+
+bool asiaPrevDayCompressionPass = prevDayCompressionOk("Asia", prevDayRange, dailyAtrValue)
+bool asiaPrevDayTrendLongPass   = prevDayTrendLongOk("Asia", prevDayOpen, prevDayClose)
+bool asiaPrevDayTrendShortPass  = prevDayTrendShortOk("Asia", prevDayOpen, prevDayClose)
+
+nyLongCandidate   = nyEntryTimeOk and nyPrevDayCompressionPass and nyPrevDayTrendLongPass and nyTradeWindowActive and orbAtrOk("NY", nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderLong("NY", nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh, nyLongTradeCount, nyLongRetryArmed)
+nyShortCandidate  = nyEntryTimeOk and nyPrevDayCompressionPass and nyPrevDayTrendShortPass and nyTradeWindowActive and orbAtrOk("NY", nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderShort("NY", nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow, nyShortTradeCount, nyShortRetryArmed)
+
+ldnLongCandidate  = ldnEntryTimeOk and ldnPrevDayCompressionPass and ldnPrevDayTrendLongPass and ldnTradeWindowActive and orbAtrOk("London", ldnOrbSize, dailyAtrValue) and canConsiderLong("London", ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh, ldnLongTradeCount, ldnLongRetryArmed)
+ldnShortCandidate = ldnEntryTimeOk and ldnPrevDayCompressionPass and ldnPrevDayTrendShortPass and ldnTradeWindowActive and orbAtrOk("London", ldnOrbSize, dailyAtrValue) and canConsiderShort("London", ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow, ldnShortTradeCount, ldnShortRetryArmed)
+
+asiaLongCandidate = asiaEntryTimeOk and asiaPrevDayCompressionPass and asiaPrevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk("Asia", asiaOrbSize, dailyAtrValue) and canConsiderLong("Asia", asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh, asiaLongTradeCount, asiaLongRetryArmed)
+asiaShortCandidate = asiaEntryTimeOk and asiaPrevDayCompressionPass and asiaPrevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk("Asia", asiaOrbSize, dailyAtrValue) and canConsiderShort("Asia", asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow, asiaShortTradeCount, asiaShortRetryArmed)
 
 // Raw breakout events on the breakout bar
-nyLongBreakout   = nyLongCandidate and entryLongOk(nyHigh)
-nyShortBreakout  = nyShortCandidate and entryShortOk(nyLow)
-ldnLongBreakout  = ldnLongCandidate and entryLongOk(ldnHigh)
-ldnShortBreakout = ldnShortCandidate and entryShortOk(ldnLow)
-asiaLongBreakout = asiaLongCandidate and entryLongOk(asiaHigh)
-asiaShortBreakout = asiaShortCandidate and entryShortOk(asiaLow)
+nyLongBreakout   = nyLongCandidate and entryLongOk("NY", nyHigh)
+nyShortBreakout  = nyShortCandidate and entryShortOk("NY", nyLow)
+ldnLongBreakout  = ldnLongCandidate and entryLongOk("London", ldnHigh)
+ldnShortBreakout = ldnShortCandidate and entryShortOk("London", ldnLow)
+asiaLongBreakout = asiaLongCandidate and entryLongOk("Asia", asiaHigh)
+asiaShortBreakout = asiaShortCandidate and entryShortOk("Asia", asiaLow)
 
 // Mark failed breakout attempts based on mode
 if strategy.position_size == 0 and not pendingConfirmActive and not pendingRetestActive
-    if nyLongCandidate and not entryLongOk(nyHigh)
-        if breakoutMode == "First Qualified Close Only"
+    if nyLongCandidate and not entryLongOk("NY", nyHigh)
+        if getBreakoutMode("NY") == "First Qualified Close Only"
             nyLongDead := true
             nyLongNeedsReset := true
-        else if breakoutMode == "Reset Inside Then Requalify"
+        else if getBreakoutMode("NY") == "Reset Inside Then Requalify"
             nyLongNeedsReset := true
             nyLongOutsideCount := 0
-        else if breakoutMode == "One-Bar Grace Then Reset"
+        else if getBreakoutMode("NY") == "One-Bar Grace Then Reset"
             nyLongNeedsReset := true
             nyLongOutsideCount := 0
 
-    if nyShortCandidate and not entryShortOk(nyLow)
-        if breakoutMode == "First Qualified Close Only"
+    if nyShortCandidate and not entryShortOk("NY", nyLow)
+        if getBreakoutMode("NY") == "First Qualified Close Only"
             nyShortDead := true
             nyShortNeedsReset := true
-        else if breakoutMode == "Reset Inside Then Requalify"
+        else if getBreakoutMode("NY") == "Reset Inside Then Requalify"
             nyShortNeedsReset := true
             nyShortOutsideCount := 0
-        else if breakoutMode == "One-Bar Grace Then Reset"
+        else if getBreakoutMode("NY") == "One-Bar Grace Then Reset"
             nyShortNeedsReset := true
             nyShortOutsideCount := 0
 
-    if ldnLongCandidate and not entryLongOk(ldnHigh)
-        if breakoutMode == "First Qualified Close Only"
+    if ldnLongCandidate and not entryLongOk("London", ldnHigh)
+        if getBreakoutMode("London") == "First Qualified Close Only"
             ldnLongDead := true
             ldnLongNeedsReset := true
-        else if breakoutMode == "Reset Inside Then Requalify"
+        else if getBreakoutMode("London") == "Reset Inside Then Requalify"
             ldnLongNeedsReset := true
             ldnLongOutsideCount := 0
-        else if breakoutMode == "One-Bar Grace Then Reset"
+        else if getBreakoutMode("London") == "One-Bar Grace Then Reset"
             ldnLongNeedsReset := true
             ldnLongOutsideCount := 0
 
-    if ldnShortCandidate and not entryShortOk(ldnLow)
-        if breakoutMode == "First Qualified Close Only"
+    if ldnShortCandidate and not entryShortOk("London", ldnLow)
+        if getBreakoutMode("London") == "First Qualified Close Only"
             ldnShortDead := true
             ldnShortNeedsReset := true
-        else if breakoutMode == "Reset Inside Then Requalify"
+        else if getBreakoutMode("London") == "Reset Inside Then Requalify"
             ldnShortNeedsReset := true
             ldnShortOutsideCount := 0
-        else if breakoutMode == "One-Bar Grace Then Reset"
+        else if getBreakoutMode("London") == "One-Bar Grace Then Reset"
             ldnShortNeedsReset := true
             ldnShortOutsideCount := 0
 
-    if asiaLongCandidate and not entryLongOk(asiaHigh)
-        if breakoutMode == "First Qualified Close Only"
+    if asiaLongCandidate and not entryLongOk("Asia", asiaHigh)
+        if getBreakoutMode("Asia") == "First Qualified Close Only"
             asiaLongDead := true
             asiaLongNeedsReset := true
-        else if breakoutMode == "Reset Inside Then Requalify"
+        else if getBreakoutMode("Asia") == "Reset Inside Then Requalify"
             asiaLongNeedsReset := true
             asiaLongOutsideCount := 0
-        else if breakoutMode == "One-Bar Grace Then Reset"
+        else if getBreakoutMode("Asia") == "One-Bar Grace Then Reset"
             asiaLongNeedsReset := true
             asiaLongOutsideCount := 0
 
-    if asiaShortCandidate and not entryShortOk(asiaLow)
-        if breakoutMode == "First Qualified Close Only"
+    if asiaShortCandidate and not entryShortOk("Asia", asiaLow)
+        if getBreakoutMode("Asia") == "First Qualified Close Only"
             asiaShortDead := true
             asiaShortNeedsReset := true
-        else if breakoutMode == "Reset Inside Then Requalify"
+        else if getBreakoutMode("Asia") == "Reset Inside Then Requalify"
             asiaShortNeedsReset := true
             asiaShortOutsideCount := 0
-        else if breakoutMode == "One-Bar Grace Then Reset"
+        else if getBreakoutMode("Asia") == "One-Bar Grace Then Reset"
             asiaShortNeedsReset := true
             asiaShortOutsideCount := 0
 
 // Determine breakout size for routing
 float breakoutCandleRange = high - low
 
-// FIX 1: large breakout detection now uses chart-timeframe ATR, not daily ATR
-bool nyLongLargeBreakout   = nyLongBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
-bool nyShortLargeBreakout  = nyShortBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
-bool ldnLongLargeBreakout  = ldnLongBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
-bool ldnShortLargeBreakout = ldnShortBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
-bool asiaLongLargeBreakout = asiaLongBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
-bool asiaShortLargeBreakout = asiaShortBreakout and breakoutIsLarge(breakoutCandleRange, breakoutAtrLocal)
+// large breakout detection now uses chart-timeframe ATR, not daily ATR
+bool nyLongLargeBreakout   = nyLongBreakout and breakoutIsLarge("NY", breakoutCandleRange, breakoutAtrLocal)
+bool nyShortLargeBreakout  = nyShortBreakout and breakoutIsLarge("NY", breakoutCandleRange, breakoutAtrLocal)
+bool ldnLongLargeBreakout  = ldnLongBreakout and breakoutIsLarge("London", breakoutCandleRange, breakoutAtrLocal)
+bool ldnShortLargeBreakout = ldnShortBreakout and breakoutIsLarge("London", breakoutCandleRange, breakoutAtrLocal)
+bool asiaLongLargeBreakout = asiaLongBreakout and breakoutIsLarge("Asia", breakoutCandleRange, breakoutAtrLocal)
+bool asiaShortLargeBreakout = asiaShortBreakout and breakoutIsLarge("Asia", breakoutCandleRange, breakoutAtrLocal)
 
 // =========================
 // Pending retest evaluation
 // =========================
 if pendingRetestActive and strategy.position_size == 0
-    bool retestExpired = not na(pendingRetestBarIndex) and bar_index > pendingRetestBarIndex + maxRetestBars
+    bool retestExpired = not na(pendingRetestBarIndex) and bar_index > pendingRetestBarIndex + getMaxRetestBars(pendingRetestSession)
     bool retestSameBarBlocked = not na(pendingRetestBarIndex) and bar_index <= pendingRetestBarIndex
     bool retestStoppedOut = pendingRetestDirection == "Long" ? low <= pendingRetestStop : high >= pendingRetestStop
     bool retestEntryTimeOk = sessionEntryAllowed(pendingRetestSession)
@@ -864,7 +1050,6 @@ if pendingRetestActive and strategy.position_size == 0
         pendingRetestBarIndex := na
         pendingRetestSessionCloseTs := na
     else if not retestSameBarBlocked and retestEntryTimeOk
-        // FIX 2: require candle color agreement on retest confirmation
         bool longRetestHit =
              pendingRetestDirection == "Long" and
              low <= pendingRetestLevel and
@@ -1023,68 +1208,68 @@ if pendingConfirmActive and strategy.position_size == 0 and not longSignal and n
                 asiaShortDead := true
         else
             if pendingConfirmSession == "NY" and pendingConfirmDirection == "Long"
-                if breakoutMode == "First Qualified Close Only"
+                if getBreakoutMode("NY") == "First Qualified Close Only"
                     nyLongDead := true
                     nyLongNeedsReset := true
-                else if breakoutMode == "Reset Inside Then Requalify"
+                else if getBreakoutMode("NY") == "Reset Inside Then Requalify"
                     nyLongNeedsReset := true
                     nyLongOutsideCount := 0
-                else if breakoutMode == "One-Bar Grace Then Reset"
+                else if getBreakoutMode("NY") == "One-Bar Grace Then Reset"
                     nyLongNeedsReset := true
                     nyLongOutsideCount := 0
 
             if pendingConfirmSession == "NY" and pendingConfirmDirection == "Short"
-                if breakoutMode == "First Qualified Close Only"
+                if getBreakoutMode("NY") == "First Qualified Close Only"
                     nyShortDead := true
                     nyShortNeedsReset := true
-                else if breakoutMode == "Reset Inside Then Requalify"
+                else if getBreakoutMode("NY") == "Reset Inside Then Requalify"
                     nyShortNeedsReset := true
                     nyShortOutsideCount := 0
-                else if breakoutMode == "One-Bar Grace Then Reset"
+                else if getBreakoutMode("NY") == "One-Bar Grace Then Reset"
                     nyShortNeedsReset := true
                     nyShortOutsideCount := 0
 
             if pendingConfirmSession == "London" and pendingConfirmDirection == "Long"
-                if breakoutMode == "First Qualified Close Only"
+                if getBreakoutMode("London") == "First Qualified Close Only"
                     ldnLongDead := true
                     ldnLongNeedsReset := true
-                else if breakoutMode == "Reset Inside Then Requalify"
+                else if getBreakoutMode("London") == "Reset Inside Then Requalify"
                     ldnLongNeedsReset := true
                     ldnLongOutsideCount := 0
-                else if breakoutMode == "One-Bar Grace Then Reset"
+                else if getBreakoutMode("London") == "One-Bar Grace Then Reset"
                     ldnLongNeedsReset := true
                     ldnLongOutsideCount := 0
 
             if pendingConfirmSession == "London" and pendingConfirmDirection == "Short"
-                if breakoutMode == "First Qualified Close Only"
+                if getBreakoutMode("London") == "First Qualified Close Only"
                     ldnShortDead := true
                     ldnShortNeedsReset := true
-                else if breakoutMode == "Reset Inside Then Requalify"
+                else if getBreakoutMode("London") == "Reset Inside Then Requalify"
                     ldnShortNeedsReset := true
                     ldnShortOutsideCount := 0
-                else if breakoutMode == "One-Bar Grace Then Reset"
+                else if getBreakoutMode("London") == "One-Bar Grace Then Reset"
                     ldnShortNeedsReset := true
                     ldnShortOutsideCount := 0
 
             if pendingConfirmSession == "Asia" and pendingConfirmDirection == "Long"
-                if breakoutMode == "First Qualified Close Only"
+                if getBreakoutMode("Asia") == "First Qualified Close Only"
                     asiaLongDead := true
                     asiaLongNeedsReset := true
-                else if breakoutMode == "Reset Inside Then Requalify"
+                else if getBreakoutMode("Asia") == "Reset Inside Then Requalify"
                     asiaLongNeedsReset := true
                     asiaLongOutsideCount := 0
-                else if breakoutMode == "One-Bar Grace Then Reset"
+                else if getBreakoutMode("Asia") == "One-Bar Grace Then Reset"
                     asiaLongNeedsReset := true
                     asiaLongOutsideCount := 0
 
             if pendingConfirmSession == "Asia" and pendingConfirmDirection == "Short"
-                if breakoutMode == "First Qualified Close Only"
+                if getBreakoutMode("Asia") == "First Qualified Close Only"
                     asiaShortDead := true
                     asiaShortNeedsReset := true
-                else if breakoutMode == "Reset Inside Then Requalify"
+                else if getBreakoutMode("Asia") == "Reset Inside Then Requalify"
                     asiaShortNeedsReset := true
                     asiaShortOutsideCount := 0
-                else if breakoutMode == "One-Bar Grace Then Reset"
+                else if getBreakoutMode("Asia") == "One-Bar Grace Then Reset"
                     asiaShortNeedsReset := true
                     asiaShortOutsideCount := 0
 
@@ -1109,13 +1294,13 @@ if pendingConfirmActive and strategy.position_size == 0 and not longSignal and n
 // =========================
 if strategy.position_size == 0 and not pendingRetestActive and not pendingConfirmActive and not longSignal and not shortSignal
     // 1) Large breakout retest path
-    if useLargeBreakoutRetest
+    if getUseLargeBreakoutRetest("NY") or getUseLargeBreakoutRetest("London") or getUseLargeBreakoutRetest("Asia")
         if nyLongLargeBreakout
             pendingRetestActive := true
             pendingRetestSession := "NY"
             pendingRetestDirection := "Long"
             pendingRetestStop := low - buf
-            pendingRetestLevel := calcRetestLevel(true, nyHigh, nyLow, high, low)
+            pendingRetestLevel := calcRetestLevel("NY", true, nyHigh, nyLow, high, low)
             pendingRetestOrbHigh := nyHigh
             pendingRetestOrbLow := nyLow
             pendingRetestBarIndex := bar_index
@@ -1125,7 +1310,7 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingRetestSession := "NY"
             pendingRetestDirection := "Short"
             pendingRetestStop := high + buf
-            pendingRetestLevel := calcRetestLevel(false, nyHigh, nyLow, high, low)
+            pendingRetestLevel := calcRetestLevel("NY", false, nyHigh, nyLow, high, low)
             pendingRetestOrbHigh := nyHigh
             pendingRetestOrbLow := nyLow
             pendingRetestBarIndex := bar_index
@@ -1135,7 +1320,7 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingRetestSession := "London"
             pendingRetestDirection := "Long"
             pendingRetestStop := low - buf
-            pendingRetestLevel := calcRetestLevel(true, ldnHigh, ldnLow, high, low)
+            pendingRetestLevel := calcRetestLevel("London", true, ldnHigh, ldnLow, high, low)
             pendingRetestOrbHigh := ldnHigh
             pendingRetestOrbLow := ldnLow
             pendingRetestBarIndex := bar_index
@@ -1145,7 +1330,7 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingRetestSession := "London"
             pendingRetestDirection := "Short"
             pendingRetestStop := high + buf
-            pendingRetestLevel := calcRetestLevel(false, ldnHigh, ldnLow, high, low)
+            pendingRetestLevel := calcRetestLevel("London", false, ldnHigh, ldnLow, high, low)
             pendingRetestOrbHigh := ldnHigh
             pendingRetestOrbLow := ldnLow
             pendingRetestBarIndex := bar_index
@@ -1155,7 +1340,7 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingRetestSession := "Asia"
             pendingRetestDirection := "Long"
             pendingRetestStop := low - buf
-            pendingRetestLevel := calcRetestLevel(true, asiaHigh, asiaLow, high, low)
+            pendingRetestLevel := calcRetestLevel("Asia", true, asiaHigh, asiaLow, high, low)
             pendingRetestOrbHigh := asiaHigh
             pendingRetestOrbLow := asiaLow
             pendingRetestBarIndex := bar_index
@@ -1165,15 +1350,15 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingRetestSession := "Asia"
             pendingRetestDirection := "Short"
             pendingRetestStop := high + buf
-            pendingRetestLevel := calcRetestLevel(false, asiaHigh, asiaLow, high, low)
+            pendingRetestLevel := calcRetestLevel("Asia", false, asiaHigh, asiaLow, high, low)
             pendingRetestOrbHigh := asiaHigh
             pendingRetestOrbLow := asiaLow
             pendingRetestBarIndex := bar_index
             pendingRetestSessionCloseTs := getSessionCloseTs("Asia")
 
     // 2) Follow-through confirmation path for non-large breakouts
-    if not pendingRetestActive and useFollowThroughConfirmation
-        if nyLongBreakout and not nyLongLargeBreakout
+    if not pendingRetestActive
+        if getUseFollowThroughConfirmation("NY") and nyLongBreakout and not nyLongLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "NY"
             pendingConfirmDirection := "Long"
@@ -1185,7 +1370,7 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("NY")
-        else if nyShortBreakout and not nyShortLargeBreakout
+        else if getUseFollowThroughConfirmation("NY") and nyShortBreakout and not nyShortLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "NY"
             pendingConfirmDirection := "Short"
@@ -1197,7 +1382,7 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("NY")
-        else if ldnLongBreakout and not ldnLongLargeBreakout
+        else if getUseFollowThroughConfirmation("London") and ldnLongBreakout and not ldnLongLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "London"
             pendingConfirmDirection := "Long"
@@ -1209,7 +1394,7 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("London")
-        else if ldnShortBreakout and not ldnShortLargeBreakout
+        else if getUseFollowThroughConfirmation("London") and ldnShortBreakout and not ldnShortLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "London"
             pendingConfirmDirection := "Short"
@@ -1221,7 +1406,7 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("London")
-        else if asiaLongBreakout and not asiaLongLargeBreakout
+        else if getUseFollowThroughConfirmation("Asia") and asiaLongBreakout and not asiaLongLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "Asia"
             pendingConfirmDirection := "Long"
@@ -1233,7 +1418,7 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("Asia")
-        else if asiaShortBreakout and not asiaShortLargeBreakout
+        else if getUseFollowThroughConfirmation("Asia") and asiaShortBreakout and not asiaShortLargeBreakout
             pendingConfirmActive := true
             pendingConfirmSession := "Asia"
             pendingConfirmDirection := "Short"
@@ -1364,7 +1549,7 @@ flatNow  = strategy.position_size == 0 and strategy.position_size[1] != 0
 
 if flatNow
     closedTradePnl = strategy.netprofit - nz(strategy.netprofit[1])
-    if allowSecondBreak and closedTradePnl < 0
+    if getAllowSecondBreak(openTradeSession) and closedTradePnl < 0
         if openTradeSession == "NY" and openTradeDirection == "Long" and nyLongTradeCount == 1
             nyLongRetryEligible := true
             nyLongRetryArmed := false
@@ -1433,8 +1618,8 @@ else if strategy.position_size == 0
 if newLong
     posEntry := strategy.position_avg_price
     posBaseRisk := posEntry - posStopRef
-    posRisk := useStopAdjustment ? posBaseRisk * stopMultiplier : posBaseRisk
-    posTrailRisk := tradeMode == "1R Step Trail" and useStopAdjustment and trailRiskBasis == "Original Breakout Risk" ? posBaseRisk : posRisk
+    posRisk := getUseStopAdjustment(pendingORB) ? posBaseRisk * getStopMultiplier(pendingORB) : posBaseRisk
+    posTrailRisk := getTradeMode(pendingORB) == "1R Step Trail" and getUseStopAdjustment(pendingORB) and getTrailRiskBasis(pendingORB) == "Original Breakout Risk" ? posBaseRisk : posRisk
     posStopRef := posEntry - posRisk
     highestSinceEntry := high
     entryBarIndex := bar_index
@@ -1448,8 +1633,8 @@ if newLong
 if newShort
     posEntry := strategy.position_avg_price
     posBaseRisk := posStopRef - posEntry
-    posRisk := useStopAdjustment ? posBaseRisk * stopMultiplier : posBaseRisk
-    posTrailRisk := tradeMode == "1R Step Trail" and useStopAdjustment and trailRiskBasis == "Original Breakout Risk" ? posBaseRisk : posRisk
+    posRisk := getUseStopAdjustment(pendingORB) ? posBaseRisk * getStopMultiplier(pendingORB) : posBaseRisk
+    posTrailRisk := getTradeMode(pendingORB) == "1R Step Trail" and getUseStopAdjustment(pendingORB) and getTrailRiskBasis(pendingORB) == "Original Breakout Risk" ? posBaseRisk : posRisk
     posStopRef := posEntry + posRisk
     lowestSinceEntry := low
     entryBarIndex := bar_index
@@ -1472,17 +1657,20 @@ validShort = strategy.position_size < 0 and not na(posEntry) and not na(posRisk)
 // =========================
 // Helper state for trail activation
 // =========================
+curTradeMode = getTradeMode(openTradeSession)
+curResetTimeExitOnTrailStep = getResetTimeExitOnTrailStep(openTradeSession)
+
 longRunupR  = validLong ? math.floor((highestSinceEntry - posEntry) / posTrailRisk) : na
 shortRunupR = validShort ? math.floor((posEntry - lowestSinceEntry) / posTrailRisk) : na
 
-trailActiveLong  = validLong and tradeMode == "1R Step Trail" and longRunupR >= 1
-trailActiveShort = validShort and tradeMode == "1R Step Trail" and shortRunupR >= 1
+trailActiveLong  = validLong and curTradeMode == "1R Step Trail" and longRunupR >= 1
+trailActiveShort = validShort and curTradeMode == "1R Step Trail" and shortRunupR >= 1
 
-if validLong and resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" and longRunupR >= 1 and longRunupR > lastTrailStepCount
+if validLong and curResetTimeExitOnTrailStep and curTradeMode == "1R Step Trail" and longRunupR >= 1 and longRunupR > lastTrailStepCount
     timeExitStartBarIndex := bar_index
     lastTrailStepCount := longRunupR
 
-if validShort and resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" and shortRunupR >= 1 and shortRunupR > lastTrailStepCount
+if validShort and curResetTimeExitOnTrailStep and curTradeMode == "1R Step Trail" and shortRunupR >= 1 and shortRunupR > lastTrailStepCount
     timeExitStartBarIndex := bar_index
     lastTrailStepCount := shortRunupR
 
@@ -1491,15 +1679,15 @@ if validShort and resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" and 
 // =========================
 barsInTrade = not na(entryBarIndex) ? (bar_index - entryBarIndex) : na
 barsSinceTimeExitReset = not na(timeExitStartBarIndex) ? (bar_index - timeExitStartBarIndex) : na
-timeExitBars = resetTimeExitOnTrailStep and tradeMode == "1R Step Trail" ? barsSinceTimeExitReset : barsInTrade
+timeExitBars = curResetTimeExitOnTrailStep and curTradeMode == "1R Step Trail" ? barsSinceTimeExitReset : barsInTrade
 longInProfit  = validLong and close > posEntry
 shortInProfit = validShort and close < posEntry
 
 timeExitEligibleLong = true
 timeExitEligibleShort = true
 
-timeExitLong = useTimeExit and validLong and timeExitEligibleLong and not na(timeExitBars) and timeExitBars >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and longInProfit))
-timeExitShort = useTimeExit and validShort and timeExitEligibleShort and not na(timeExitBars) and timeExitBars >= maxBarsInTrade and (timeExitMode == "Any" or (timeExitMode == "Only In Profit" and shortInProfit))
+timeExitLong = getUseTimeExit(openTradeSession) and validLong and timeExitEligibleLong and not na(timeExitBars) and timeExitBars >= getMaxBarsInTrade(openTradeSession) and (getTimeExitMode(openTradeSession) == "Any" or (getTimeExitMode(openTradeSession) == "Only In Profit" and longInProfit))
+timeExitShort = getUseTimeExit(openTradeSession) and validShort and timeExitEligibleShort and not na(timeExitBars) and timeExitBars >= getMaxBarsInTrade(openTradeSession) and (getTimeExitMode(openTradeSession) == "Any" or (getTimeExitMode(openTradeSession) == "Only In Profit" and shortInProfit))
 
 // =========================
 // Session-specific forced close logic
@@ -1515,16 +1703,16 @@ float activeLongTarget = na
 float activeShortTarget = na
 
 if validLong
-    if tradeMode == "Fixed RR"
+    if curTradeMode == "Fixed RR"
         activeLongStop   := posStopRef
-        activeLongTarget := posEntry + posRisk * rrMultiple
+        activeLongTarget := posEntry + posRisk * getRrMultiple(openTradeSession)
     else
         activeLongStop := longRunupR < 1 ? posStopRef : posEntry + (longRunupR - 1) * posTrailRisk
 
 if validShort
-    if tradeMode == "Fixed RR"
+    if curTradeMode == "Fixed RR"
         activeShortStop   := posStopRef
-        activeShortTarget := posEntry - posRisk * rrMultiple
+        activeShortTarget := posEntry - posRisk * getRrMultiple(openTradeSession)
     else
         activeShortStop := shortRunupR < 1 ? posStopRef : posEntry - (shortRunupR - 1) * posTrailRisk
 
@@ -1568,5 +1756,5 @@ plot(pendingRetestActive and pendingRetestDirection == "Short" ? pendingRetestLe
 // =========================
 plot(showActiveStop and validLong ? activeLongStop : na, "Long Active Stop", color=color.new(color.blue, 0), linewidth=3, style=plot.style_circles)
 plot(showActiveStop and validShort ? activeShortStop : na, "Short Active Stop", color=color.new(color.blue, 0), linewidth=3, style=plot.style_circles)
-plot(showActiveTarget and tradeMode == "Fixed RR" and validLong ? activeLongTarget : na, "Long Target", color=color.new(color.lime, 0), linewidth=2, style=plot.style_linebr)
-plot(showActiveTarget and tradeMode == "Fixed RR" and validShort ? activeShortTarget : na, "Short Target", color=color.new(color.maroon, 0), linewidth=2, style=plot.style_linebr)
+plot(showActiveTarget and curTradeMode == "Fixed RR" and validLong ? activeLongTarget : na, "Long Target", color=color.new(color.lime, 0), linewidth=2, style=plot.style_linebr)
+plot(showActiveTarget and curTradeMode == "Fixed RR" and validShort ? activeShortTarget : na, "Short Target", color=color.new(color.maroon, 0), linewidth=2, style=plot.style_linebr)
