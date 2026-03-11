@@ -97,31 +97,93 @@ timeExitMode   = input.string("Any", "Time Exit Mode", options=["Any", "Only In 
 resetTimeExitOnTrailStep = input.bool(false, "Reset Time Exit On Trail Step", group=groupTimeExit)
 
 groupEntryTime = "Entry Time Filter"
-useNoTradeAfter = input.bool(false, "Don't Enter After Time (Global Default)", group=groupEntryTime)
-lastEntryH      = input.int(11, "Global Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
-lastEntryM      = input.int(0, "Global Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
-useWeekdaySpecificCutoffs = input.bool(true, "Use Weekday-Specific Cutoffs", group=groupEntryTime)
+// =========================
+// NY entry cutoff controls (NY local timezone)
+// =========================
+nyUseNoTradeAfter = input.bool(false, "NY: Don't Enter After Time (Global Default)", group=groupEntryTime)
+nyLastEntryH      = input.int(11, "NY Global Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+nyLastEntryM      = input.int(0,  "NY Global Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
-monUseNoTradeAfter = input.bool(true, "Monday Override On", group=groupEntryTime)
-monLastEntryH      = input.int(11, "Monday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
-monLastEntryM      = input.int(0, "Monday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+nyUseWeekdaySpecificCutoffs = input.bool(true, "NY: Use Weekday-Specific Cutoffs", group=groupEntryTime)
 
-tueUseNoTradeAfter = input.bool(false, "Tuesday Override On", group=groupEntryTime)
-tueLastEntryH      = input.int(11, "Tuesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
-tueLastEntryM      = input.int(0, "Tuesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+nyMonUseNoTradeAfter = input.bool(true, "NY Monday Override On", group=groupEntryTime)
+nyMonLastEntryH      = input.int(11, "NY Monday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+nyMonLastEntryM      = input.int(0,  "NY Monday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
-wedUseNoTradeAfter = input.bool(false, "Wednesday Override On", group=groupEntryTime)
-wedLastEntryH      = input.int(11, "Wednesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
-wedLastEntryM      = input.int(0, "Wednesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+nyTueUseNoTradeAfter = input.bool(false, "NY Tuesday Override On", group=groupEntryTime)
+nyTueLastEntryH      = input.int(11, "NY Tuesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+nyTueLastEntryM      = input.int(0,  "NY Tuesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
-thuUseNoTradeAfter = input.bool(true, "Thursday Override On", group=groupEntryTime)
-thuLastEntryH      = input.int(11, "Thursday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
-thuLastEntryM      = input.int(0, "Thursday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+nyWedUseNoTradeAfter = input.bool(false, "NY Wednesday Override On", group=groupEntryTime)
+nyWedLastEntryH      = input.int(11, "NY Wednesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+nyWedLastEntryM      = input.int(0,  "NY Wednesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
-friUseNoTradeAfter = input.bool(false, "Friday Override On", group=groupEntryTime)
-friLastEntryH      = input.int(11, "Friday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
-friLastEntryM      = input.int(0, "Friday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+nyThuUseNoTradeAfter = input.bool(true, "NY Thursday Override On", group=groupEntryTime)
+nyThuLastEntryH      = input.int(11, "NY Thursday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+nyThuLastEntryM      = input.int(0,  "NY Thursday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+nyFriUseNoTradeAfter = input.bool(false, "NY Friday Override On", group=groupEntryTime)
+nyFriLastEntryH      = input.int(11, "NY Friday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+nyFriLastEntryM      = input.int(0,  "NY Friday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+// =========================
+// London entry cutoff controls (London local timezone)
+// =========================
+ldnUseNoTradeAfter = input.bool(false, "London: Don't Enter After Time (Global Default)", group=groupEntryTime)
+ldnLastEntryH      = input.int(10, "London Global Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+ldnLastEntryM      = input.int(0,  "London Global Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+ldnUseWeekdaySpecificCutoffs = input.bool(true, "London: Use Weekday-Specific Cutoffs", group=groupEntryTime)
+
+ldnMonUseNoTradeAfter = input.bool(false, "London Monday Override On", group=groupEntryTime)
+ldnMonLastEntryH      = input.int(10, "London Monday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+ldnMonLastEntryM      = input.int(0,  "London Monday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+ldnTueUseNoTradeAfter = input.bool(false, "London Tuesday Override On", group=groupEntryTime)
+ldnTueLastEntryH      = input.int(10, "London Tuesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+ldnTueLastEntryM      = input.int(0,  "London Tuesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+ldnWedUseNoTradeAfter = input.bool(false, "London Wednesday Override On", group=groupEntryTime)
+ldnWedLastEntryH      = input.int(10, "London Wednesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+ldnWedLastEntryM      = input.int(0,  "London Wednesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+ldnThuUseNoTradeAfter = input.bool(false, "London Thursday Override On", group=groupEntryTime)
+ldnThuLastEntryH      = input.int(10, "London Thursday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+ldnThuLastEntryM      = input.int(0,  "London Thursday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+ldnFriUseNoTradeAfter = input.bool(false, "London Friday Override On", group=groupEntryTime)
+ldnFriLastEntryH      = input.int(10, "London Friday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+ldnFriLastEntryM      = input.int(0,  "London Friday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+// =========================
+// Asia entry cutoff controls (Asia local timezone)
+// =========================
+asiaUseNoTradeAfter = input.bool(false, "Asia: Don't Enter After Time (Global Default)", group=groupEntryTime)
+asiaLastEntryH      = input.int(11, "Asia Global Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+asiaLastEntryM      = input.int(0,  "Asia Global Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+asiaUseWeekdaySpecificCutoffs = input.bool(true, "Asia: Use Weekday-Specific Cutoffs", group=groupEntryTime)
+
+asiaMonUseNoTradeAfter = input.bool(false, "Asia Monday Override On", group=groupEntryTime)
+asiaMonLastEntryH      = input.int(11, "Asia Monday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+asiaMonLastEntryM      = input.int(0,  "Asia Monday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+asiaTueUseNoTradeAfter = input.bool(false, "Asia Tuesday Override On", group=groupEntryTime)
+asiaTueLastEntryH      = input.int(11, "Asia Tuesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+asiaTueLastEntryM      = input.int(0,  "Asia Tuesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+asiaWedUseNoTradeAfter = input.bool(false, "Asia Wednesday Override On", group=groupEntryTime)
+asiaWedLastEntryH      = input.int(11, "Asia Wednesday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+asiaWedLastEntryM      = input.int(0,  "Asia Wednesday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+asiaThuUseNoTradeAfter = input.bool(false, "Asia Thursday Override On", group=groupEntryTime)
+asiaThuLastEntryH      = input.int(11, "Asia Thursday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+asiaThuLastEntryM      = input.int(0,  "Asia Thursday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
+
+asiaFriUseNoTradeAfter = input.bool(false, "Asia Friday Override On", group=groupEntryTime)
+asiaFriLastEntryH      = input.int(11, "Asia Friday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
+asiaFriLastEntryM      = input.int(0,  "Asia Friday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
 groupEOD = "End Of Day Close"
 useEodClose = input.bool(false, "Session Close On", group=groupEOD)
@@ -201,31 +263,53 @@ tradeWindowActive(tz, startH, startM, durM, endH, endM) =>
     orbEndMin := orbEndMin % 1440
     inWindow(curMin, orbEndMin, endMin)
 
-entryTimeAllowed() =>
-    int curH = hour(time, strategyDayTZ)
-    int curM = minute(time, strategyDayTZ)
+entryTimeAllowedWithWeekdayOverrides(
+     tz,
+     useNoTradeAfterGlobal,
+     lastEntryHGlobal,
+     lastEntryMGlobal,
+     useWeekdaySpecific,
+     monUse,
+     monH,
+     monM,
+     tueUse,
+     tueH,
+     tueM,
+     wedUse,
+     wedH,
+     wedM,
+     thuUse,
+     thuH,
+     thuM,
+     friUse,
+     friH,
+     friM) =>
+
+    int curH = hour(time, tz)
+    int curM = minute(time, tz)
     int curMin = minuteOfDay(curH, curM)
-    int curDowLocal = dayofweek(time, strategyDayTZ)
-    int globalCutoffMin = minuteOfDay(lastEntryH, lastEntryM)
-    bool globalAllowed = not useNoTradeAfter or curMin <= globalCutoffMin
+    int curDowLocal = dayofweek(time, tz)
+
+    int globalCutoffMin = minuteOfDay(lastEntryHGlobal, lastEntryMGlobal)
+    bool globalAllowed = not useNoTradeAfterGlobal or curMin <= globalCutoffMin
 
     int weekdayCutoffMin =
-         curDowLocal == dayofweek.monday    ? minuteOfDay(monLastEntryH, monLastEntryM) :
-         curDowLocal == dayofweek.tuesday   ? minuteOfDay(tueLastEntryH, tueLastEntryM) :
-         curDowLocal == dayofweek.wednesday ? minuteOfDay(wedLastEntryH, wedLastEntryM) :
-         curDowLocal == dayofweek.thursday  ? minuteOfDay(thuLastEntryH, thuLastEntryM) :
-         curDowLocal == dayofweek.friday    ? minuteOfDay(friLastEntryH, friLastEntryM) :
+         curDowLocal == dayofweek.monday    ? minuteOfDay(monH, monM) :
+         curDowLocal == dayofweek.tuesday   ? minuteOfDay(tueH, tueM) :
+         curDowLocal == dayofweek.wednesday ? minuteOfDay(wedH, wedM) :
+         curDowLocal == dayofweek.thursday  ? minuteOfDay(thuH, thuM) :
+         curDowLocal == dayofweek.friday    ? minuteOfDay(friH, friM) :
          globalCutoffMin
 
     bool weekdayOverrideEnabled =
-         curDowLocal == dayofweek.monday    ? monUseNoTradeAfter :
-         curDowLocal == dayofweek.tuesday   ? tueUseNoTradeAfter :
-         curDowLocal == dayofweek.wednesday ? wedUseNoTradeAfter :
-         curDowLocal == dayofweek.thursday  ? thuUseNoTradeAfter :
-         curDowLocal == dayofweek.friday    ? friUseNoTradeAfter :
+         curDowLocal == dayofweek.monday    ? monUse :
+         curDowLocal == dayofweek.tuesday   ? tueUse :
+         curDowLocal == dayofweek.wednesday ? wedUse :
+         curDowLocal == dayofweek.thursday  ? thuUse :
+         curDowLocal == dayofweek.friday    ? friUse :
          false
 
-    useWeekdaySpecificCutoffs and weekdayOverrideEnabled ? (curMin <= weekdayCutoffMin) : globalAllowed
+    useWeekdaySpecific and weekdayOverrideEnabled ? (curMin <= weekdayCutoffMin) : globalAllowed
 
 dateToInt(y, mo, d) =>
     y * 10000 + mo * 100 + d
@@ -246,8 +330,11 @@ isManualSkipDate(dateList, ymd) =>
             match := true
     match
 
+getSessionTz(sessionName) =>
+    sessionName == "NY" ? nyTZ : sessionName == "London" ? ldnTZ : sessionName == "Asia" ? asiaTZ : strategyDayTZ
+
 getSessionCloseTs(sessionName) =>
-    string tz = sessionName == "NY" ? nyTZ : sessionName == "London" ? ldnTZ : sessionName == "Asia" ? asiaTZ : strategyDayTZ
+    string tz = getSessionTz(sessionName)
     int y = year(time, tz)
     int mo = month(time, tz)
     int d = dayofmonth(time, tz)
@@ -255,6 +342,9 @@ getSessionCloseTs(sessionName) =>
      sessionName == "London" ? timestamp(tz, y, mo, d, ldnEndH, ldnEndM) :
      sessionName == "Asia" ? timestamp(tz, y, mo, d, asiaEndH, asiaEndM) :
      na
+
+sessionEntryAllowed(sessionName) =>
+    sessionName == "NY" ? entryTimeAllowedWithWeekdayOverrides(nyTZ, nyUseNoTradeAfter, nyLastEntryH, nyLastEntryM, nyUseWeekdaySpecificCutoffs, nyMonUseNoTradeAfter, nyMonLastEntryH, nyMonLastEntryM, nyTueUseNoTradeAfter, nyTueLastEntryH, nyTueLastEntryM, nyWedUseNoTradeAfter, nyWedLastEntryH, nyWedLastEntryM, nyThuUseNoTradeAfter, nyThuLastEntryH, nyThuLastEntryM, nyFriUseNoTradeAfter, nyFriLastEntryH, nyFriLastEntryM) : sessionName == "London" ? entryTimeAllowedWithWeekdayOverrides(ldnTZ, ldnUseNoTradeAfter, ldnLastEntryH, ldnLastEntryM, ldnUseWeekdaySpecificCutoffs, ldnMonUseNoTradeAfter, ldnMonLastEntryH, ldnMonLastEntryM, ldnTueUseNoTradeAfter, ldnTueLastEntryH, ldnTueLastEntryM, ldnWedUseNoTradeAfter, ldnWedLastEntryH, ldnWedLastEntryM, ldnThuUseNoTradeAfter, ldnThuLastEntryH, ldnThuLastEntryM, ldnFriUseNoTradeAfter, ldnFriLastEntryH, ldnFriLastEntryM) : sessionName == "Asia" ? entryTimeAllowedWithWeekdayOverrides(asiaTZ, asiaUseNoTradeAfter, asiaLastEntryH, asiaLastEntryM, asiaUseWeekdaySpecificCutoffs, asiaMonUseNoTradeAfter, asiaMonLastEntryH, asiaMonLastEntryM, asiaTueUseNoTradeAfter, asiaTueLastEntryH, asiaTueLastEntryM, asiaWedUseNoTradeAfter, asiaWedLastEntryH, asiaWedLastEntryM, asiaThuUseNoTradeAfter, asiaThuLastEntryH, asiaThuLastEntryM, asiaFriUseNoTradeAfter, asiaFriLastEntryH, asiaFriLastEntryM) : true
 
 orbAtrOk(orbSize, atrValue) =>
     not useAtrOrbFilter or (not na(orbSize) and not na(atrValue) and atrValue > 0 and orbSize / atrValue >= minOrbAtrPct and orbSize / atrValue <= maxOrbAtrPct)
@@ -652,17 +742,20 @@ bool shortSignal = false
 float intendedStop = na
 var int pendingSessionCloseTs = na
 
-bool entryTimeOk = entryTimeAllowed()
+bool nyEntryTimeOk   = sessionEntryAllowed("NY")
+bool ldnEntryTimeOk  = sessionEntryAllowed("London")
+bool asiaEntryTimeOk = sessionEntryAllowed("Asia")
+
 bool prevDayCompressionPass = prevDayCompressionOk(prevDayRange, dailyAtrValue)
 bool prevDayTrendLongPass = prevDayTrendLongOk(prevDayOpen, prevDayClose)
 bool prevDayTrendShortPass = prevDayTrendShortOk(prevDayOpen, prevDayClose)
 
-nyLongCandidate   = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh, nyLongTradeCount, nyLongRetryArmed)
-nyShortCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow, nyShortTradeCount, nyShortRetryArmed)
-ldnLongCandidate  = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, dailyAtrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh, ldnLongTradeCount, ldnLongRetryArmed)
-ldnShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, dailyAtrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow, ldnShortTradeCount, ldnShortRetryArmed)
-asiaLongCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, dailyAtrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh, asiaLongTradeCount, asiaLongRetryArmed)
-asiaShortCandidate = entryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, dailyAtrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow, asiaShortTradeCount, asiaShortRetryArmed)
+nyLongCandidate   = nyEntryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderLong(nyReady, nyTraded, nyLongDead, nyLongNeedsReset, nyHigh, nyLongTradeCount, nyLongRetryArmed)
+nyShortCandidate  = nyEntryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and nyTradeWindowActive and orbAtrOk(nyOrbSize, dailyAtrValue) and overnightAtrOk(nyOvernightSize, dailyAtrValue) and canConsiderShort(nyReady, nyTraded, nyShortDead, nyShortNeedsReset, nyLow, nyShortTradeCount, nyShortRetryArmed)
+ldnLongCandidate  = ldnEntryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, dailyAtrValue) and canConsiderLong(ldnReady, ldnTraded, ldnLongDead, ldnLongNeedsReset, ldnHigh, ldnLongTradeCount, ldnLongRetryArmed)
+ldnShortCandidate = ldnEntryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and ldnTradeWindowActive and orbAtrOk(ldnOrbSize, dailyAtrValue) and canConsiderShort(ldnReady, ldnTraded, ldnShortDead, ldnShortNeedsReset, ldnLow, ldnShortTradeCount, ldnShortRetryArmed)
+asiaLongCandidate = asiaEntryTimeOk and prevDayCompressionPass and prevDayTrendLongPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, dailyAtrValue) and canConsiderLong(asiaReady, asiaTraded, asiaLongDead, asiaLongNeedsReset, asiaHigh, asiaLongTradeCount, asiaLongRetryArmed)
+asiaShortCandidate = asiaEntryTimeOk and prevDayCompressionPass and prevDayTrendShortPass and asiaTradeWindowActive and orbAtrOk(asiaOrbSize, dailyAtrValue) and canConsiderShort(asiaReady, asiaTraded, asiaShortDead, asiaShortNeedsReset, asiaLow, asiaShortTradeCount, asiaShortRetryArmed)
 
 // Raw breakout events on the breakout bar
 nyLongBreakout   = nyLongCandidate and entryLongOk(nyHigh)
@@ -758,6 +851,7 @@ if pendingRetestActive and strategy.position_size == 0
     bool retestExpired = not na(pendingRetestBarIndex) and bar_index > pendingRetestBarIndex + maxRetestBars
     bool retestSameBarBlocked = not na(pendingRetestBarIndex) and bar_index <= pendingRetestBarIndex
     bool retestStoppedOut = pendingRetestDirection == "Long" ? low <= pendingRetestStop : high >= pendingRetestStop
+    bool retestEntryTimeOk = sessionEntryAllowed(pendingRetestSession)
 
     if retestExpired or retestStoppedOut
         pendingRetestActive := false
@@ -769,7 +863,7 @@ if pendingRetestActive and strategy.position_size == 0
         pendingRetestOrbLow := na
         pendingRetestBarIndex := na
         pendingRetestSessionCloseTs := na
-    else if not retestSameBarBlocked and entryTimeAllowed()
+    else if not retestSameBarBlocked and retestEntryTimeOk
         // FIX 2: require candle color agreement on retest confirmation
         bool longRetestHit =
              pendingRetestDirection == "Long" and
@@ -865,7 +959,8 @@ if pendingRetestActive and strategy.position_size == 0
 // Pending follow-through evaluation
 // =========================
 if pendingConfirmActive and strategy.position_size == 0 and not longSignal and not shortSignal
-    if not na(pendingConfirmBarIndex) and bar_index == pendingConfirmBarIndex + 1
+    bool confirmEntryTimeOk = sessionEntryAllowed(pendingConfirmSession)
+    if not na(pendingConfirmBarIndex) and bar_index == pendingConfirmBarIndex + 1 and confirmEntryTimeOk
         bool confirmLong = pendingConfirmDirection == "Long" and followThroughLongOk(pendingConfirmOrbHigh, pendingConfirmBreakoutHigh, pendingConfirmBreakoutClose)
         bool confirmShort = pendingConfirmDirection == "Short" and followThroughShortOk(pendingConfirmOrbLow, pendingConfirmBreakoutLow, pendingConfirmBreakoutClose)
 
