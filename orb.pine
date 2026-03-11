@@ -134,7 +134,7 @@ ldnUseNoTradeAfter = input.bool(false, "London: Don't Enter After Time (Global D
 ldnLastEntryH      = input.int(10, "London Global Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
 ldnLastEntryM      = input.int(0,  "London Global Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
-ldnUseWeekdaySpecificCutoffs = input.bool(true, "London: Use Weekday-Specific Cutoffs", group=groupEntryTime)
+ldnUseWeekdaySpecificCutoffs = input.bool(false, "London: Use Weekday-Specific Cutoffs", group=groupEntryTime)
 
 ldnMonUseNoTradeAfter = input.bool(false, "London Monday Override On", group=groupEntryTime)
 ldnMonLastEntryH      = input.int(10, "London Monday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
@@ -163,7 +163,7 @@ asiaUseNoTradeAfter = input.bool(false, "Asia: Don't Enter After Time (Global De
 asiaLastEntryH      = input.int(11, "Asia Global Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
 asiaLastEntryM      = input.int(0,  "Asia Global Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
-asiaUseWeekdaySpecificCutoffs = input.bool(true, "Asia: Use Weekday-Specific Cutoffs", group=groupEntryTime)
+asiaUseWeekdaySpecificCutoffs = input.bool(false, "Asia: Use Weekday-Specific Cutoffs", group=groupEntryTime)
 
 asiaMonUseNoTradeAfter = input.bool(false, "Asia Monday Override On", group=groupEntryTime)
 asiaMonLastEntryH      = input.int(11, "Asia Monday Last Entry Hour", minval=0, maxval=23, group=groupEntryTime)
