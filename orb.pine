@@ -436,6 +436,17 @@ tradeWindowActive(tz, startH, startM, durM, endH, endM) =>
     orbEndMin := orbEndMin % 1440
     inWindow(curMin, orbEndMin, endMin)
 
+sessionWindowActive(tz, startH, startM, endH, endM) =>
+    int curH = hour(time, tz)
+    int curM = minute(time, tz)
+    int curMin = minuteOfDay(curH, curM)
+    int startMin = minuteOfDay(startH, startM)
+    int endMin = minuteOfDay(endH, endM)
+    inWindow(curMin, startMin, endMin)
+
+orbDisplayActive(tz, startH, startM, endH, endM) =>
+    sessionWindowActive(tz, startH, startM, endH, endM)
+
 entryTimeAllowedWithWeekdayOverrides(
      tz,
      useNoTradeAfterGlobal,
@@ -664,6 +675,11 @@ bool tradeDayAllowed = not skipToday
 nyTradeWindowActive   = tradeDayAllowed and useNY and nyReady and tradeWindowActive(nyTZ, nyStartH, nyStartM, nyDurM, nyEndH, nyEndM)
 ldnTradeWindowActive  = tradeDayAllowed and useLondon and ldnReady and tradeWindowActive(ldnTZ, ldnStartH, ldnStartM, ldnDurM, ldnEndH, ldnEndM)
 asiaTradeWindowActive = tradeDayAllowed and useAsia and asiaReady and tradeWindowActive(asiaTZ, asiaStartH, asiaStartM, asiaDurM, asiaEndH, asiaEndM)
+
+// Session ORB display windows
+nyOrbDisplayActive   = tradeDayAllowed and useNY and orbDisplayActive(nyTZ, nyStartH, nyStartM, nyEndH, nyEndM)
+ldnOrbDisplayActive  = tradeDayAllowed and useLondon and orbDisplayActive(ldnTZ, ldnStartH, ldnStartM, ldnEndH, ldnEndM)
+asiaOrbDisplayActive = tradeDayAllowed and useAsia and orbDisplayActive(asiaTZ, asiaStartH, asiaStartM, asiaEndH, asiaEndM)
 
 // =========================
 // One trade per session per day gating
@@ -1747,12 +1763,12 @@ if sessionCloseNow and strategy.position_size < 0
 // NOTE: uses lookahead_on plot series so lines appear during the current candle.
 // Strategy logic still uses nyHigh/nyLow/etc. with lookahead_off.
 // =========================
-plot(showORBLevels and tradeDayAllowed and useNY and (not showORBOnlyDuringTradeWindow or nyTradeWindowActive or not na(nyHighPlot)) ? nyHighPlot : na, "NY ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and tradeDayAllowed and useNY and (not showORBOnlyDuringTradeWindow or nyTradeWindowActive or not na(nyLowPlot)) ? nyLowPlot  : na, "NY ORB Low", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and tradeDayAllowed and useLondon and (not showORBOnlyDuringTradeWindow or ldnTradeWindowActive or not na(ldnHighPlot)) ? ldnHighPlot : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and tradeDayAllowed and useLondon and (not showORBOnlyDuringTradeWindow or ldnTradeWindowActive or not na(ldnLowPlot)) ? ldnLowPlot  : na, "London ORB Low", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and tradeDayAllowed and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive or not na(asiaHighPlot)) ? asiaHighPlot : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and tradeDayAllowed and useAsia and (not showORBOnlyDuringTradeWindow or asiaTradeWindowActive or not na(asiaLowPlot)) ? asiaLowPlot  : na, "Asia ORB Low", color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and nyOrbDisplayActive ? nyHighPlot : na, "NY ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and nyOrbDisplayActive ? nyLowPlot  : na, "NY ORB Low", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and ldnOrbDisplayActive ? ldnHighPlot : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and ldnOrbDisplayActive ? ldnLowPlot  : na, "London ORB Low", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and asiaOrbDisplayActive ? asiaHighPlot : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and asiaOrbDisplayActive ? asiaLowPlot  : na, "Asia ORB Low", color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
 
 // Pending visuals
 plot(pendingRetestActive and pendingRetestDirection == "Long" ? pendingRetestLevel : na, "Pending Long Retest", color=color.new(color.green, 40), linewidth=2, style=plot.style_linebr)
