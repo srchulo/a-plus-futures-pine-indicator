@@ -1,5 +1,5 @@
 //@version=5
-strategy("ORB Precision", overlay=true, pyramiding=0, initial_capital=100000, commission_type=strategy.commission.percent, commission_value=0.0, process_orders_on_close=true)
+strategy("ORB Precision", overlay=true, pyramiding=0, initial_capital=100000, commission_type=strategy.commission.percent, commission_value=0.0, process_orders_on_close=true, calc_on_every_tick=true)
 
 // =========================
 // Inputs
@@ -436,16 +436,13 @@ tradeWindowActive(tz, startH, startM, durM, endH, endM) =>
     orbEndMin := orbEndMin % 1440
     inWindow(curMin, orbEndMin, endMin)
 
-sessionWindowActive(tz, startH, startM, endH, endM) =>
+displayWindowActive(tz, startH, startM, endH, endM) =>
     int curH = hour(time, tz)
     int curM = minute(time, tz)
     int curMin = minuteOfDay(curH, curM)
     int startMin = minuteOfDay(startH, startM)
     int endMin = minuteOfDay(endH, endM)
     inWindow(curMin, startMin, endMin)
-
-orbDisplayActive(tz, startH, startM, endH, endM) =>
-    sessionWindowActive(tz, startH, startM, endH, endM)
 
 entryTimeAllowedWithWeekdayOverrides(
      tz,
@@ -624,15 +621,15 @@ overnightLevels1m(tz, startH, startM, prevEndH, prevEndM) =>
     float outLo = ready and readyDayId == dayId ? lo : na
     [outHi, outLo, ready, readyDayId]
 
-// Pull ORBs from 1m for STRATEGY LOGIC (non-repainting)
+// Pull confirmed ORBs from 1m for strategy logic
 [nyHigh, nyLow, nyReady, nyDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(nyTZ, nyStartH, nyStartM, nyDurM), barmerge.gaps_off, barmerge.lookahead_off)
 [ldnHigh, ldnLow, ldnReady, ldnDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(ldnTZ, ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_off)
 [asiaHigh, asiaLow, asiaReady, asiaDayId] = request.security(syminfo.tickerid, "1", orbLevels1m(asiaTZ, asiaStartH, asiaStartM, asiaDurM), barmerge.gaps_off, barmerge.lookahead_off)
 
-// Pull ORBs from 1m for VISUALS ONLY (updates before current candle closes)
-[nyHighPlot, nyLowPlot, nyReadyPlot, nyDayIdPlot] = request.security(syminfo.tickerid, "1", orbLevels1m(nyTZ, nyStartH, nyStartM, nyDurM), barmerge.gaps_off, barmerge.lookahead_on)
-[ldnHighPlot, ldnLowPlot, ldnReadyPlot, ldnDayIdPlot] = request.security(syminfo.tickerid, "1", orbLevels1m(ldnTZ, ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_on)
-[asiaHighPlot, asiaLowPlot, asiaReadyPlot, asiaDayIdPlot] = request.security(syminfo.tickerid, "1", orbLevels1m(asiaTZ, asiaStartH, asiaStartM, asiaDurM), barmerge.gaps_off, barmerge.lookahead_on)
+// Pull live ORBs from 1m for display only
+[nyHighLive, nyLowLive, nyReadyLive, nyDayIdLive] = request.security(syminfo.tickerid, "1", orbLevels1m(nyTZ, nyStartH, nyStartM, nyDurM), barmerge.gaps_off, barmerge.lookahead_on)
+[ldnHighLive, ldnLowLive, ldnReadyLive, ldnDayIdLive] = request.security(syminfo.tickerid, "1", orbLevels1m(ldnTZ, ldnStartH, ldnStartM, ldnDurM), barmerge.gaps_off, barmerge.lookahead_on)
+[asiaHighLive, asiaLowLive, asiaReadyLive, asiaDayIdLive] = request.security(syminfo.tickerid, "1", orbLevels1m(asiaTZ, asiaStartH, asiaStartM, asiaDurM), barmerge.gaps_off, barmerge.lookahead_on)
 
 // Pull NY overnight range from 1m
 [nyOverHigh, nyOverLow, nyOverReady, nyOverDayId] = request.security(syminfo.tickerid, "1", overnightLevels1m(nyTZ, nyStartH, nyStartM, nyEndH, nyEndM), barmerge.gaps_off, barmerge.lookahead_off)
@@ -676,10 +673,10 @@ nyTradeWindowActive   = tradeDayAllowed and useNY and nyReady and tradeWindowAct
 ldnTradeWindowActive  = tradeDayAllowed and useLondon and ldnReady and tradeWindowActive(ldnTZ, ldnStartH, ldnStartM, ldnDurM, ldnEndH, ldnEndM)
 asiaTradeWindowActive = tradeDayAllowed and useAsia and asiaReady and tradeWindowActive(asiaTZ, asiaStartH, asiaStartM, asiaDurM, asiaEndH, asiaEndM)
 
-// Session ORB display windows
-nyOrbDisplayActive   = tradeDayAllowed and useNY and orbDisplayActive(nyTZ, nyStartH, nyStartM, nyEndH, nyEndM)
-ldnOrbDisplayActive  = tradeDayAllowed and useLondon and orbDisplayActive(ldnTZ, ldnStartH, ldnStartM, ldnEndH, ldnEndM)
-asiaOrbDisplayActive = tradeDayAllowed and useAsia and orbDisplayActive(asiaTZ, asiaStartH, asiaStartM, asiaEndH, asiaEndM)
+// Session display windows (start at ORB start, stop at that session's close)
+nyDisplayWindow   = tradeDayAllowed and useNY and displayWindowActive(nyTZ, nyStartH, nyStartM, nyEndH, nyEndM)
+ldnDisplayWindow  = tradeDayAllowed and useLondon and displayWindowActive(ldnTZ, ldnStartH, ldnStartM, ldnEndH, ldnEndM)
+asiaDisplayWindow = tradeDayAllowed and useAsia and displayWindowActive(asiaTZ, asiaStartH, asiaStartM, asiaEndH, asiaEndM)
 
 // =========================
 // One trade per session per day gating
@@ -1760,15 +1757,15 @@ if sessionCloseNow and strategy.position_size < 0
 
 // =========================
 // Plot ORB levels
-// NOTE: uses lookahead_on plot series so lines appear during the current candle.
-// Strategy logic still uses nyHigh/nyLow/etc. with lookahead_off.
 // =========================
-plot(showORBLevels and nyOrbDisplayActive ? nyHighPlot : na, "NY ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and nyOrbDisplayActive ? nyLowPlot  : na, "NY ORB Low", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and ldnOrbDisplayActive ? ldnHighPlot : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and ldnOrbDisplayActive ? ldnLowPlot  : na, "London ORB Low", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and asiaOrbDisplayActive ? asiaHighPlot : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
-plot(showORBLevels and asiaOrbDisplayActive ? asiaLowPlot  : na, "Asia ORB Low", color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useNY and (not showORBOnlyDuringTradeWindow or nyDisplayWindow) ? nyHighLive : na, "NY ORB High", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useNY and (not showORBOnlyDuringTradeWindow or nyDisplayWindow) ? nyLowLive  : na, "NY ORB Low", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+
+plot(showORBLevels and tradeDayAllowed and useLondon and (not showORBOnlyDuringTradeWindow or ldnDisplayWindow) ? ldnHighLive : na, "London ORB High", color=color.new(color.teal, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useLondon and (not showORBOnlyDuringTradeWindow or ldnDisplayWindow) ? ldnLowLive  : na, "London ORB Low", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+
+plot(showORBLevels and tradeDayAllowed and useAsia and (not showORBOnlyDuringTradeWindow or asiaDisplayWindow) ? asiaHighLive : na, "Asia ORB High", color=color.new(color.fuchsia, 0), linewidth=2, style=plot.style_linebr)
+plot(showORBLevels and tradeDayAllowed and useAsia and (not showORBOnlyDuringTradeWindow or asiaDisplayWindow) ? asiaLowLive  : na, "Asia ORB Low", color=color.new(color.purple, 0), linewidth=2, style=plot.style_linebr)
 
 // Pending visuals
 plot(pendingRetestActive and pendingRetestDirection == "Long" ? pendingRetestLevel : na, "Pending Long Retest", color=color.new(color.green, 40), linewidth=2, style=plot.style_linebr)
