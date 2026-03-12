@@ -1759,6 +1759,10 @@ shortInProfit = validShort and close < posEntry
 timeExitEligibleLong = true
 timeExitEligibleShort = true
 
+// use if you only want to time exit trades that are not in profit
+// timeExitEligibleLong  = not longInProfit
+// timeExitEligibleShort = not shortInProfit
+
 // use if you want to only time exit non-trailing trades
 // timeExitEligibleLong = not trailActiveLong
 // timeExitEligibleShort = not trailActiveShort
