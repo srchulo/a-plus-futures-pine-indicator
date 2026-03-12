@@ -678,6 +678,9 @@ nyDisplayWindow   = tradeDayAllowed and useNY and displayWindowActive(nyTZ, nySt
 ldnDisplayWindow  = tradeDayAllowed and useLondon and displayWindowActive(ldnTZ, ldnStartH, ldnStartM, ldnEndH, ldnEndM)
 asiaDisplayWindow = tradeDayAllowed and useAsia and displayWindowActive(asiaTZ, asiaStartH, asiaStartM, asiaEndH, asiaEndM)
 
+// Confirmed-bar gate for all trade-state logic
+bool tradeLogicConfirmedBar = barstate.isconfirmed
+
 // =========================
 // One trade per session per day gating
 // =========================
@@ -827,7 +830,7 @@ ldnShortPathActive = ldnTradeWindowActive  and not ldnShortDead and ((ldnShortTr
 asiaLongPathActive = asiaTradeWindowActive and not asiaLongDead and ((asiaLongTradeCount == 0 and not asiaTraded) or (getAllowSecondBreak("Asia") and asiaLongTradeCount == 1 and asiaLongRetryEligible))
 asiaShortPathActive = asiaTradeWindowActive and not asiaShortDead and ((asiaShortTradeCount == 0 and not asiaTraded) or (getAllowSecondBreak("Asia") and asiaShortTradeCount == 1 and asiaShortRetryEligible))
 
-if strategy.position_size == 0 and not pendingConfirmActive and not pendingRetestActive
+if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingConfirmActive and not pendingRetestActive
     if nyLongPathActive
         if closeInsideOrb(nyHigh, nyLow)
             nyLongNeedsReset := false
@@ -970,7 +973,7 @@ asiaLongBreakout = asiaLongCandidate and entryLongOk("Asia", asiaHigh)
 asiaShortBreakout = asiaShortCandidate and entryShortOk("Asia", asiaLow)
 
 // Mark failed breakout attempts based on mode
-if strategy.position_size == 0 and not pendingConfirmActive and not pendingRetestActive
+if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingConfirmActive and not pendingRetestActive
     if nyLongCandidate and not entryLongOk("NY", nyHigh)
         if getBreakoutMode("NY") == "First Qualified Close Only"
             nyLongDead := true
@@ -1051,7 +1054,7 @@ bool asiaShortLargeBreakout = asiaShortBreakout and breakoutIsLarge("Asia", brea
 // =========================
 // Pending retest evaluation
 // =========================
-if pendingRetestActive and strategy.position_size == 0
+if tradeLogicConfirmedBar and pendingRetestActive and strategy.position_size == 0
     bool retestExpired = not na(pendingRetestBarIndex) and bar_index > pendingRetestBarIndex + getMaxRetestBars(pendingRetestSession)
     bool retestSameBarBlocked = not na(pendingRetestBarIndex) and bar_index <= pendingRetestBarIndex
     bool retestStoppedOut = pendingRetestDirection == "Long" ? low <= pendingRetestStop : high >= pendingRetestStop
@@ -1161,7 +1164,7 @@ if pendingRetestActive and strategy.position_size == 0
 // =========================
 // Pending follow-through evaluation
 // =========================
-if pendingConfirmActive and strategy.position_size == 0 and not longSignal and not shortSignal
+if tradeLogicConfirmedBar and pendingConfirmActive and strategy.position_size == 0 and not longSignal and not shortSignal
     bool confirmEntryTimeOk = sessionEntryAllowed(pendingConfirmSession)
     if not na(pendingConfirmBarIndex) and bar_index == pendingConfirmBarIndex + 1 and confirmEntryTimeOk
         bool confirmLong = pendingConfirmDirection == "Long" and followThroughLongOk(pendingConfirmOrbHigh, pendingConfirmBreakoutHigh, pendingConfirmBreakoutClose)
@@ -1310,7 +1313,7 @@ if pendingConfirmActive and strategy.position_size == 0 and not longSignal and n
 // 2) Follow-through confirmation
 // 3) Immediate entry
 // =========================
-if strategy.position_size == 0 and not pendingRetestActive and not pendingConfirmActive and not longSignal and not shortSignal
+if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestActive and not pendingConfirmActive and not longSignal and not shortSignal
     // 1) Large breakout retest path
     if getUseLargeBreakoutRetest("NY") or getUseLargeBreakoutRetest("London") or getUseLargeBreakoutRetest("Asia")
         if nyLongLargeBreakout
@@ -1531,12 +1534,12 @@ if strategy.position_size == 0 and not pendingRetestActive and not pendingConfir
             asiaShortNeedsReset := false
             asiaShortDead := true
 
-if longSignal
+if tradeLogicConfirmedBar and longSignal
     strategy.entry("Long", strategy.long)
     if showLabels
         label.new(bar_index, low, activeORB + " Long", style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
 
-if shortSignal
+if tradeLogicConfirmedBar and shortSignal
     strategy.entry("Short", strategy.short)
     if showLabels
         label.new(bar_index, high, activeORB + " Short", style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
@@ -1558,7 +1561,7 @@ var int   lastTrailStepCount = 0
 var string openTradeSession = ""
 var string openTradeDirection = ""
 
-if longSignal or shortSignal
+if tradeLogicConfirmedBar and (longSignal or shortSignal)
     posStopRef := intendedStop
 
 newLong  = strategy.position_size > 0 and strategy.position_size[1] == 0
