@@ -88,6 +88,13 @@ nyMaxBarsInTrade           = input.int(24, "NY Max Bars In Trade", minval=1, max
 nyTimeExitMode             = input.string("Any", "NY Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExitNY)
 nyResetTimeExitOnTrailStep = input.bool(false, "NY Reset Time Exit On Trail Step", group=groupTimeExitNY)
 
+groupVolDecayNY = "Volatility Decay Exit - NY"
+nyUseVolatilityDecayExit             = input.bool(false, "NY Volatility Decay Exit On", group=groupVolDecayNY)
+nyVolDecayMinBarsInTrade             = input.int(6, "NY Min Bars Before Vol Decay Exit", minval=1, maxval=500, group=groupVolDecayNY)
+nyVolDecayAtrCompressionThreshold    = input.float(0.75, "NY ATR Compression Threshold (Current ATR / Entry ATR)", minval=0.10, maxval=2.00, step=0.05, group=groupVolDecayNY)
+nyVolDecayNoProgressBars             = input.int(3, "NY No Progress Bars Required", minval=1, maxval=100, group=groupVolDecayNY)
+nyVolDecayOnlyWhenTrailActive        = input.bool(true, "NY Only When Step Trail Active", group=groupVolDecayNY)
+
 // London
 groupTradeLDN = "Trade Logic - London"
 ldnTradeMode       = input.string("1R Step Trail", "London Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTradeLDN)
@@ -133,6 +140,13 @@ ldnMaxBarsInTrade           = input.int(24, "London Max Bars In Trade", minval=1
 ldnTimeExitMode             = input.string("Any", "London Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExitLDN)
 ldnResetTimeExitOnTrailStep = input.bool(false, "London Reset Time Exit On Trail Step", group=groupTimeExitLDN)
 
+groupVolDecayLDN = "Volatility Decay Exit - London"
+ldnUseVolatilityDecayExit             = input.bool(false, "London Volatility Decay Exit On", group=groupVolDecayLDN)
+ldnVolDecayMinBarsInTrade             = input.int(6, "London Min Bars Before Vol Decay Exit", minval=1, maxval=500, group=groupVolDecayLDN)
+ldnVolDecayAtrCompressionThreshold    = input.float(0.75, "London ATR Compression Threshold (Current ATR / Entry ATR)", minval=0.10, maxval=2.00, step=0.05, group=groupVolDecayLDN)
+ldnVolDecayNoProgressBars             = input.int(3, "London No Progress Bars Required", minval=1, maxval=100, group=groupVolDecayLDN)
+ldnVolDecayOnlyWhenTrailActive        = input.bool(true, "London Only When Step Trail Active", group=groupVolDecayLDN)
+
 // Asia
 groupTradeASIA = "Trade Logic - Asia"
 asiaTradeMode       = input.string("1R Step Trail", "Asia Exit Mode", options=["Fixed RR", "1R Step Trail"], group=groupTradeASIA)
@@ -177,6 +191,13 @@ asiaUseTimeExit              = input.bool(true, "Asia Time Exit On", group=group
 asiaMaxBarsInTrade           = input.int(24, "Asia Max Bars In Trade", minval=1, maxval=500, group=groupTimeExitASIA)
 asiaTimeExitMode             = input.string("Any", "Asia Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExitASIA)
 asiaResetTimeExitOnTrailStep = input.bool(false, "Asia Reset Time Exit On Trail Step", group=groupTimeExitASIA)
+
+groupVolDecayASIA = "Volatility Decay Exit - Asia"
+asiaUseVolatilityDecayExit             = input.bool(false, "Asia Volatility Decay Exit On", group=groupVolDecayASIA)
+asiaVolDecayMinBarsInTrade             = input.int(6, "Asia Min Bars Before Vol Decay Exit", minval=1, maxval=500, group=groupVolDecayASIA)
+asiaVolDecayAtrCompressionThreshold    = input.float(0.75, "Asia ATR Compression Threshold (Current ATR / Entry ATR)", minval=0.10, maxval=2.00, step=0.05, group=groupVolDecayASIA)
+asiaVolDecayNoProgressBars             = input.int(3, "Asia No Progress Bars Required", minval=1, maxval=100, group=groupVolDecayASIA)
+asiaVolDecayOnlyWhenTrailActive        = input.bool(true, "Asia Only When Step Trail Active", group=groupVolDecayASIA)
 
 // optional tiny buffer so stops/targets aren’t exactly on a level
 groupTradeGlobal = "Trade Logic - Global"
@@ -378,6 +399,21 @@ getTimeExitMode(sessionName) =>
 
 getResetTimeExitOnTrailStep(sessionName) =>
     sessionName == "NY" ? nyResetTimeExitOnTrailStep : sessionName == "London" ? ldnResetTimeExitOnTrailStep : sessionName == "Asia" ? asiaResetTimeExitOnTrailStep : false
+
+getUseVolatilityDecayExit(sessionName) =>
+    sessionName == "NY" ? nyUseVolatilityDecayExit : sessionName == "London" ? ldnUseVolatilityDecayExit : sessionName == "Asia" ? asiaUseVolatilityDecayExit : false
+
+getVolDecayMinBarsInTrade(sessionName) =>
+    sessionName == "NY" ? nyVolDecayMinBarsInTrade : sessionName == "London" ? ldnVolDecayMinBarsInTrade : sessionName == "Asia" ? asiaVolDecayMinBarsInTrade : 6
+
+getVolDecayAtrCompressionThreshold(sessionName) =>
+    sessionName == "NY" ? nyVolDecayAtrCompressionThreshold : sessionName == "London" ? ldnVolDecayAtrCompressionThreshold : sessionName == "Asia" ? asiaVolDecayAtrCompressionThreshold : 0.75
+
+getVolDecayNoProgressBars(sessionName) =>
+    sessionName == "NY" ? nyVolDecayNoProgressBars : sessionName == "London" ? ldnVolDecayNoProgressBars : sessionName == "Asia" ? asiaVolDecayNoProgressBars : 3
+
+getVolDecayOnlyWhenTrailActive(sessionName) =>
+    sessionName == "NY" ? nyVolDecayOnlyWhenTrailActive : sessionName == "London" ? ldnVolDecayOnlyWhenTrailActive : sessionName == "Asia" ? asiaVolDecayOnlyWhenTrailActive : true
 
 // =========================
 // Entry rules (evaluated on CURRENT CHART timeframe)
@@ -1560,6 +1596,8 @@ var int   timeExitStartBarIndex = na
 var int   lastTrailStepCount = 0
 var string openTradeSession = ""
 var string openTradeDirection = ""
+var float atrAtEntry = na
+var int lastProgressBarIndex = na
 
 if tradeLogicConfirmedBar and (longSignal or shortSignal)
     posStopRef := intendedStop
@@ -1623,6 +1661,8 @@ if flatNow
     lastTrailStepCount := 0
     openTradeSession := ""
     openTradeDirection := ""
+    atrAtEntry := na
+    lastProgressBarIndex := na
 else if strategy.position_size == 0
     posEntry := na
     posRisk := na
@@ -1635,6 +1675,8 @@ else if strategy.position_size == 0
     activeSessionCloseTs := na
     timeExitStartBarIndex := na
     lastTrailStepCount := 0
+    atrAtEntry := na
+    lastProgressBarIndex := na
 
 if newLong
     posEntry := strategy.position_avg_price
@@ -1650,6 +1692,8 @@ if newLong
     lastTrailStepCount := 0
     openTradeSession := pendingORB
     openTradeDirection := "Long"
+    atrAtEntry := breakoutAtrLocal
+    lastProgressBarIndex := bar_index
 
 if newShort
     posEntry := strategy.position_avg_price
@@ -1665,12 +1709,20 @@ if newShort
     lastTrailStepCount := 0
     openTradeSession := pendingORB
     openTradeDirection := "Short"
+    atrAtEntry := breakoutAtrLocal
+    lastProgressBarIndex := bar_index
 
 if strategy.position_size > 0
+    float prevHighSinceEntry = highestSinceEntry
     highestSinceEntry := na(highestSinceEntry) ? high : math.max(highestSinceEntry, high)
+    if na(prevHighSinceEntry) or high > prevHighSinceEntry
+        lastProgressBarIndex := bar_index
 
 if strategy.position_size < 0
+    float prevLowSinceEntry = lowestSinceEntry
     lowestSinceEntry := na(lowestSinceEntry) ? low : math.min(lowestSinceEntry, low)
+    if na(prevLowSinceEntry) or low < prevLowSinceEntry
+        lastProgressBarIndex := bar_index
 
 validLong  = strategy.position_size > 0 and not na(posEntry) and not na(posRisk) and not na(posTrailRisk) and posRisk > 0 and posTrailRisk > 0 and not na(posStopRef)
 validShort = strategy.position_size < 0 and not na(posEntry) and not na(posRisk) and not na(posTrailRisk) and posRisk > 0 and posTrailRisk > 0 and not na(posStopRef)
@@ -1709,6 +1761,17 @@ timeExitEligibleShort = true
 
 timeExitLong = getUseTimeExit(openTradeSession) and validLong and timeExitEligibleLong and not na(timeExitBars) and timeExitBars >= getMaxBarsInTrade(openTradeSession) and (getTimeExitMode(openTradeSession) == "Any" or (getTimeExitMode(openTradeSession) == "Only In Profit" and longInProfit))
 timeExitShort = getUseTimeExit(openTradeSession) and validShort and timeExitEligibleShort and not na(timeExitBars) and timeExitBars >= getMaxBarsInTrade(openTradeSession) and (getTimeExitMode(openTradeSession) == "Any" or (getTimeExitMode(openTradeSession) == "Only In Profit" and shortInProfit))
+
+// =========================
+// Volatility Decay Exit Logic
+// =========================
+currentAtr = breakoutAtrLocal
+atrCompressionRatio = not na(atrAtEntry) and atrAtEntry > 0 ? currentAtr / atrAtEntry : na
+barsSinceProgress = not na(lastProgressBarIndex) ? (bar_index - lastProgressBarIndex) : na
+
+volDecayLong = getUseVolatilityDecayExit(openTradeSession) and validLong and longInProfit and not na(barsInTrade) and barsInTrade >= getVolDecayMinBarsInTrade(openTradeSession) and not na(atrCompressionRatio) and atrCompressionRatio <= getVolDecayAtrCompressionThreshold(openTradeSession) and not na(barsSinceProgress) and barsSinceProgress >= getVolDecayNoProgressBars(openTradeSession) and (not getVolDecayOnlyWhenTrailActive(openTradeSession) or trailActiveLong)
+
+volDecayShort = getUseVolatilityDecayExit(openTradeSession) and validShort and shortInProfit and not na(barsInTrade) and barsInTrade >= getVolDecayMinBarsInTrade(openTradeSession) and not na(atrCompressionRatio) and atrCompressionRatio <= getVolDecayAtrCompressionThreshold(openTradeSession) and not na(barsSinceProgress) and barsSinceProgress >= getVolDecayNoProgressBars(openTradeSession) and (not getVolDecayOnlyWhenTrailActive(openTradeSession) or trailActiveShort)
 
 // =========================
 // Session-specific forced close logic
@@ -1751,6 +1814,12 @@ if timeExitLong
 
 if timeExitShort
     strategy.close("Short", comment="Time Exit")
+
+if volDecayLong
+    strategy.close("Long", comment="Vol Decay Exit")
+
+if volDecayShort
+    strategy.close("Short", comment="Vol Decay Exit")
 
 if sessionCloseNow and strategy.position_size > 0
     strategy.close("Long", comment="Session Close")
