@@ -320,6 +320,19 @@ showActiveTarget             = input.bool(true, "Show Active Target", group=grou
 showORBOnlyDuringTradeWindow = input.bool(true, "Show ORB Only During Trade Window", group=groupDisplay)
 
 // =========================
+// Debug inputs
+// =========================
+groupDebug = "Debug"
+debugTradeOn = input.bool(true, "Debug Specific Trade", group=groupDebug)
+debugTradeYear = input.int(2026, "Debug Year", minval=2000, maxval=2100, group=groupDebug)
+debugTradeMonth = input.int(3, "Debug Month", minval=1, maxval=12, group=groupDebug)
+debugTradeDay = input.int(2, "Debug Day", minval=1, maxval=31, group=groupDebug)
+debugTradeHour = input.int(10, "Debug Entry Hour", minval=0, maxval=23, group=groupDebug)
+debugTradeMinute = input.int(35, "Debug Entry Minute", minval=0, maxval=59, group=groupDebug)
+debugTradeSession = input.string("NY", "Debug Session", options=["NY", "London", "Asia"], group=groupDebug)
+debugTradeDirection = input.string("Long", "Debug Direction", options=["Long", "Short"], group=groupDebug)
+
+// =========================
 // Session-specific getters
 // =========================
 getTradeMode(sessionName) =>
@@ -588,6 +601,32 @@ calcRetestLevel(sessionName, isLong, orbHigh, orbLow, breakoutHigh, breakoutLow)
     getRetestLevelMode(sessionName) == "ORB Boundary" ? (isLong ? orbHigh : orbLow) : ((breakoutHigh + breakoutLow) / 2.0)
 
 // =========================
+// Debug helpers
+// =========================
+isDebugTradeEntryMatch(entryTs, sessionName, direction) =>
+    debugTradeOn and not na(entryTs) and year(entryTs, strategyDayTZ) == debugTradeYear and month(entryTs, strategyDayTZ) == debugTradeMonth and dayofmonth(entryTs, strategyDayTZ) == debugTradeDay and hour(entryTs, strategyDayTZ) == debugTradeHour and minute(entryTs, strategyDayTZ) == debugTradeMinute and sessionName == debugTradeSession and direction == debugTradeDirection
+
+fmtBool(v) =>
+    v ? "T" : "F"
+
+fmtNum(v) =>
+    na(v) ? "na" : str.tostring(v)
+
+fmtNum4(v) =>
+    na(v) ? "na" : str.tostring(v, "#.####")
+
+pad2(v) =>
+    v < 10 ? "0" + str.tostring(v) : str.tostring(v)
+
+fmtTs(ts) =>
+    na(ts) ? "na" :
+     str.tostring(year(ts, strategyDayTZ)) + "-" +
+     pad2(month(ts, strategyDayTZ)) + "-" +
+     pad2(dayofmonth(ts, strategyDayTZ)) + " " +
+     pad2(hour(ts, strategyDayTZ)) + ":" +
+     pad2(minute(ts, strategyDayTZ))
+
+// =========================
 // ORB engine on 1m (range accuracy)
 // =========================
 orbLevels1m(tz, startH, startM, durM) =>
@@ -788,6 +827,11 @@ var float pendingRetestOrbHigh = na
 var float pendingRetestOrbLow = na
 var int pendingRetestBarIndex = na
 var int pendingRetestSessionCloseTs = na
+
+// Debug persistent state
+var int debugEntryTs = na
+var bool debugTradeActive = false
+var table debugTable = table.new(position.top_right, 2, 20, border_width=1)
 
 curDay = year(time, strategyDayTZ) * 10000 + month(time, strategyDayTZ) * 100 + dayofmonth(time, strategyDayTZ)
 
@@ -1663,6 +1707,8 @@ if flatNow
     openTradeDirection := ""
     atrAtEntry := na
     lastProgressBarIndex := na
+
+    debugTradeActive := false
 else if strategy.position_size == 0
     posEntry := na
     posRisk := na
@@ -1695,6 +1741,10 @@ if newLong
     atrAtEntry := breakoutAtrLocal
     lastProgressBarIndex := bar_index
 
+    if isDebugTradeEntryMatch(time, pendingORB, "Long")
+        debugEntryTs := time
+        debugTradeActive := true
+
 if newShort
     posEntry := strategy.position_avg_price
     posBaseRisk := posStopRef - posEntry
@@ -1711,6 +1761,10 @@ if newShort
     openTradeDirection := "Short"
     atrAtEntry := breakoutAtrLocal
     lastProgressBarIndex := bar_index
+
+    if isDebugTradeEntryMatch(time, pendingORB, "Short")
+        debugEntryTs := time
+        debugTradeActive := true
 
 if strategy.position_size > 0
     float prevHighSinceEntry = highestSinceEntry
@@ -1807,6 +1861,109 @@ if validShort
         activeShortTarget := posEntry - posRisk * getRrMultiple(openTradeSession)
     else
         activeShortStop := shortRunupR < 1 ? posStopRef : posEntry - (shortRunupR - 1) * posTrailRisk
+
+// =========================
+// Debug logging / table
+// =========================
+debugThisBar = debugTradeActive and not na(debugEntryTs) and strategy.position_size != 0 and openTradeSession == debugTradeSession and openTradeDirection == debugTradeDirection
+
+if debugThisBar and barstate.isconfirmed
+    bool dbgValidLong = validLong
+    bool dbgValidShort = validShort
+    bool dbgTrailActive = dbgValidLong ? trailActiveLong : dbgValidShort ? trailActiveShort : false
+    bool dbgTimeExit = dbgValidLong ? timeExitLong : dbgValidShort ? timeExitShort : false
+    bool dbgVolDecay = dbgValidLong ? volDecayLong : dbgValidShort ? volDecayShort : false
+    bool dbgInProfit = dbgValidLong ? longInProfit : dbgValidShort ? shortInProfit : false
+    float dbgActiveStop = dbgValidLong ? activeLongStop : dbgValidShort ? activeShortStop : na
+    float dbgRunupR = dbgValidLong ? longRunupR : dbgValidShort ? shortRunupR : na
+
+    string logLine =
+         "BAR=" + fmtTs(time_close) +
+         " | ENTRY=" + fmtTs(debugEntryTs) +
+         " | SESSION=" + openTradeSession +
+         " | DIR=" + openTradeDirection +
+         " | barsInTrade=" + fmtNum(barsInTrade) +
+         " | timeExitBars=" + fmtNum(timeExitBars) +
+         " | barsSinceProgress=" + fmtNum(barsSinceProgress) +
+         " | entry=" + fmtNum(posEntry) +
+         " | close=" + fmtNum(close) +
+         " | high=" + fmtNum(high) +
+         " | low=" + fmtNum(low) +
+         " | atrAtEntry=" + fmtNum4(atrAtEntry) +
+         " | currentAtr=" + fmtNum4(currentAtr) +
+         " | atrRatio=" + fmtNum4(atrCompressionRatio) +
+         " | runupR=" + fmtNum(dbgRunupR) +
+         " | trailActive=" + fmtBool(dbgTrailActive) +
+         " | inProfit=" + fmtBool(dbgInProfit) +
+         " | activeStop=" + fmtNum(dbgActiveStop) +
+         " | timeExit=" + fmtBool(dbgTimeExit) +
+         " | volDecay=" + fmtBool(dbgVolDecay)
+
+    log.info(logLine)
+
+    table.cell(debugTable, 0, 0, "Field", text_color=color.white, bgcolor=color.black)
+    table.cell(debugTable, 1, 0, "Value", text_color=color.white, bgcolor=color.black)
+
+    table.cell(debugTable, 0, 1, "Bar Time")
+    table.cell(debugTable, 1, 1, fmtTs(time_close))
+
+    table.cell(debugTable, 0, 2, "Entry Time")
+    table.cell(debugTable, 1, 2, fmtTs(debugEntryTs))
+
+    table.cell(debugTable, 0, 3, "barsInTrade")
+    table.cell(debugTable, 1, 3, fmtNum(barsInTrade))
+
+    table.cell(debugTable, 0, 4, "timeExitBars")
+    table.cell(debugTable, 1, 4, fmtNum(timeExitBars))
+
+    table.cell(debugTable, 0, 5, "barsSinceProgress")
+    table.cell(debugTable, 1, 5, fmtNum(barsSinceProgress))
+
+    table.cell(debugTable, 0, 6, "Entry")
+    table.cell(debugTable, 1, 6, fmtNum(posEntry))
+
+    table.cell(debugTable, 0, 7, "Close")
+    table.cell(debugTable, 1, 7, fmtNum(close))
+
+    table.cell(debugTable, 0, 8, "ATR@Entry")
+    table.cell(debugTable, 1, 8, fmtNum4(atrAtEntry))
+
+    table.cell(debugTable, 0, 9, "Current ATR")
+    table.cell(debugTable, 1, 9, fmtNum4(currentAtr))
+
+    table.cell(debugTable, 0, 10, "ATR Ratio")
+    table.cell(debugTable, 1, 10, fmtNum4(atrCompressionRatio))
+
+    table.cell(debugTable, 0, 11, "Trail Active")
+    table.cell(debugTable, 1, 11, dbgValidLong ? fmtBool(trailActiveLong) : dbgValidShort ? fmtBool(trailActiveShort) : "F")
+
+    table.cell(debugTable, 0, 12, "In Profit")
+    table.cell(debugTable, 1, 12, dbgValidLong ? fmtBool(longInProfit) : dbgValidShort ? fmtBool(shortInProfit) : "F")
+
+    table.cell(debugTable, 0, 13, "Time Exit")
+    table.cell(debugTable, 1, 13, dbgValidLong ? fmtBool(timeExitLong) : dbgValidShort ? fmtBool(timeExitShort) : "F")
+
+    table.cell(debugTable, 0, 14, "Vol Decay")
+    table.cell(debugTable, 1, 14, dbgValidLong ? fmtBool(volDecayLong) : dbgValidShort ? fmtBool(volDecayShort) : "F")
+
+    table.cell(debugTable, 0, 15, "RunupR")
+    table.cell(debugTable, 1, 15, fmtNum(dbgRunupR))
+
+    table.cell(debugTable, 0, 16, "Active Stop")
+    table.cell(debugTable, 1, 16, fmtNum(dbgActiveStop))
+
+    table.cell(debugTable, 0, 17, "Session")
+    table.cell(debugTable, 1, 17, openTradeSession)
+
+    table.cell(debugTable, 0, 18, "Direction")
+    table.cell(debugTable, 1, 18, openTradeDirection)
+
+    table.cell(debugTable, 0, 19, "Debug Active")
+    table.cell(debugTable, 1, 19, fmtBool(debugTradeActive))
+else if barstate.isconfirmed
+    for r = 0 to 19
+        table.cell(debugTable, 0, r, "")
+        table.cell(debugTable, 1, r, "")
 
 // =========================
 // Exit Logic
