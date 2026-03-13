@@ -1,6 +1,12 @@
 //@version=5
 strategy("ORB Precision", overlay=true, pyramiding=0, initial_capital=100000, commission_type=strategy.commission.percent, commission_value=0.0, process_orders_on_close=true, calc_on_every_tick=true)
 
+const string stopModelBreakout = "Current Breakout Candle"
+const string stopModelOrbRange = "ORB Range Stop"
+const string stopModelHybrid = "Hybrid"
+const string stopModelAtrCap = "ATR Cap"
+const string stopModelAtrBased = "ATR-Based Stop"
+
 // =========================
 // Inputs
 // =========================
@@ -67,6 +73,10 @@ groupStopAdjNY = "Stop Adjustment - NY"
 nyUseStopAdjustment = input.bool(true, "NY Stop Adjustment On", group=groupStopAdjNY)
 nyStopMultiplier    = input.float(1.85, "NY Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdjNY)
 nyTrailRiskBasis    = input.string("Adjusted Stop Risk", "NY Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdjNY)
+nyStopModel         = input.string(stopModelBreakout, "NY Stop Model", options=[stopModelBreakout, stopModelOrbRange, stopModelHybrid, stopModelAtrCap, stopModelAtrBased], group=groupStopAdjNY)
+nyOrbRangeStopMultiple = input.float(0.75, "NY ORB Range Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjNY)
+nyAtrCapMultiple    = input.float(1.5, "NY ATR Cap Multiple", minval=0.1, step=0.05, group=groupStopAdjNY)
+nyAtrStopMultiple   = input.float(1.0, "NY ATR Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjNY)
 
 groupDispNY = "Displacement Filter - NY"
 nyUseDisplacementFilter = input.bool(true, "NY Displacement Filter On", group=groupDispNY)
@@ -124,6 +134,10 @@ groupStopAdjLDN = "Stop Adjustment - London"
 ldnUseStopAdjustment = input.bool(true, "London Stop Adjustment On", group=groupStopAdjLDN)
 ldnStopMultiplier    = input.float(1.85, "London Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdjLDN)
 ldnTrailRiskBasis    = input.string("Adjusted Stop Risk", "London Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdjLDN)
+ldnStopModel         = input.string(stopModelBreakout, "London Stop Model", options=[stopModelBreakout, stopModelOrbRange, stopModelHybrid, stopModelAtrCap, stopModelAtrBased], group=groupStopAdjLDN)
+ldnOrbRangeStopMultiple = input.float(0.75, "London ORB Range Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjLDN)
+ldnAtrCapMultiple    = input.float(1.5, "London ATR Cap Multiple", minval=0.1, step=0.05, group=groupStopAdjLDN)
+ldnAtrStopMultiple   = input.float(1.0, "London ATR Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjLDN)
 
 groupDispLDN = "Displacement Filter - London"
 ldnUseDisplacementFilter = input.bool(true, "London Displacement Filter On", group=groupDispLDN)
@@ -180,6 +194,10 @@ groupStopAdjASIA = "Stop Adjustment - Asia"
 asiaUseStopAdjustment = input.bool(true, "Asia Stop Adjustment On", group=groupStopAdjASIA)
 asiaStopMultiplier    = input.float(1.85, "Asia Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdjASIA)
 asiaTrailRiskBasis    = input.string("Adjusted Stop Risk", "Asia Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdjASIA)
+asiaStopModel         = input.string(stopModelBreakout, "Asia Stop Model", options=[stopModelBreakout, stopModelOrbRange, stopModelHybrid, stopModelAtrCap, stopModelAtrBased], group=groupStopAdjASIA)
+asiaOrbRangeStopMultiple = input.float(0.75, "Asia ORB Range Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjASIA)
+asiaAtrCapMultiple    = input.float(1.5, "Asia ATR Cap Multiple", minval=0.1, step=0.05, group=groupStopAdjASIA)
+asiaAtrStopMultiple   = input.float(1.0, "Asia ATR Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjASIA)
 
 groupDispASIA = "Displacement Filter - Asia"
 asiaUseDisplacementFilter = input.bool(true, "Asia Displacement Filter On", group=groupDispASIA)
@@ -336,6 +354,7 @@ showORBOnlyDuringTradeWindow = input.bool(true, "Show ORB Only During Trade Wind
 // =========================
 groupDebug = "Debug"
 debugTradeOn = input.bool(true, "Debug Specific Trade", group=groupDebug)
+showStopDebug = input.bool(false, "Show Stop Debug", group=groupDebug)
 debugTradeYear = input.int(2026, "Debug Year", minval=2000, maxval=2100, group=groupDebug)
 debugTradeMonth = input.int(3, "Debug Month", minval=1, maxval=12, group=groupDebug)
 debugTradeDay = input.int(2, "Debug Day", minval=1, maxval=31, group=groupDebug)
@@ -394,6 +413,18 @@ getStopMultiplier(sessionName) =>
 
 getTrailRiskBasis(sessionName) =>
     sessionName == "NY" ? nyTrailRiskBasis : sessionName == "London" ? ldnTrailRiskBasis : sessionName == "Asia" ? asiaTrailRiskBasis : "Adjusted Stop Risk"
+
+getStopModel(sessionName) =>
+    sessionName == "NY" ? nyStopModel : sessionName == "London" ? ldnStopModel : sessionName == "Asia" ? asiaStopModel : stopModelBreakout
+
+getOrbRangeStopMultiple(sessionName) =>
+    sessionName == "NY" ? nyOrbRangeStopMultiple : sessionName == "London" ? ldnOrbRangeStopMultiple : sessionName == "Asia" ? asiaOrbRangeStopMultiple : 0.75
+
+getAtrCapMultiple(sessionName) =>
+    sessionName == "NY" ? nyAtrCapMultiple : sessionName == "London" ? ldnAtrCapMultiple : sessionName == "Asia" ? asiaAtrCapMultiple : 1.5
+
+getAtrStopMultiple(sessionName) =>
+    sessionName == "NY" ? nyAtrStopMultiple : sessionName == "London" ? ldnAtrStopMultiple : sessionName == "Asia" ? asiaAtrStopMultiple : 1.0
 
 getUseDisplacementFilter(sessionName) =>
     sessionName == "NY" ? nyUseDisplacementFilter : sessionName == "London" ? ldnUseDisplacementFilter : sessionName == "Asia" ? asiaUseDisplacementFilter : true
@@ -621,6 +652,46 @@ breakoutIsLarge(sessionName, candleRange, atrValue) =>
 calcRetestLevel(sessionName, isLong, orbHigh, orbLow, breakoutHigh, breakoutLow) =>
     getRetestLevelMode(sessionName) == "ORB Boundary" ? (isLong ? orbHigh : orbLow) : ((breakoutHigh + breakoutLow) / 2.0)
 
+calcBaseStopDistance(sessionName, breakoutHigh, breakoutLow, breakoutAtr, orbHigh, orbLow) =>
+    float safeBreakoutHigh = nz(breakoutHigh, close)
+    float safeBreakoutLow = nz(breakoutLow, close)
+    float safeOrbHigh = nz(orbHigh, safeBreakoutHigh)
+    float safeOrbLow = nz(orbLow, safeBreakoutLow)
+    float safeAtr = nz(breakoutAtr, syminfo.mintick)
+    float breakoutCandleSize = math.abs(safeBreakoutHigh - safeBreakoutLow)
+    float orbRange = math.abs(safeOrbHigh - safeOrbLow)
+    float atrCap = getAtrCapMultiple(sessionName) * safeAtr
+    string stopModel = getStopModel(sessionName)
+    float stopDistance =
+         stopModel == stopModelBreakout ? breakoutCandleSize :
+         stopModel == stopModelOrbRange ? getOrbRangeStopMultiple(sessionName) * orbRange :
+         stopModel == stopModelHybrid ? math.min(breakoutCandleSize, orbRange) :
+         stopModel == stopModelAtrCap ? math.min(breakoutCandleSize, atrCap) :
+         stopModel == stopModelAtrBased ? getAtrStopMultiple(sessionName) * safeAtr :
+         breakoutCandleSize
+    math.max(stopDistance, syminfo.mintick)
+
+calcStopPrice(sessionName, isLong, entryBasisPrice, breakoutHigh, breakoutLow, breakoutAtr, orbHigh, orbLow, buffer) =>
+    string stopModel = getStopModel(sessionName)
+    float baseStopDistance = calcBaseStopDistance(sessionName, breakoutHigh, breakoutLow, breakoutAtr, orbHigh, orbLow)
+    if stopModel == stopModelBreakout
+        isLong ? breakoutLow - buffer : breakoutHigh + buffer
+    else
+        isLong ? entryBasisPrice - baseStopDistance - buffer : entryBasisPrice + baseStopDistance + buffer
+
+fmtStopDebug(sessionName, direction, breakoutHigh, breakoutLow, breakoutAtr, orbHigh, orbLow, baseStopDistance, stopPrice) =>
+    float breakoutCandleSize = math.abs(breakoutHigh - breakoutLow)
+    float orbRange = math.abs(orbHigh - orbLow)
+    float adjustedStopDistance = getUseStopAdjustment(sessionName) ? baseStopDistance * getStopMultiplier(sessionName) : baseStopDistance
+    sessionName + " " + direction +
+     "\nmodel=" + getStopModel(sessionName) +
+     "\ncandle=" + str.tostring(breakoutCandleSize, "#.####") +
+     "\norb=" + str.tostring(orbRange, "#.####") +
+     "\natr=" + str.tostring(breakoutAtr, "#.####") +
+     "\nbase=" + str.tostring(baseStopDistance, "#.####") +
+     "\nadj=" + str.tostring(adjustedStopDistance, "#.####") +
+     "\nstop=" + str.tostring(stopPrice, "#.####")
+
 // =========================
 // Debug helpers
 // =========================
@@ -729,6 +800,12 @@ overnightLevels1m(tz, startH, startM, prevEndH, prevEndM) =>
 
 // Pull NY overnight range from 1m
 [nyOverHigh, nyOverLow, nyOverReady, nyOverDayId] = request.security(syminfo.tickerid, "1", overnightLevels1m(nyTZ, nyStartH, nyStartM, nyEndH, nyEndM), barmerge.gaps_off, barmerge.lookahead_off)
+
+getOrbHigh(sessionName) =>
+    sessionName == "NY" ? nyHigh : sessionName == "London" ? ldnHigh : sessionName == "Asia" ? asiaHigh : na
+
+getOrbLow(sessionName) =>
+    sessionName == "NY" ? nyLow : sessionName == "London" ? ldnLow : sessionName == "Asia" ? asiaLow : na
 
 // Daily ATR remains for structural filters
 dailyAtrValue = request.security(syminfo.tickerid, "D", ta.atr(atrLen))
@@ -1642,73 +1719,92 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
     // 1) Large breakout retest path
     if getUseLargeBreakoutRetest("NY") or getUseLargeBreakoutRetest("London") or getUseLargeBreakoutRetest("Asia")
         if nyLongLargeBreakout
+            float stopPrice = calcStopPrice("NY", true, close, high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), buf)
             pendingRetestActive := true
             pendingRetestSession := "NY"
             pendingRetestDirection := "Long"
-            pendingRetestStop := low - buf
+            pendingRetestStop := stopPrice
             pendingRetestLevel := calcRetestLevel("NY", true, nyHigh, nyLow, high, low)
             pendingRetestOrbHigh := nyHigh
             pendingRetestOrbLow := nyLow
             pendingRetestBarIndex := bar_index
             pendingRetestSessionCloseTs := getSessionCloseTs("NY")
+            if showStopDebug
+                label.new(bar_index, low, fmtStopDebug("NY", "Long", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), calcBaseStopDistance("NY", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY")), stopPrice), style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
         else if nyShortLargeBreakout
+            float stopPrice = calcStopPrice("NY", false, close, high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), buf)
             pendingRetestActive := true
             pendingRetestSession := "NY"
             pendingRetestDirection := "Short"
-            pendingRetestStop := high + buf
+            pendingRetestStop := stopPrice
             pendingRetestLevel := calcRetestLevel("NY", false, nyHigh, nyLow, high, low)
             pendingRetestOrbHigh := nyHigh
             pendingRetestOrbLow := nyLow
             pendingRetestBarIndex := bar_index
             pendingRetestSessionCloseTs := getSessionCloseTs("NY")
+            if showStopDebug
+                label.new(bar_index, high, fmtStopDebug("NY", "Short", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), calcBaseStopDistance("NY", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY")), stopPrice), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
         else if ldnLongLargeBreakout
+            float stopPrice = calcStopPrice("London", true, close, high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), buf)
             pendingRetestActive := true
             pendingRetestSession := "London"
             pendingRetestDirection := "Long"
-            pendingRetestStop := low - buf
+            pendingRetestStop := stopPrice
             pendingRetestLevel := calcRetestLevel("London", true, ldnHigh, ldnLow, high, low)
             pendingRetestOrbHigh := ldnHigh
             pendingRetestOrbLow := ldnLow
             pendingRetestBarIndex := bar_index
             pendingRetestSessionCloseTs := getSessionCloseTs("London")
+            if showStopDebug
+                label.new(bar_index, low, fmtStopDebug("London", "Long", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), calcBaseStopDistance("London", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London")), stopPrice), style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
         else if ldnShortLargeBreakout
+            float stopPrice = calcStopPrice("London", false, close, high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), buf)
             pendingRetestActive := true
             pendingRetestSession := "London"
             pendingRetestDirection := "Short"
-            pendingRetestStop := high + buf
+            pendingRetestStop := stopPrice
             pendingRetestLevel := calcRetestLevel("London", false, ldnHigh, ldnLow, high, low)
             pendingRetestOrbHigh := ldnHigh
             pendingRetestOrbLow := ldnLow
             pendingRetestBarIndex := bar_index
             pendingRetestSessionCloseTs := getSessionCloseTs("London")
+            if showStopDebug
+                label.new(bar_index, high, fmtStopDebug("London", "Short", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), calcBaseStopDistance("London", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London")), stopPrice), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
         else if asiaLongLargeBreakout
+            float stopPrice = calcStopPrice("Asia", true, close, high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), buf)
             pendingRetestActive := true
             pendingRetestSession := "Asia"
             pendingRetestDirection := "Long"
-            pendingRetestStop := low - buf
+            pendingRetestStop := stopPrice
             pendingRetestLevel := calcRetestLevel("Asia", true, asiaHigh, asiaLow, high, low)
             pendingRetestOrbHigh := asiaHigh
             pendingRetestOrbLow := asiaLow
             pendingRetestBarIndex := bar_index
             pendingRetestSessionCloseTs := getSessionCloseTs("Asia")
+            if showStopDebug
+                label.new(bar_index, low, fmtStopDebug("Asia", "Long", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), calcBaseStopDistance("Asia", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia")), stopPrice), style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
         else if asiaShortLargeBreakout
+            float stopPrice = calcStopPrice("Asia", false, close, high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), buf)
             pendingRetestActive := true
             pendingRetestSession := "Asia"
             pendingRetestDirection := "Short"
-            pendingRetestStop := high + buf
+            pendingRetestStop := stopPrice
             pendingRetestLevel := calcRetestLevel("Asia", false, asiaHigh, asiaLow, high, low)
             pendingRetestOrbHigh := asiaHigh
             pendingRetestOrbLow := asiaLow
             pendingRetestBarIndex := bar_index
             pendingRetestSessionCloseTs := getSessionCloseTs("Asia")
+            if showStopDebug
+                label.new(bar_index, high, fmtStopDebug("Asia", "Short", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), calcBaseStopDistance("Asia", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia")), stopPrice), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
 
     // 2) Follow-through confirmation path for non-large breakouts
     if not pendingRetestActive
         if getUseFollowThroughConfirmation("NY") and nyLongBreakout and not nyLongLargeBreakout
+            float stopPrice = calcStopPrice("NY", true, close, high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), buf)
             pendingConfirmActive := true
             pendingConfirmSession := "NY"
             pendingConfirmDirection := "Long"
-            pendingConfirmStop := low - buf
+            pendingConfirmStop := stopPrice
             pendingConfirmOrbHigh := nyHigh
             pendingConfirmOrbLow := nyLow
             pendingConfirmBreakoutHigh := high
@@ -1716,11 +1812,14 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("NY")
+            if showStopDebug
+                label.new(bar_index, low, fmtStopDebug("NY", "Long", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), calcBaseStopDistance("NY", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY")), stopPrice), style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
         else if getUseFollowThroughConfirmation("NY") and nyShortBreakout and not nyShortLargeBreakout
+            float stopPrice = calcStopPrice("NY", false, close, high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), buf)
             pendingConfirmActive := true
             pendingConfirmSession := "NY"
             pendingConfirmDirection := "Short"
-            pendingConfirmStop := high + buf
+            pendingConfirmStop := stopPrice
             pendingConfirmOrbHigh := nyHigh
             pendingConfirmOrbLow := nyLow
             pendingConfirmBreakoutHigh := high
@@ -1728,11 +1827,14 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("NY")
+            if showStopDebug
+                label.new(bar_index, high, fmtStopDebug("NY", "Short", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), calcBaseStopDistance("NY", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY")), stopPrice), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
         else if getUseFollowThroughConfirmation("London") and ldnLongBreakout and not ldnLongLargeBreakout
+            float stopPrice = calcStopPrice("London", true, close, high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), buf)
             pendingConfirmActive := true
             pendingConfirmSession := "London"
             pendingConfirmDirection := "Long"
-            pendingConfirmStop := low - buf
+            pendingConfirmStop := stopPrice
             pendingConfirmOrbHigh := ldnHigh
             pendingConfirmOrbLow := ldnLow
             pendingConfirmBreakoutHigh := high
@@ -1740,11 +1842,14 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("London")
+            if showStopDebug
+                label.new(bar_index, low, fmtStopDebug("London", "Long", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), calcBaseStopDistance("London", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London")), stopPrice), style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
         else if getUseFollowThroughConfirmation("London") and ldnShortBreakout and not ldnShortLargeBreakout
+            float stopPrice = calcStopPrice("London", false, close, high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), buf)
             pendingConfirmActive := true
             pendingConfirmSession := "London"
             pendingConfirmDirection := "Short"
-            pendingConfirmStop := high + buf
+            pendingConfirmStop := stopPrice
             pendingConfirmOrbHigh := ldnHigh
             pendingConfirmOrbLow := ldnLow
             pendingConfirmBreakoutHigh := high
@@ -1752,11 +1857,14 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("London")
+            if showStopDebug
+                label.new(bar_index, high, fmtStopDebug("London", "Short", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), calcBaseStopDistance("London", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London")), stopPrice), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
         else if getUseFollowThroughConfirmation("Asia") and asiaLongBreakout and not asiaLongLargeBreakout
+            float stopPrice = calcStopPrice("Asia", true, close, high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), buf)
             pendingConfirmActive := true
             pendingConfirmSession := "Asia"
             pendingConfirmDirection := "Long"
-            pendingConfirmStop := low - buf
+            pendingConfirmStop := stopPrice
             pendingConfirmOrbHigh := asiaHigh
             pendingConfirmOrbLow := asiaLow
             pendingConfirmBreakoutHigh := high
@@ -1764,11 +1872,14 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("Asia")
+            if showStopDebug
+                label.new(bar_index, low, fmtStopDebug("Asia", "Long", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), calcBaseStopDistance("Asia", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia")), stopPrice), style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
         else if getUseFollowThroughConfirmation("Asia") and asiaShortBreakout and not asiaShortLargeBreakout
+            float stopPrice = calcStopPrice("Asia", false, close, high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), buf)
             pendingConfirmActive := true
             pendingConfirmSession := "Asia"
             pendingConfirmDirection := "Short"
-            pendingConfirmStop := high + buf
+            pendingConfirmStop := stopPrice
             pendingConfirmOrbHigh := asiaHigh
             pendingConfirmOrbLow := asiaLow
             pendingConfirmBreakoutHigh := high
@@ -1776,6 +1887,8 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingConfirmBreakoutClose := close
             pendingConfirmBarIndex := bar_index
             pendingConfirmSessionCloseTs := getSessionCloseTs("Asia")
+            if showStopDebug
+                label.new(bar_index, high, fmtStopDebug("Asia", "Short", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), calcBaseStopDistance("Asia", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia")), stopPrice), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
 
     // 3) Immediate entry path
     if not pendingRetestActive and not pendingConfirmActive
@@ -1787,13 +1900,16 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
         bool allowImmediateAsiaShort = asiaShortBreakout and not asiaShortLargeBreakout
 
         if allowImmediateNyLong
+            float stopPrice = calcStopPrice("NY", true, close, high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), buf)
             longSignal := true
             activeORB := "NY"
             pendingORB := "NY"
             pendingSessionCloseTs := getSessionCloseTs("NY")
-            intendedStop := low - buf
+            intendedStop := stopPrice
             pendingSignalTs := time
             pendingSignalAtr := breakoutAtrLocal
+            if showStopDebug
+                label.new(bar_index, low, fmtStopDebug("NY", "Long", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), calcBaseStopDistance("NY", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY")), stopPrice), style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
             nyTraded := true
             nyLongTradeCount += 1
             nySessionTradeCount += 1
@@ -1807,13 +1923,16 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             nyShortNeedsReset := false
             nyLongDead := true
         else if allowImmediateNyShort
+            float stopPrice = calcStopPrice("NY", false, close, high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), buf)
             shortSignal := true
             activeORB := "NY"
             pendingORB := "NY"
             pendingSessionCloseTs := getSessionCloseTs("NY")
-            intendedStop := high + buf
+            intendedStop := stopPrice
             pendingSignalTs := time
             pendingSignalAtr := breakoutAtrLocal
+            if showStopDebug
+                label.new(bar_index, high, fmtStopDebug("NY", "Short", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY"), calcBaseStopDistance("NY", high, low, breakoutAtrLocal, getOrbHigh("NY"), getOrbLow("NY")), stopPrice), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
             nyTraded := true
             nyShortTradeCount += 1
             nySessionTradeCount += 1
@@ -1827,13 +1946,16 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             nyShortNeedsReset := false
             nyShortDead := true
         else if allowImmediateLdnLong
+            float stopPrice = calcStopPrice("London", true, close, high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), buf)
             longSignal := true
             activeORB := "London"
             pendingORB := "London"
             pendingSessionCloseTs := getSessionCloseTs("London")
-            intendedStop := low - buf
+            intendedStop := stopPrice
             pendingSignalTs := time
             pendingSignalAtr := breakoutAtrLocal
+            if showStopDebug
+                label.new(bar_index, low, fmtStopDebug("London", "Long", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), calcBaseStopDistance("London", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London")), stopPrice), style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
             ldnTraded := true
             ldnLongTradeCount += 1
             ldnSessionTradeCount += 1
@@ -1847,13 +1969,16 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             ldnShortNeedsReset := false
             ldnLongDead := true
         else if allowImmediateLdnShort
+            float stopPrice = calcStopPrice("London", false, close, high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), buf)
             shortSignal := true
             activeORB := "London"
             pendingORB := "London"
             pendingSessionCloseTs := getSessionCloseTs("London")
-            intendedStop := high + buf
+            intendedStop := stopPrice
             pendingSignalTs := time
             pendingSignalAtr := breakoutAtrLocal
+            if showStopDebug
+                label.new(bar_index, high, fmtStopDebug("London", "Short", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London"), calcBaseStopDistance("London", high, low, breakoutAtrLocal, getOrbHigh("London"), getOrbLow("London")), stopPrice), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
             ldnTraded := true
             ldnShortTradeCount += 1
             ldnSessionTradeCount += 1
@@ -1867,13 +1992,16 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             ldnShortNeedsReset := false
             ldnShortDead := true
         else if allowImmediateAsiaLong
+            float stopPrice = calcStopPrice("Asia", true, close, high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), buf)
             longSignal := true
             activeORB := "Asia"
             pendingORB := "Asia"
             pendingSessionCloseTs := getSessionCloseTs("Asia")
-            intendedStop := low - buf
+            intendedStop := stopPrice
             pendingSignalTs := time
             pendingSignalAtr := breakoutAtrLocal
+            if showStopDebug
+                label.new(bar_index, low, fmtStopDebug("Asia", "Long", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), calcBaseStopDistance("Asia", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia")), stopPrice), style=label.style_label_up, textcolor=color.white, color=color.new(color.teal, 0))
             asiaTraded := true
             asiaLongTradeCount += 1
             asiaSessionTradeCount += 1
@@ -1887,13 +2015,16 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             asiaShortNeedsReset := false
             asiaLongDead := true
         else if allowImmediateAsiaShort
+            float stopPrice = calcStopPrice("Asia", false, close, high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), buf)
             shortSignal := true
             activeORB := "Asia"
             pendingORB := "Asia"
             pendingSessionCloseTs := getSessionCloseTs("Asia")
-            intendedStop := high + buf
+            intendedStop := stopPrice
             pendingSignalTs := time
             pendingSignalAtr := breakoutAtrLocal
+            if showStopDebug
+                label.new(bar_index, high, fmtStopDebug("Asia", "Short", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia"), calcBaseStopDistance("Asia", high, low, breakoutAtrLocal, getOrbHigh("Asia"), getOrbLow("Asia")), stopPrice), style=label.style_label_down, textcolor=color.white, color=color.new(color.orange, 0))
             asiaTraded := true
             asiaShortTradeCount += 1
             asiaSessionTradeCount += 1
