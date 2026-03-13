@@ -299,7 +299,7 @@ asiaFriLastEntryH      = input.int(11, "Asia Friday Last Entry Hour", minval=0, 
 asiaFriLastEntryM      = input.int(0,  "Asia Friday Last Entry Minute", minval=0, maxval=59, group=groupEntryTime)
 
 groupEOD = "End Of Day Close"
-useEodClose = input.bool(false, "Session Close On", group=groupEOD)
+useEodClose = input.bool(true, "Session Close On", group=groupEOD)
 
 groupFilters = "Trade Filters"
 skipDecember = input.bool(true, "Skip December", group=groupFilters)
