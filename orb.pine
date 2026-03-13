@@ -83,17 +83,17 @@ groupPrevDayTrendNY = "Previous Day Trend Alignment Filter - NY"
 nyUsePrevDayTrendAlignment = input.bool(false, "NY Previous Day Trend Alignment On", group=groupPrevDayTrendNY)
 
 groupTimeExitNY = "Time Exit - NY"
-nyUseTimeExit              = input.bool(true, "NY Time Exit On", group=groupTimeExitNY)
+nyUseTimeExit              = input.bool(false, "NY Time Exit On", group=groupTimeExitNY)
 nyMaxBarsInTrade           = input.int(24, "NY Max Bars In Trade", minval=1, maxval=500, group=groupTimeExitNY)
 nyTimeExitMode             = input.string("Any", "NY Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExitNY)
 nyResetTimeExitOnTrailStep = input.bool(false, "NY Reset Time Exit On Trail Step", group=groupTimeExitNY)
 
 groupVolDecayNY = "Volatility Decay Exit - NY"
-nyUseVolatilityDecayExit             = input.bool(false, "NY Volatility Decay Exit On", group=groupVolDecayNY)
-nyVolDecayMinBarsInTrade             = input.int(6, "NY Min Bars Before Vol Decay Exit", minval=1, maxval=500, group=groupVolDecayNY)
+nyUseVolatilityDecayExit             = input.bool(true, "NY Volatility Decay Exit On", group=groupVolDecayNY)
+nyVolDecayMinBarsInTrade             = input.int(4, "NY Min Bars Before Vol Decay Exit", minval=1, maxval=500, group=groupVolDecayNY)
 nyVolDecayAtrCompressionThreshold    = input.float(0.75, "NY ATR Compression Threshold (Current ATR / Entry ATR)", minval=0.10, maxval=2.00, step=0.05, group=groupVolDecayNY)
 nyVolDecayNoProgressBars             = input.int(3, "NY No Progress Bars Required", minval=1, maxval=100, group=groupVolDecayNY)
-nyVolDecayOnlyWhenTrailActive        = input.bool(true, "NY Only When Step Trail Active", group=groupVolDecayNY)
+nyVolDecayOnlyWhenTrailActive        = input.bool(false, "NY Only When Step Trail Active", group=groupVolDecayNY)
 
 // London
 groupTradeLDN = "Trade Logic - London"
