@@ -836,6 +836,13 @@ var float debugAtrOnSignal = na
 var float debugAtrOnFill = na
 var float debugAtrOnNextBarAfterSignal = na
 var bool debugTradeActive = false
+var bool debugLastVolDecay = false
+var bool debugLastTimeExit = false
+var bool debugLastSessionCloseNow = false
+var int debugLastBarsSinceProgress = na
+var int debugLastBarsInTrade = na
+var float debugLastAtrRatio = na
+var bool debugExitTriggerLogged = false
 var bool debugTradeLatched = false
 var string debugLatchedSession = ""
 var string debugLatchedDirection = ""
@@ -934,6 +941,13 @@ if na(lastDay) or curDay != lastDay
     debugAtrOnFill := na
     debugAtrOnNextBarAfterSignal := na
     debugTradeActive := false
+    debugLastVolDecay := false
+    debugLastTimeExit := false
+    debugLastSessionCloseNow := false
+    debugLastBarsSinceProgress := na
+    debugLastBarsInTrade := na
+    debugLastAtrRatio := na
+    debugExitTriggerLogged := false
     debugTradeLatched := false
     debugLatchedSession := ""
     debugLatchedDirection := ""
@@ -1808,6 +1822,13 @@ if flatNow
     debugAtrOnFill := na
     debugAtrOnNextBarAfterSignal := na
     debugTradeActive := false
+    debugLastVolDecay := false
+    debugLastTimeExit := false
+    debugLastSessionCloseNow := false
+    debugLastBarsSinceProgress := na
+    debugLastBarsInTrade := na
+    debugLastAtrRatio := na
+    debugExitTriggerLogged := false
 
     debugPrevClose := na
     debugPrevBarsInTrade := na
@@ -1839,6 +1860,13 @@ else if strategy.position_size == 0
     lastProgressBarIndex := na
     pendingSignalTs := na
     pendingSignalAtr := na
+    debugLastVolDecay := false
+    debugLastTimeExit := false
+    debugLastSessionCloseNow := false
+    debugLastBarsSinceProgress := na
+    debugLastBarsInTrade := na
+    debugLastAtrRatio := na
+    debugExitTriggerLogged := false
 
 if newLong
     posEntry := strategy.position_avg_price
@@ -1856,6 +1884,7 @@ if newLong
     openTradeDirection := "Long"
     atrAtEntry := breakoutAtrLocal
     lastProgressBarIndex := bar_index
+    debugExitTriggerLogged := false
 
     if isDebugTradeEntryMatch(nz(pendingSignalTs, time), pendingORB, "Long")
         debugSignalTs := pendingSignalTs
@@ -1884,6 +1913,7 @@ if newShort
     openTradeDirection := "Short"
     atrAtEntry := breakoutAtrLocal
     lastProgressBarIndex := bar_index
+    debugExitTriggerLogged := false
 
     if isDebugTradeEntryMatch(nz(pendingSignalTs, time), pendingORB, "Short")
         debugSignalTs := pendingSignalTs
@@ -2028,40 +2058,56 @@ if debugThisBar and barstate.isconfirmed
     debugPrevSession := openTradeSession
     debugPrevDirection := openTradeDirection
 
-    string logLine =
-         "BAR=" + fmtTs(time_close) +
-         " | SIGNAL_TS=" + fmtTs(debugSignalTs) +
-         " | FILL_TS=" + fmtTs(debugFillTs) +
-         " | ENTRY_MATCH_TS=" + fmtTs(debugEntryTs) +
-         " | SESSION=" + openTradeSession +
-         " | DIR=" + openTradeDirection +
-         " | barsInTrade=" + fmtNum(barsInTrade) +
-         " | timeExitBars=" + fmtNum(timeExitBars) +
-         " | barsSinceProgress=" + fmtNum(barsSinceProgress) +
-         " | lastProgressBarIndex=" + fmtNum(lastProgressBarIndex) +
-         " | entryBarIndex=" + fmtNum(entryBarIndex) +
-         " | entry=" + fmtNum(posEntry) +
-         " | close=" + fmtNum(close) +
-         " | high=" + fmtNum(high) +
-         " | low=" + fmtNum(low) +
-         " | pendingSignalTs=" + fmtTs(pendingSignalTs) +
-         " | atrSignal=" + fmtNum4(debugAtrOnSignal) +
-         " | atrFill=" + fmtNum4(debugAtrOnFill) +
-         " | atrNextBar=" + fmtNum4(debugAtrOnNextBarAfterSignal) +
-         " | atrAtEntry=" + fmtNum4(atrAtEntry) +
-         " | rawBreakoutAtr=" + fmtNum4(breakoutAtrLocal) +
-         " | currentAtr=" + fmtNum4(currentAtr) +
-         " | atrRatio=" + fmtNum4(atrCompressionRatio) +
-         " | runupR=" + fmtNum(dbgRunupR) +
-         " | trailActive=" + fmtBool(dbgTrailActive) +
-         " | inProfit=" + fmtBool(dbgInProfit) +
-         " | activeStop=" + fmtNum(dbgActiveStop) +
-         " | activeTarget=" + fmtNum(dbgActiveTarget) +
-         " | timeExit=" + fmtBool(dbgTimeExit) +
-         " | volDecay=" + fmtBool(dbgVolDecay) +
-         " | sessionCloseNow=" + fmtBool(sessionCloseNow)
+    bool shouldLogStateChange =
+         na(debugLastBarsInTrade) or barsInTrade != debugLastBarsInTrade or
+         na(debugLastBarsSinceProgress) or barsSinceProgress != debugLastBarsSinceProgress or
+         na(debugLastAtrRatio) or math.abs(atrCompressionRatio - debugLastAtrRatio) >= 0.01 or
+         dbgVolDecay != debugLastVolDecay or
+         dbgTimeExit != debugLastTimeExit or
+         sessionCloseNow != debugLastSessionCloseNow
 
-    log.info(logLine)
+    if shouldLogStateChange
+        string logLine =
+             "BAR=" + fmtTs(time_close) +
+             " | SIGNAL_TS=" + fmtTs(debugSignalTs) +
+             " | FILL_TS=" + fmtTs(debugFillTs) +
+             " | ENTRY_MATCH_TS=" + fmtTs(debugEntryTs) +
+             " | SESSION=" + openTradeSession +
+             " | DIR=" + openTradeDirection +
+             " | barsInTrade=" + fmtNum(barsInTrade) +
+             " | timeExitBars=" + fmtNum(timeExitBars) +
+             " | barsSinceProgress=" + fmtNum(barsSinceProgress) +
+             " | lastProgressBarIndex=" + fmtNum(lastProgressBarIndex) +
+             " | entryBarIndex=" + fmtNum(entryBarIndex) +
+             " | entry=" + fmtNum(posEntry) +
+             " | close=" + fmtNum(close) +
+             " | high=" + fmtNum(high) +
+             " | low=" + fmtNum(low) +
+             " | pendingSignalTs=" + fmtTs(pendingSignalTs) +
+             " | atrSignal=" + fmtNum4(debugAtrOnSignal) +
+             " | atrFill=" + fmtNum4(debugAtrOnFill) +
+             " | atrNextBar=" + fmtNum4(debugAtrOnNextBarAfterSignal) +
+             " | atrAtEntry=" + fmtNum4(atrAtEntry) +
+             " | rawBreakoutAtr=" + fmtNum4(breakoutAtrLocal) +
+             " | currentAtr=" + fmtNum4(currentAtr) +
+             " | atrRatio=" + fmtNum4(atrCompressionRatio) +
+             " | runupR=" + fmtNum(dbgRunupR) +
+             " | trailActive=" + fmtBool(dbgTrailActive) +
+             " | inProfit=" + fmtBool(dbgInProfit) +
+             " | activeStop=" + fmtNum(dbgActiveStop) +
+             " | activeTarget=" + fmtNum(dbgActiveTarget) +
+             " | timeExit=" + fmtBool(dbgTimeExit) +
+             " | volDecay=" + fmtBool(dbgVolDecay) +
+             " | sessionCloseNow=" + fmtBool(sessionCloseNow)
+
+        log.info(logLine)
+
+    debugLastBarsInTrade := barsInTrade
+    debugLastBarsSinceProgress := barsSinceProgress
+    debugLastAtrRatio := atrCompressionRatio
+    debugLastVolDecay := dbgVolDecay
+    debugLastTimeExit := dbgTimeExit
+    debugLastSessionCloseNow := sessionCloseNow
 
     table.cell(debugTable, 0, 0, "Field", text_color=color.white, bgcolor=color.black)
     table.cell(debugTable, 1, 0, "Value", text_color=color.white, bgcolor=color.black)
@@ -2136,6 +2182,44 @@ else if barstate.isconfirmed
 // =========================
 // Exit Logic
 // =========================
+if debugTradeActive and strategy.position_size != 0 and barstate.isconfirmed and not debugExitTriggerLogged
+    string triggerReason =
+         timeExitLong or timeExitShort ? "Time Exit" :
+         volDecayLong or volDecayShort ? "Vol Decay Exit" :
+         sessionCloseNow ? "Session Close" :
+         na
+
+    if not na(triggerReason)
+        string triggerLog =
+             "EXIT_TRIGGER" +
+             " | BAR=" + fmtTs(time_close) +
+             " | SIGNAL_TS=" + fmtTs(debugSignalTs) +
+             " | FILL_TS=" + fmtTs(debugFillTs) +
+             " | ENTRY_MATCH_TS=" + fmtTs(debugEntryTs) +
+             " | SESSION=" + openTradeSession +
+             " | DIR=" + openTradeDirection +
+             " | REASON=" + triggerReason +
+             " | barsInTrade=" + fmtNum(barsInTrade) +
+             " | timeExitBars=" + fmtNum(timeExitBars) +
+             " | barsSinceProgress=" + fmtNum(barsSinceProgress) +
+             " | lastProgressBarIndex=" + fmtNum(lastProgressBarIndex) +
+             " | entryBarIndex=" + fmtNum(entryBarIndex) +
+             " | entry=" + fmtNum(posEntry) +
+             " | close=" + fmtNum(close) +
+             " | currentAtr=" + fmtNum4(currentAtr) +
+             " | atrAtEntry=" + fmtNum4(atrAtEntry) +
+             " | atrRatio=" + fmtNum4(atrCompressionRatio) +
+             " | inProfit=" + fmtBool(longInProfit or shortInProfit) +
+             " | trailActive=" + fmtBool(trailActiveLong or trailActiveShort) +
+             " | activeStop=" + fmtNum(strategy.position_size > 0 ? activeLongStop : activeShortStop) +
+             " | activeTarget=" + fmtNum(strategy.position_size > 0 ? activeLongTarget : activeShortTarget) +
+             " | timeExit=" + fmtBool(timeExitLong or timeExitShort) +
+             " | volDecay=" + fmtBool(volDecayLong or volDecayShort) +
+             " | sessionCloseNow=" + fmtBool(sessionCloseNow)
+
+        log.info(triggerLog)
+        debugExitTriggerLogged := true
+
 if validLong
     strategy.exit("Long Exit", from_entry="Long", stop=activeLongStop, limit=activeLongTarget)
 
