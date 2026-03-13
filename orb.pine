@@ -83,8 +83,8 @@ groupPrevDayTrendNY = "Previous Day Trend Alignment Filter - NY"
 nyUsePrevDayTrendAlignment = input.bool(false, "NY Previous Day Trend Alignment On", group=groupPrevDayTrendNY)
 
 groupTimeExitNY = "Time Exit - NY"
-nyUseTimeExit              = input.bool(false, "NY Time Exit On", group=groupTimeExitNY)
-nyMaxBarsInTrade           = input.int(24, "NY Max Bars In Trade", minval=1, maxval=500, group=groupTimeExitNY)
+nyUseTimeExit              = input.bool(true, "NY Time Exit On", group=groupTimeExitNY)
+nyMaxBarsInTrade           = input.int(48, "NY Max Bars In Trade", minval=1, maxval=500, group=groupTimeExitNY)
 nyTimeExitMode             = input.string("Any", "NY Time Exit Mode", options=["Any", "Only In Profit"], group=groupTimeExitNY)
 nyResetTimeExitOnTrailStep = input.bool(false, "NY Reset Time Exit On Trail Step", group=groupTimeExitNY)
 
