@@ -836,7 +836,10 @@ var float debugAtrOnSignal = na
 var float debugAtrOnFill = na
 var float debugAtrOnNextBarAfterSignal = na
 var bool debugTradeActive = false
-var table debugTable = table.new(position.top_right, 2, 20, border_width=1)
+var bool debugTradeLatched = false
+var string debugLatchedSession = ""
+var string debugLatchedDirection = ""
+var table debugTable = table.new(position.top_right, 2, 22, border_width=1)
 
 var int pendingSignalTs = na
 var float pendingSignalAtr = na
@@ -931,6 +934,9 @@ if na(lastDay) or curDay != lastDay
     debugAtrOnFill := na
     debugAtrOnNextBarAfterSignal := na
     debugTradeActive := false
+    debugTradeLatched := false
+    debugLatchedSession := ""
+    debugLatchedDirection := ""
 
     lastDay := curDay
 
@@ -1708,7 +1714,7 @@ if flatNow
     closedTradePnl = strategy.netprofit - nz(strategy.netprofit[1])
 
     // Log the exact exit event BEFORE all state gets wiped.
-    if debugTradeActive
+    if debugTradeLatched
         string exitLog =
              "EXIT_EVENT" +
              " | BAR=" + fmtTs(time_close) +
@@ -1732,6 +1738,10 @@ if flatNow
              " | closedTradePnl=" + fmtNum(closedTradePnl)
 
         log.info(exitLog)
+
+    debugTradeLatched := false
+    debugLatchedSession := ""
+    debugLatchedDirection := ""
 
     if getAllowSecondBreak(openTradeSession) and closedTradePnl < 0
         if openTradeSession == "NY" and openTradeDirection == "Long" and nyLongTradeCount == 1
@@ -1854,6 +1864,9 @@ if newLong
         debugAtrOnSignal := pendingSignalAtr
         debugAtrOnFill := breakoutAtrLocal
         debugTradeActive := true
+        debugTradeLatched := true
+        debugLatchedSession := pendingORB
+        debugLatchedDirection := "Long"
 
 if newShort
     posEntry := strategy.position_avg_price
@@ -1879,6 +1892,9 @@ if newShort
         debugAtrOnSignal := pendingSignalAtr
         debugAtrOnFill := breakoutAtrLocal
         debugTradeActive := true
+        debugTradeLatched := true
+        debugLatchedSession := pendingORB
+        debugLatchedDirection := "Short"
 
 if debugTradeActive and not na(debugSignalTs) and na(debugAtrOnNextBarAfterSignal)
     if time > debugSignalTs
@@ -1983,7 +1999,7 @@ if validShort
 // =========================
 // Debug logging / table
 // =========================
-debugThisBar = debugTradeActive and not na(debugEntryTs) and strategy.position_size != 0 and openTradeSession == debugTradeSession and openTradeDirection == debugTradeDirection
+debugThisBar = debugTradeLatched and strategy.position_size != 0 and openTradeSession == debugLatchedSession and openTradeDirection == debugLatchedDirection
 
 if debugThisBar and barstate.isconfirmed
     bool dbgValidLong = validLong
@@ -2022,6 +2038,8 @@ if debugThisBar and barstate.isconfirmed
          " | barsInTrade=" + fmtNum(barsInTrade) +
          " | timeExitBars=" + fmtNum(timeExitBars) +
          " | barsSinceProgress=" + fmtNum(barsSinceProgress) +
+         " | lastProgressBarIndex=" + fmtNum(lastProgressBarIndex) +
+         " | entryBarIndex=" + fmtNum(entryBarIndex) +
          " | entry=" + fmtNum(posEntry) +
          " | close=" + fmtNum(close) +
          " | high=" + fmtNum(high) +
@@ -2038,8 +2056,10 @@ if debugThisBar and barstate.isconfirmed
          " | trailActive=" + fmtBool(dbgTrailActive) +
          " | inProfit=" + fmtBool(dbgInProfit) +
          " | activeStop=" + fmtNum(dbgActiveStop) +
+         " | activeTarget=" + fmtNum(dbgActiveTarget) +
          " | timeExit=" + fmtBool(dbgTimeExit) +
-         " | volDecay=" + fmtBool(dbgVolDecay)
+         " | volDecay=" + fmtBool(dbgVolDecay) +
+         " | sessionCloseNow=" + fmtBool(sessionCloseNow)
 
     log.info(logLine)
 
@@ -2102,8 +2122,14 @@ if debugThisBar and barstate.isconfirmed
 
     table.cell(debugTable, 0, 19, "Debug Active")
     table.cell(debugTable, 1, 19, fmtBool(debugTradeActive))
+
+    table.cell(debugTable, 0, 20, "Last Progress Bar")
+    table.cell(debugTable, 1, 20, fmtNum(lastProgressBarIndex))
+
+    table.cell(debugTable, 0, 21, "Entry Bar Index")
+    table.cell(debugTable, 1, 21, fmtNum(entryBarIndex))
 else if barstate.isconfirmed
-    for r = 0 to 19
+    for r = 0 to 21
         table.cell(debugTable, 0, r, "")
         table.cell(debugTable, 1, r, "")
 
