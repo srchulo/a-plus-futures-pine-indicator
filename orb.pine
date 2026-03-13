@@ -830,8 +830,32 @@ var int pendingRetestSessionCloseTs = na
 
 // Debug persistent state
 var int debugEntryTs = na
+var int debugSignalTs = na
+var int debugFillTs = na
+var float debugAtrOnSignal = na
+var float debugAtrOnFill = na
+var float debugAtrOnNextBarAfterSignal = na
 var bool debugTradeActive = false
 var table debugTable = table.new(position.top_right, 2, 20, border_width=1)
+
+var int pendingSignalTs = na
+var float pendingSignalAtr = na
+
+// Exit-event debug snapshots
+var float debugPrevClose = na
+var float debugPrevBarsInTrade = na
+var float debugPrevTimeExitBars = na
+var float debugPrevBarsSinceProgress = na
+var float debugPrevAtrAtEntry = na
+var float debugPrevCurrentAtr = na
+var float debugPrevAtrCompressionRatio = na
+var bool debugPrevTimeExit = false
+var bool debugPrevVolDecay = false
+var bool debugPrevSessionClose = false
+var float debugPrevActiveStop = na
+var float debugPrevActiveTarget = na
+var string debugPrevSession = ""
+var string debugPrevDirection = ""
 
 curDay = year(time, strategyDayTZ) * 10000 + month(time, strategyDayTZ) * 100 + dayofmonth(time, strategyDayTZ)
 
@@ -897,6 +921,16 @@ if na(lastDay) or curDay != lastDay
     pendingRetestOrbLow := na
     pendingRetestBarIndex := na
     pendingRetestSessionCloseTs := na
+
+    pendingSignalTs := na
+    pendingSignalAtr := na
+    debugSignalTs := na
+    debugFillTs := na
+    debugEntryTs := na
+    debugAtrOnSignal := na
+    debugAtrOnFill := na
+    debugAtrOnNextBarAfterSignal := na
+    debugTradeActive := false
 
     lastDay := curDay
 
@@ -1169,6 +1203,8 @@ if tradeLogicConfirmedBar and pendingRetestActive and strategy.position_size == 
             pendingORB := pendingRetestSession
             pendingSessionCloseTs := pendingRetestSessionCloseTs
             intendedStop := pendingRetestStop
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
 
             if pendingRetestSession == "NY"
                 nyTraded := true
@@ -1208,6 +1244,8 @@ if tradeLogicConfirmedBar and pendingRetestActive and strategy.position_size == 
             pendingORB := pendingRetestSession
             pendingSessionCloseTs := pendingRetestSessionCloseTs
             intendedStop := pendingRetestStop
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
 
             if pendingRetestSession == "NY"
                 nyTraded := true
@@ -1256,6 +1294,8 @@ if tradeLogicConfirmedBar and pendingConfirmActive and strategy.position_size ==
             pendingORB := pendingConfirmSession
             pendingSessionCloseTs := pendingConfirmSessionCloseTs
             intendedStop := pendingConfirmStop
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
 
             if pendingConfirmSession == "NY"
                 nyTraded := true
@@ -1285,6 +1325,8 @@ if tradeLogicConfirmedBar and pendingConfirmActive and strategy.position_size ==
             pendingORB := pendingConfirmSession
             pendingSessionCloseTs := pendingConfirmSessionCloseTs
             intendedStop := pendingConfirmStop
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
 
             if pendingConfirmSession == "NY"
                 nyTraded := true
@@ -1547,6 +1589,8 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingORB := "NY"
             pendingSessionCloseTs := getSessionCloseTs("NY")
             intendedStop := low - buf
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
             nyTraded := true
             nyLongTradeCount += 1
             nyLongRetryEligible := false
@@ -1559,6 +1603,8 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingORB := "NY"
             pendingSessionCloseTs := getSessionCloseTs("NY")
             intendedStop := high + buf
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
             nyTraded := true
             nyShortTradeCount += 1
             nyShortRetryEligible := false
@@ -1571,6 +1617,8 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingORB := "London"
             pendingSessionCloseTs := getSessionCloseTs("London")
             intendedStop := low - buf
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
             ldnTraded := true
             ldnLongTradeCount += 1
             ldnLongRetryEligible := false
@@ -1583,6 +1631,8 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingORB := "London"
             pendingSessionCloseTs := getSessionCloseTs("London")
             intendedStop := high + buf
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
             ldnTraded := true
             ldnShortTradeCount += 1
             ldnShortRetryEligible := false
@@ -1595,6 +1645,8 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingORB := "Asia"
             pendingSessionCloseTs := getSessionCloseTs("Asia")
             intendedStop := low - buf
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
             asiaTraded := true
             asiaLongTradeCount += 1
             asiaLongRetryEligible := false
@@ -1607,6 +1659,8 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             pendingORB := "Asia"
             pendingSessionCloseTs := getSessionCloseTs("Asia")
             intendedStop := high + buf
+            pendingSignalTs := time
+            pendingSignalAtr := breakoutAtrLocal
             asiaTraded := true
             asiaShortTradeCount += 1
             asiaShortRetryEligible := false
@@ -1652,6 +1706,33 @@ flatNow  = strategy.position_size == 0 and strategy.position_size[1] != 0
 
 if flatNow
     closedTradePnl = strategy.netprofit - nz(strategy.netprofit[1])
+
+    // Log the exact exit event BEFORE all state gets wiped.
+    if debugTradeActive
+        string exitLog =
+             "EXIT_EVENT" +
+             " | BAR=" + fmtTs(time_close) +
+             " | SIGNAL_TS=" + fmtTs(debugSignalTs) +
+             " | FILL_TS=" + fmtTs(debugFillTs) +
+             " | ENTRY_MATCH_TS=" + fmtTs(debugEntryTs) +
+             " | SESSION=" + debugPrevSession +
+             " | DIR=" + debugPrevDirection +
+             " | prevClose=" + fmtNum(debugPrevClose) +
+             " | prevBarsInTrade=" + fmtNum(debugPrevBarsInTrade) +
+             " | prevTimeExitBars=" + fmtNum(debugPrevTimeExitBars) +
+             " | prevBarsSinceProgress=" + fmtNum(debugPrevBarsSinceProgress) +
+             " | prevAtrAtEntry=" + fmtNum4(debugPrevAtrAtEntry) +
+             " | prevCurrentAtr=" + fmtNum4(debugPrevCurrentAtr) +
+             " | prevAtrRatio=" + fmtNum4(debugPrevAtrCompressionRatio) +
+             " | prevTimeExit=" + fmtBool(debugPrevTimeExit) +
+             " | prevVolDecay=" + fmtBool(debugPrevVolDecay) +
+             " | prevSessionClose=" + fmtBool(debugPrevSessionClose) +
+             " | prevActiveStop=" + fmtNum(debugPrevActiveStop) +
+             " | prevActiveTarget=" + fmtNum(debugPrevActiveTarget) +
+             " | closedTradePnl=" + fmtNum(closedTradePnl)
+
+        log.info(exitLog)
+
     if getAllowSecondBreak(openTradeSession) and closedTradePnl < 0
         if openTradeSession == "NY" and openTradeDirection == "Long" and nyLongTradeCount == 1
             nyLongRetryEligible := true
@@ -1708,7 +1789,30 @@ if flatNow
     atrAtEntry := na
     lastProgressBarIndex := na
 
+    pendingSignalTs := na
+    pendingSignalAtr := na
+    debugSignalTs := na
+    debugFillTs := na
+    debugEntryTs := na
+    debugAtrOnSignal := na
+    debugAtrOnFill := na
+    debugAtrOnNextBarAfterSignal := na
     debugTradeActive := false
+
+    debugPrevClose := na
+    debugPrevBarsInTrade := na
+    debugPrevTimeExitBars := na
+    debugPrevBarsSinceProgress := na
+    debugPrevAtrAtEntry := na
+    debugPrevCurrentAtr := na
+    debugPrevAtrCompressionRatio := na
+    debugPrevTimeExit := false
+    debugPrevVolDecay := false
+    debugPrevSessionClose := false
+    debugPrevActiveStop := na
+    debugPrevActiveTarget := na
+    debugPrevSession := ""
+    debugPrevDirection := ""
 else if strategy.position_size == 0
     posEntry := na
     posRisk := na
@@ -1723,6 +1827,8 @@ else if strategy.position_size == 0
     lastTrailStepCount := 0
     atrAtEntry := na
     lastProgressBarIndex := na
+    pendingSignalTs := na
+    pendingSignalAtr := na
 
 if newLong
     posEntry := strategy.position_avg_price
@@ -1741,8 +1847,12 @@ if newLong
     atrAtEntry := breakoutAtrLocal
     lastProgressBarIndex := bar_index
 
-    if isDebugTradeEntryMatch(time, pendingORB, "Long")
-        debugEntryTs := time
+    if isDebugTradeEntryMatch(nz(pendingSignalTs, time), pendingORB, "Long")
+        debugSignalTs := pendingSignalTs
+        debugFillTs := time
+        debugEntryTs := nz(pendingSignalTs, time)
+        debugAtrOnSignal := pendingSignalAtr
+        debugAtrOnFill := breakoutAtrLocal
         debugTradeActive := true
 
 if newShort
@@ -1762,9 +1872,17 @@ if newShort
     atrAtEntry := breakoutAtrLocal
     lastProgressBarIndex := bar_index
 
-    if isDebugTradeEntryMatch(time, pendingORB, "Short")
-        debugEntryTs := time
+    if isDebugTradeEntryMatch(nz(pendingSignalTs, time), pendingORB, "Short")
+        debugSignalTs := pendingSignalTs
+        debugFillTs := time
+        debugEntryTs := nz(pendingSignalTs, time)
+        debugAtrOnSignal := pendingSignalAtr
+        debugAtrOnFill := breakoutAtrLocal
         debugTradeActive := true
+
+if debugTradeActive and not na(debugSignalTs) and na(debugAtrOnNextBarAfterSignal)
+    if time > debugSignalTs
+        debugAtrOnNextBarAfterSignal := breakoutAtrLocal
 
 if strategy.position_size > 0
     float prevHighSinceEntry = highestSinceEntry
@@ -1875,11 +1993,30 @@ if debugThisBar and barstate.isconfirmed
     bool dbgVolDecay = dbgValidLong ? volDecayLong : dbgValidShort ? volDecayShort : false
     bool dbgInProfit = dbgValidLong ? longInProfit : dbgValidShort ? shortInProfit : false
     float dbgActiveStop = dbgValidLong ? activeLongStop : dbgValidShort ? activeShortStop : na
+    float dbgActiveTarget = dbgValidLong ? activeLongTarget : dbgValidShort ? activeShortTarget : na
     float dbgRunupR = dbgValidLong ? longRunupR : dbgValidShort ? shortRunupR : na
+
+    // Snapshot the most recent fully-known in-trade state so flatNow can log it.
+    debugPrevClose := close
+    debugPrevBarsInTrade := barsInTrade
+    debugPrevTimeExitBars := timeExitBars
+    debugPrevBarsSinceProgress := barsSinceProgress
+    debugPrevAtrAtEntry := atrAtEntry
+    debugPrevCurrentAtr := currentAtr
+    debugPrevAtrCompressionRatio := atrCompressionRatio
+    debugPrevTimeExit := dbgTimeExit
+    debugPrevVolDecay := dbgVolDecay
+    debugPrevSessionClose := sessionCloseNow
+    debugPrevActiveStop := dbgActiveStop
+    debugPrevActiveTarget := dbgActiveTarget
+    debugPrevSession := openTradeSession
+    debugPrevDirection := openTradeDirection
 
     string logLine =
          "BAR=" + fmtTs(time_close) +
-         " | ENTRY=" + fmtTs(debugEntryTs) +
+         " | SIGNAL_TS=" + fmtTs(debugSignalTs) +
+         " | FILL_TS=" + fmtTs(debugFillTs) +
+         " | ENTRY_MATCH_TS=" + fmtTs(debugEntryTs) +
          " | SESSION=" + openTradeSession +
          " | DIR=" + openTradeDirection +
          " | barsInTrade=" + fmtNum(barsInTrade) +
@@ -1889,7 +2026,12 @@ if debugThisBar and barstate.isconfirmed
          " | close=" + fmtNum(close) +
          " | high=" + fmtNum(high) +
          " | low=" + fmtNum(low) +
+         " | pendingSignalTs=" + fmtTs(pendingSignalTs) +
+         " | atrSignal=" + fmtNum4(debugAtrOnSignal) +
+         " | atrFill=" + fmtNum4(debugAtrOnFill) +
+         " | atrNextBar=" + fmtNum4(debugAtrOnNextBarAfterSignal) +
          " | atrAtEntry=" + fmtNum4(atrAtEntry) +
+         " | rawBreakoutAtr=" + fmtNum4(breakoutAtrLocal) +
          " | currentAtr=" + fmtNum4(currentAtr) +
          " | atrRatio=" + fmtNum4(atrCompressionRatio) +
          " | runupR=" + fmtNum(dbgRunupR) +
@@ -1946,17 +2088,17 @@ if debugThisBar and barstate.isconfirmed
     table.cell(debugTable, 0, 14, "Vol Decay")
     table.cell(debugTable, 1, 14, dbgValidLong ? fmtBool(volDecayLong) : dbgValidShort ? fmtBool(volDecayShort) : "F")
 
-    table.cell(debugTable, 0, 15, "RunupR")
-    table.cell(debugTable, 1, 15, fmtNum(dbgRunupR))
+    table.cell(debugTable, 0, 15, "Signal TS")
+    table.cell(debugTable, 1, 15, fmtTs(debugSignalTs))
 
-    table.cell(debugTable, 0, 16, "Active Stop")
-    table.cell(debugTable, 1, 16, fmtNum(dbgActiveStop))
+    table.cell(debugTable, 0, 16, "Fill TS")
+    table.cell(debugTable, 1, 16, fmtTs(debugFillTs))
 
-    table.cell(debugTable, 0, 17, "Session")
-    table.cell(debugTable, 1, 17, openTradeSession)
+    table.cell(debugTable, 0, 17, "ATR Signal/Fill")
+    table.cell(debugTable, 1, 17, fmtNum4(debugAtrOnSignal) + " / " + fmtNum4(debugAtrOnFill))
 
-    table.cell(debugTable, 0, 18, "Direction")
-    table.cell(debugTable, 1, 18, openTradeDirection)
+    table.cell(debugTable, 0, 18, "ATR Next Bar")
+    table.cell(debugTable, 1, 18, fmtNum4(debugAtrOnNextBarAfterSignal))
 
     table.cell(debugTable, 0, 19, "Debug Active")
     table.cell(debugTable, 1, 19, fmtBool(debugTradeActive))
