@@ -3,6 +3,7 @@ strategy("ORB Precision", overlay=true, pyramiding=0, initial_capital=100000, co
 
 const string stopModelBreakout = "Current Breakout Candle"
 const string stopModelOrbRange = "ORB Range Stop"
+const string stopModelBreakoutOrbCap = "Breakout Candle with ORB Cap"
 const string stopModelHybrid = "Hybrid"
 const string stopModelAtrCap = "ATR Cap"
 const string stopModelAtrBased = "ATR-Based Stop"
@@ -73,8 +74,9 @@ groupStopAdjNY = "Stop Adjustment - NY"
 nyUseStopAdjustment = input.bool(true, "NY Stop Adjustment On", group=groupStopAdjNY)
 nyStopMultiplier    = input.float(1.85, "NY Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdjNY)
 nyTrailRiskBasis    = input.string("Adjusted Stop Risk", "NY Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdjNY)
-nyStopModel         = input.string(stopModelBreakout, "NY Stop Model", options=[stopModelBreakout, stopModelOrbRange, stopModelHybrid, stopModelAtrCap, stopModelAtrBased], group=groupStopAdjNY)
+nyStopModel         = input.string(stopModelBreakout, "NY Stop Model", options=[stopModelBreakout, stopModelOrbRange, stopModelBreakoutOrbCap, stopModelHybrid, stopModelAtrCap, stopModelAtrBased], group=groupStopAdjNY)
 nyOrbRangeStopMultiple = input.float(0.75, "NY ORB Range Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjNY)
+nyOrbCapMultiple    = input.float(0.75, "NY ORB Cap Multiple", minval=0.1, step=0.05, group=groupStopAdjNY)
 nyAtrCapMultiple    = input.float(1.5, "NY ATR Cap Multiple", minval=0.1, step=0.05, group=groupStopAdjNY)
 nyAtrStopMultiple   = input.float(1.0, "NY ATR Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjNY)
 
@@ -134,8 +136,9 @@ groupStopAdjLDN = "Stop Adjustment - London"
 ldnUseStopAdjustment = input.bool(true, "London Stop Adjustment On", group=groupStopAdjLDN)
 ldnStopMultiplier    = input.float(1.85, "London Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdjLDN)
 ldnTrailRiskBasis    = input.string("Adjusted Stop Risk", "London Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdjLDN)
-ldnStopModel         = input.string(stopModelBreakout, "London Stop Model", options=[stopModelBreakout, stopModelOrbRange, stopModelHybrid, stopModelAtrCap, stopModelAtrBased], group=groupStopAdjLDN)
+ldnStopModel         = input.string(stopModelBreakout, "London Stop Model", options=[stopModelBreakout, stopModelOrbRange, stopModelBreakoutOrbCap, stopModelHybrid, stopModelAtrCap, stopModelAtrBased], group=groupStopAdjLDN)
 ldnOrbRangeStopMultiple = input.float(0.75, "London ORB Range Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjLDN)
+ldnOrbCapMultiple    = input.float(0.75, "London ORB Cap Multiple", minval=0.1, step=0.05, group=groupStopAdjLDN)
 ldnAtrCapMultiple    = input.float(1.5, "London ATR Cap Multiple", minval=0.1, step=0.05, group=groupStopAdjLDN)
 ldnAtrStopMultiple   = input.float(1.0, "London ATR Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjLDN)
 
@@ -194,8 +197,9 @@ groupStopAdjASIA = "Stop Adjustment - Asia"
 asiaUseStopAdjustment = input.bool(true, "Asia Stop Adjustment On", group=groupStopAdjASIA)
 asiaStopMultiplier    = input.float(1.85, "Asia Stop Multiplier", minval=0.1, step=0.05, group=groupStopAdjASIA)
 asiaTrailRiskBasis    = input.string("Adjusted Stop Risk", "Asia Trail Risk Basis", options=["Adjusted Stop Risk", "Original Breakout Risk"], group=groupStopAdjASIA)
-asiaStopModel         = input.string(stopModelBreakout, "Asia Stop Model", options=[stopModelBreakout, stopModelOrbRange, stopModelHybrid, stopModelAtrCap, stopModelAtrBased], group=groupStopAdjASIA)
+asiaStopModel         = input.string(stopModelBreakout, "Asia Stop Model", options=[stopModelBreakout, stopModelOrbRange, stopModelBreakoutOrbCap, stopModelHybrid, stopModelAtrCap, stopModelAtrBased], group=groupStopAdjASIA)
 asiaOrbRangeStopMultiple = input.float(0.75, "Asia ORB Range Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjASIA)
+asiaOrbCapMultiple    = input.float(0.75, "Asia ORB Cap Multiple", minval=0.1, step=0.05, group=groupStopAdjASIA)
 asiaAtrCapMultiple    = input.float(1.5, "Asia ATR Cap Multiple", minval=0.1, step=0.05, group=groupStopAdjASIA)
 asiaAtrStopMultiple   = input.float(1.0, "Asia ATR Stop Multiple", minval=0.1, step=0.05, group=groupStopAdjASIA)
 
@@ -419,6 +423,9 @@ getStopModel(sessionName) =>
 
 getOrbRangeStopMultiple(sessionName) =>
     sessionName == "NY" ? nyOrbRangeStopMultiple : sessionName == "London" ? ldnOrbRangeStopMultiple : sessionName == "Asia" ? asiaOrbRangeStopMultiple : 0.75
+
+getOrbCapMultiple(sessionName) =>
+    sessionName == "NY" ? nyOrbCapMultiple : sessionName == "London" ? ldnOrbCapMultiple : sessionName == "Asia" ? asiaOrbCapMultiple : 0.75
 
 getAtrCapMultiple(sessionName) =>
     sessionName == "NY" ? nyAtrCapMultiple : sessionName == "London" ? ldnAtrCapMultiple : sessionName == "Asia" ? asiaAtrCapMultiple : 1.5
@@ -665,6 +672,7 @@ calcBaseStopDistance(sessionName, breakoutHigh, breakoutLow, breakoutAtr, orbHig
     float stopDistance =
          stopModel == stopModelBreakout ? breakoutCandleSize :
          stopModel == stopModelOrbRange ? getOrbRangeStopMultiple(sessionName) * orbRange :
+         stopModel == stopModelBreakoutOrbCap ? math.min(breakoutCandleSize, getOrbCapMultiple(sessionName) * orbRange) :
          stopModel == stopModelHybrid ? math.min(breakoutCandleSize, orbRange) :
          stopModel == stopModelAtrCap ? math.min(breakoutCandleSize, atrCap) :
          stopModel == stopModelAtrBased ? getAtrStopMultiple(sessionName) * safeAtr :
