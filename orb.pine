@@ -18,7 +18,7 @@ fixedContracts = input.int(1, "Fixed Contracts", minval=1, group=groupSizing)
 
 contractsPerBlock = input.int(1, "Contracts Per Capital Block", minval=1, group=groupSizing)
 
-capitalPerBlock = input.float(100000, "Capital Per Contract Block ($)", minval=1, step=1000, group=groupSizing)
+capitalPerBlock = input.float(125000, "Capital Per Contract Block ($)", minval=1, step=1000, group=groupSizing)
 
 minContracts = input.int(1, "Minimum Contracts", minval=1, group=groupSizing)
 
