@@ -11,6 +11,12 @@ const string stopModelAtrBased = "ATR-Based Stop"
 // =========================
 // Inputs
 // =========================
+groupSizing = "Position Sizing"
+positionSizingMode = input.string("Fixed Contracts", "Position Sizing Mode", options=["Fixed Contracts", "Contracts Per $100k"], group=groupSizing)
+fixedContracts = input.int(1, "Fixed Contracts", minval=1, group=groupSizing)
+contractsPer100k = input.int(1, "Contracts Per $100k", minval=1, group=groupSizing)
+minContracts = input.int(1, "Minimum Contracts", minval=1, group=groupSizing)
+
 groupSessions = "Sessions"
 useNY      = input.bool(true,  "NY Open On", group=groupSessions)
 useLondon  = input.bool(false, "London Open On", group=groupSessions)
@@ -357,7 +363,7 @@ showORBOnlyDuringTradeWindow = input.bool(true, "Show ORB Only During Trade Wind
 // Debug inputs
 // =========================
 groupDebug = "Debug"
-debugTradeOn = input.bool(true, "Debug Specific Trade", group=groupDebug)
+debugTradeOn = input.bool(false, "Debug Specific Trade", group=groupDebug)
 showStopDebug = input.bool(false, "Show Stop Debug", group=groupDebug)
 debugTradeYear = input.int(2026, "Debug Year", minval=2000, maxval=2100, group=groupDebug)
 debugTradeMonth = input.int(3, "Debug Month", minval=1, maxval=12, group=groupDebug)
@@ -2046,15 +2052,20 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             asiaShortNeedsReset := false
             asiaShortDead := true
 
+closedEquity = strategy.initial_capital + strategy.netprofit
+equityBlocks = math.floor(closedEquity / 100000.0)
+dynamicContracts = math.max(minContracts, int(equityBlocks) * contractsPer100k)
+tradeContracts = positionSizingMode == "Fixed Contracts" ? fixedContracts : dynamicContracts
+
 if tradeLogicConfirmedBar and longSignal
-    strategy.entry("Long", strategy.long)
+    strategy.entry("Long", strategy.long, qty=tradeContracts)
     if showLabels
-        label.new(bar_index, low, activeORB + " Long", style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
+        label.new(bar_index, low, activeORB + " Long (" + str.tostring(tradeContracts) + ")", style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
 
 if tradeLogicConfirmedBar and shortSignal
-    strategy.entry("Short", strategy.short)
+    strategy.entry("Short", strategy.short, qty=tradeContracts)
     if showLabels
-        label.new(bar_index, high, activeORB + " Short", style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
+        label.new(bar_index, high, activeORB + " Short (" + str.tostring(tradeContracts) + ")", style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
 
 // =========================
 // Freeze entry/stop/risk on actual fill bar
