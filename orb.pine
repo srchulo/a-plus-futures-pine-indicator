@@ -2095,6 +2095,7 @@ var string openTradeDirection = ""
 var float atrAtEntry = na
 var int lastProgressBarIndex = na
 var string lastExitReason = ""
+var string pendingLoggedExitReason = ""
 var int lastClosedBarsInTrade = na
 
 if tradeLogicConfirmedBar and (longSignal or shortSignal)
@@ -2268,6 +2269,7 @@ if newExit
     debugPrevActiveTarget := na
     debugPrevSession := ""
     debugPrevDirection := ""
+    pendingLoggedExitReason := ""
 else if strategy.position_size == 0
     posEntry := na
     posRisk := na
@@ -2291,6 +2293,7 @@ else if strategy.position_size == 0
     debugLastBarsInTrade := na
     debugLastAtrRatio := na
     debugExitTriggerLogged := false
+    pendingLoggedExitReason := ""
 
 if newLong
     posEntry := strategy.position_avg_price
@@ -2659,7 +2662,7 @@ if debugTradeActive and strategy.position_size != 0 and barstate.isconfirmed and
         debugExitTriggerLogged := true
 
 if strategy.position_size != 0
-    lastExitReason :=
+    string exitReasonCandidate =
          timeExitLong or timeExitShort ? "Time Exit" :
          volDecayLong or volDecayShort ? "Vol Decay Exit" :
          sessionCloseNow ? "Session Close" :
@@ -2667,13 +2670,17 @@ if strategy.position_size != 0
          validLong and not na(activeLongTarget) and high >= activeLongTarget ? "Target" :
          validShort and high >= activeShortStop ? "Stop" :
          validShort and not na(activeShortTarget) and low <= activeShortTarget ? "Target" :
-         lastExitReason
+         ""
+    if str.length(exitReasonCandidate) > 0
+        pendingLoggedExitReason := exitReasonCandidate
+    lastExitReason := str.length(exitReasonCandidate) > 0 ? exitReasonCandidate : lastExitReason
 
 if logAllTrades and newExit and barstate.isconfirmed
     int closedTradeIndex = strategy.closedtrades - 1
     int actualExitTs = closedTradeIndex >= 0 ? strategy.closedtrades.exit_time(closedTradeIndex) : time
     float closedTradeExitPrice = closedTradeIndex >= 0 ? strategy.closedtrades.exit_price(closedTradeIndex) : close
-    log.info("[TRADE_EXIT] | time=" + fmtTs(actualExitTs) + " | exit_price=" + str.tostring(closedTradeExitPrice) + " | exit_reason=" + (str.length(lastExitReason) > 0 ? lastExitReason : "Exit") + " | bars_in_trade=" + str.tostring(lastClosedBarsInTrade))
+    string loggedExitReason = str.length(pendingLoggedExitReason) > 0 ? pendingLoggedExitReason : (str.length(lastExitReason) > 0 ? lastExitReason : "Exit")
+    log.info("[TRADE_EXIT] | time=" + fmtTs(actualExitTs) + " | exit_price=" + str.tostring(closedTradeExitPrice) + " | exit_reason=" + loggedExitReason + " | bars_in_trade=" + str.tostring(lastClosedBarsInTrade))
 
 if validLong
     strategy.exit("Long Exit", from_entry="Long", stop=activeLongStop, limit=activeLongTarget)
