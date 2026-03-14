@@ -370,6 +370,7 @@ showORBOnlyDuringTradeWindow = input.bool(true, "Show ORB Only During Trade Wind
 groupDebug = "Debug"
 debugTradeOn = input.bool(false, "Debug Specific Trade", group=groupDebug)
 showStopDebug = input.bool(false, "Show Stop Debug", group=groupDebug)
+logAllTrades = input.bool(false, "Log All Trades", group=groupDebug)
 debugTradeYear = input.int(2026, "Debug Year", minval=2000, maxval=2100, group=groupDebug)
 debugTradeMonth = input.int(3, "Debug Month", minval=1, maxval=12, group=groupDebug)
 debugTradeDay = input.int(2, "Debug Day", minval=1, maxval=31, group=groupDebug)
@@ -2093,6 +2094,8 @@ var string openTradeSession = ""
 var string openTradeDirection = ""
 var float atrAtEntry = na
 var int lastProgressBarIndex = na
+var string lastExitReason = ""
+var int lastClosedBarsInTrade = na
 
 if tradeLogicConfirmedBar and (longSignal or shortSignal)
     posStopRef := intendedStop
@@ -2100,9 +2103,12 @@ if tradeLogicConfirmedBar and (longSignal or shortSignal)
 newLong  = strategy.position_size > 0 and strategy.position_size[1] == 0
 newShort = strategy.position_size < 0 and strategy.position_size[1] == 0
 flatNow  = strategy.position_size == 0 and strategy.position_size[1] != 0
+newEntry = strategy.position_size != 0 and strategy.position_size[1] == 0
+newExit  = strategy.position_size == 0 and strategy.position_size[1] != 0
 
-if flatNow
+if newExit
     closedTradePnl = strategy.netprofit - nz(strategy.netprofit[1])
+    lastClosedBarsInTrade := not na(entryBarIndex) ? (bar_index - entryBarIndex) : na
 
     // Log the exact exit event BEFORE all state gets wiped.
     if debugTradeLatched
@@ -2303,6 +2309,13 @@ if newLong
     atrAtEntry := breakoutAtrLocal
     lastProgressBarIndex := bar_index
     debugExitTriggerLogged := false
+    lastExitReason := ""
+    lastClosedBarsInTrade := na
+
+    if logAllTrades and newEntry and barstate.isconfirmed
+        int openTradeIndex = strategy.opentrades - 1
+        int actualEntryTs = openTradeIndex >= 0 ? strategy.opentrades.entry_time(openTradeIndex) : time
+        log.info("[TRADE_ENTRY] | time=" + fmtTs(actualEntryTs) + " | session=" + openTradeSession + " | direction=Long" + " | entry_price=" + str.tostring(strategy.position_avg_price) + " | orb_high=" + str.tostring(getOrbHigh(openTradeSession)) + " | orb_low=" + str.tostring(getOrbLow(openTradeSession)) + " | stop_price=" + str.tostring(posStopRef) + " | atr=" + str.tostring(atrAtEntry))
 
     if isDebugTradeEntryMatch(nz(pendingSignalTs, time), pendingORB, "Long")
         debugSignalTs := pendingSignalTs
@@ -2332,6 +2345,13 @@ if newShort
     atrAtEntry := breakoutAtrLocal
     lastProgressBarIndex := bar_index
     debugExitTriggerLogged := false
+    lastExitReason := ""
+    lastClosedBarsInTrade := na
+
+    if logAllTrades and newEntry and barstate.isconfirmed
+        int openTradeIndex = strategy.opentrades - 1
+        int actualEntryTs = openTradeIndex >= 0 ? strategy.opentrades.entry_time(openTradeIndex) : time
+        log.info("[TRADE_ENTRY] | time=" + fmtTs(actualEntryTs) + " | session=" + openTradeSession + " | direction=Short" + " | entry_price=" + str.tostring(strategy.position_avg_price) + " | orb_high=" + str.tostring(getOrbHigh(openTradeSession)) + " | orb_low=" + str.tostring(getOrbLow(openTradeSession)) + " | stop_price=" + str.tostring(posStopRef) + " | atr=" + str.tostring(atrAtEntry))
 
     if isDebugTradeEntryMatch(nz(pendingSignalTs, time), pendingORB, "Short")
         debugSignalTs := pendingSignalTs
@@ -2637,6 +2657,23 @@ if debugTradeActive and strategy.position_size != 0 and barstate.isconfirmed and
 
         log.info(triggerLog)
         debugExitTriggerLogged := true
+
+if strategy.position_size != 0
+    lastExitReason :=
+         timeExitLong or timeExitShort ? "Time Exit" :
+         volDecayLong or volDecayShort ? "Vol Decay Exit" :
+         sessionCloseNow ? "Session Close" :
+         validLong and low <= activeLongStop ? "Stop" :
+         validLong and not na(activeLongTarget) and high >= activeLongTarget ? "Target" :
+         validShort and high >= activeShortStop ? "Stop" :
+         validShort and not na(activeShortTarget) and low <= activeShortTarget ? "Target" :
+         lastExitReason
+
+if logAllTrades and newExit and barstate.isconfirmed
+    int closedTradeIndex = strategy.closedtrades - 1
+    int actualExitTs = closedTradeIndex >= 0 ? strategy.closedtrades.exit_time(closedTradeIndex) : time
+    float closedTradeExitPrice = closedTradeIndex >= 0 ? strategy.closedtrades.exit_price(closedTradeIndex) : close
+    log.info("[TRADE_EXIT] | time=" + fmtTs(actualExitTs) + " | exit_price=" + str.tostring(closedTradeExitPrice) + " | exit_reason=" + (str.length(lastExitReason) > 0 ? lastExitReason : "Exit") + " | bars_in_trade=" + str.tostring(lastClosedBarsInTrade))
 
 if validLong
     strategy.exit("Long Exit", from_entry="Long", stop=activeLongStop, limit=activeLongTarget)
