@@ -249,6 +249,8 @@ groupTradeGlobal = "Trade Logic - Global"
 useBufferTicks = input.bool(false, "Use Tick Buffer", group=groupTradeGlobal)
 bufferTicks    = input.int(1, "Buffer (ticks)", minval=0, maxval=20, group=groupTradeGlobal)
 
+debugTrail = input.bool(false, "Debug Trail Logs")
+
 groupOvernight = "Overnight Range Filter"
 useOvernightRangeFilter = input.bool(false, "NY Overnight Range Filter On", group=groupOvernight)
 minOvernightAtrPct = input.float(0.00, "Min Overnight / ATR", minval=0.0, step=0.01, group=groupOvernight)
@@ -737,6 +739,8 @@ fmtTs(ts) =>
      pad2(dayofmonth(ts, strategyDayTZ)) + " " +
      pad2(hour(ts, strategyDayTZ)) + ":" +
      pad2(minute(ts, strategyDayTZ))
+
+// Debug logging is emitted via log.info(...) when debugTrail is enabled.
 
 // =========================
 // ORB engine on 1m (range accuracy)
@@ -2112,7 +2116,7 @@ if newExit
     lastClosedBarsInTrade := not na(entryBarIndex) ? (bar_index - entryBarIndex) : na
 
     // Log the exact exit event BEFORE all state gets wiped.
-    if debugTradeLatched
+    if debugTrail and debugTradeLatched
         string exitLog =
              "EXIT_EVENT" +
              " | BAR=" + fmtTs(time_close) +
@@ -2429,6 +2433,12 @@ timeExitEligibleShort = true
 timeExitLong = getUseTimeExit(openTradeSession) and validLong and timeExitEligibleLong and not na(timeExitBars) and timeExitBars >= getMaxBarsInTrade(openTradeSession) and (getTimeExitMode(openTradeSession) == "Any" or (getTimeExitMode(openTradeSession) == "Only In Profit" and longInProfit))
 timeExitShort = getUseTimeExit(openTradeSession) and validShort and timeExitEligibleShort and not na(timeExitBars) and timeExitBars >= getMaxBarsInTrade(openTradeSession) and (getTimeExitMode(openTradeSession) == "Any" or (getTimeExitMode(openTradeSession) == "Only In Profit" and shortInProfit))
 
+// Targeted debug trade gating (used by all debug logs)
+debugThisBar = debugTradeLatched and strategy.position_size != 0 and openTradeSession == debugLatchedSession and openTradeDirection == debugLatchedDirection
+
+if debugTrail and debugThisBar and barstate.isconfirmed
+    log.info("[TIME_EXIT_STATE] ts=" + str.tostring(time) + " barsInTrade=" + str.tostring(barsInTrade) + " maxBars=" + str.tostring(getMaxBarsInTrade(openTradeSession)) + " inProfit=" + str.tostring(strategy.position_size > 0 ? close > posEntry : close < posEntry))
+
 // =========================
 // Volatility Decay Exit Logic
 // =========================
@@ -2468,11 +2478,27 @@ if validShort
         activeShortStop := shortRunupR < 1 ? posStopRef : posEntry - (shortRunupR - 1) * posTrailRisk
 
 // =========================
+// Trail calculation & parent state debug logs
+
+if debugTrail and debugThisBar and barstate.isconfirmed
+    float activeExtreme = strategy.position_size > 0 ? highestSinceEntry : lowestSinceEntry
+    float rawRunup = strategy.position_size > 0 ? highestSinceEntry - posEntry : posEntry - lowestSinceEntry
+    float runupR = strategy.position_size > 0 ? longRunupR : shortRunupR
+    float prevRunupR = strategy.position_size > 0 ? longRunupR[1] : shortRunupR[1]
+    float stopPrice = strategy.position_size > 0 ? activeLongStop : activeShortStop
+    float targetPrice = strategy.position_size > 0 ? activeLongTarget : activeShortTarget
+
+    log.info("[TRAIL_CALC] ts=" + str.tostring(time) + " dir=" + (strategy.position_size > 0 ? "Long" : "Short") + " entry=" + str.tostring(posEntry) + " extreme=" + str.tostring(activeExtreme) + " trailRisk=" + str.tostring(posTrailRisk) + " rawRunup=" + str.tostring(rawRunup) + " runupR=" + str.tostring(runupR) + " stop=" + str.tostring(stopPrice) + " target=" + str.tostring(targetPrice))
+
+    if not na(prevRunupR) and runupR != prevRunupR
+        log.info("[TRAIL_RATCHET] ts=" + str.tostring(time) + " entry=" + str.tostring(posEntry) + " trailRisk=" + str.tostring(posTrailRisk) + " oldStep=" + str.tostring(prevRunupR) + " newStep=" + str.tostring(runupR) + " newStop=" + str.tostring(stopPrice) + " extreme=" + str.tostring(activeExtreme))
+
+    log.info("[PARENT_STATE] ts=" + str.tostring(time) + " entry=" + str.tostring(posEntry) + " stop=" + str.tostring(stopPrice) + " target=" + str.tostring(targetPrice) + " highest=" + str.tostring(highestSinceEntry) + " lowest=" + str.tostring(lowestSinceEntry) + " runupR=" + str.tostring(runupR))
+
+// =========================
 // Debug logging / table
 // =========================
-debugThisBar = debugTradeLatched and strategy.position_size != 0 and openTradeSession == debugLatchedSession and openTradeDirection == debugLatchedDirection
-
-if debugThisBar and barstate.isconfirmed
+if debugTrail and debugThisBar and barstate.isconfirmed
     bool dbgValidLong = validLong
     bool dbgValidShort = validShort
     bool dbgTrailActive = dbgValidLong ? trailActiveLong : dbgValidShort ? trailActiveShort : false
@@ -2623,7 +2649,7 @@ else if barstate.isconfirmed
 // =========================
 // Exit Logic
 // =========================
-if debugTradeActive and strategy.position_size != 0 and barstate.isconfirmed and not debugExitTriggerLogged
+if debugTrail and debugTradeActive and strategy.position_size != 0 and barstate.isconfirmed and not debugExitTriggerLogged
     string triggerReason =
          timeExitLong or timeExitShort ? "Time Exit" :
          volDecayLong or volDecayShort ? "Vol Decay Exit" :
