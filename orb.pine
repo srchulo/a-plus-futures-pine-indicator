@@ -12,9 +12,14 @@ const string stopModelAtrBased = "ATR-Based Stop"
 // Inputs
 // =========================
 groupSizing = "Position Sizing"
-positionSizingMode = input.string("Fixed Contracts", "Position Sizing Mode", options=["Fixed Contracts", "Contracts Per $100k"], group=groupSizing)
+positionSizingMode = input.string("Contracts Per Capital Block", "Position Sizing Mode", options=["Fixed Contracts", "Contracts Per Capital Block"], group=groupSizing)
+
 fixedContracts = input.int(1, "Fixed Contracts", minval=1, group=groupSizing)
-contractsPer100k = input.int(1, "Contracts Per $100k", minval=1, group=groupSizing)
+
+contractsPerBlock = input.int(1, "Contracts Per Capital Block", minval=1, group=groupSizing)
+
+capitalPerBlock = input.float(100000, "Capital Per Contract Block ($)", minval=1, step=1000, group=groupSizing)
+
 minContracts = input.int(1, "Minimum Contracts", minval=1, group=groupSizing)
 
 groupSessions = "Sessions"
@@ -2053,8 +2058,11 @@ if tradeLogicConfirmedBar and strategy.position_size == 0 and not pendingRetestA
             asiaShortDead := true
 
 closedEquity = strategy.initial_capital + strategy.netprofit
-equityBlocks = math.floor(closedEquity / 100000.0)
-dynamicContracts = math.max(minContracts, int(equityBlocks) * contractsPer100k)
+
+equityBlocks = math.floor(closedEquity / capitalPerBlock)
+
+dynamicContracts = math.max(minContracts, int(equityBlocks) * contractsPerBlock)
+
 tradeContracts = positionSizingMode == "Fixed Contracts" ? fixedContracts : dynamicContracts
 
 if tradeLogicConfirmedBar and longSignal
